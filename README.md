@@ -2,6 +2,8 @@
 
 A compact Windows auto clicker and keyboard spammer, with custom sequences, global hotkeys, backups, and optional OpenRGB lighting.
 
+Detailed user documentation is available in the [Wiki source](docs/wiki/Home.md) and is mirrored to the repository Wiki when it is enabled.
+
 ## Download
 
 Get both options from the [latest release](../../releases/latest).
