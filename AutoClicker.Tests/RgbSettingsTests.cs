@@ -28,14 +28,6 @@ public sealed class RgbSettingsTests
     }
 
     [TestMethod]
-    public void PreviewIndicator_RejectsInvalidColourBeforeOpeningOpenRgb()
-    {
-        var error = OpenRgbHighlighter.PreviewIndicator(null!, "not-a-colour");
-
-        StringAssert.Contains(error, "hex value");
-    }
-
-    [TestMethod]
     public void RgbSettings_DefaultsAreSafeAndPulseIsCaseInsensitive()
     {
         var settings = new RgbSettings();

@@ -219,24 +219,6 @@ public static class OpenRgbHighlighter
         catch (Exception exception) { AppLog.Error("OpenRGB indicator restore failed", exception); }
     }
 
-    /// <summary>Updates a temporary indicator preview without replacing its original LED snapshot.</summary>
-    public static string? PreviewIndicator(RgbLightingSnapshot snapshot, string indicatorColor)
-    {
-        if (!TryNormalizeIndicatorColor(indicatorColor, out var normalized)) return "Enter a colour as a hex value, for example #22D3EE.";
-        try
-        {
-            using var client = new OpenRgbClient(name: "AutoClicker");
-            client.SetCustomMode(snapshot.DeviceIndex);
-            client.UpdateSingleLed(snapshot.DeviceIndex, snapshot.KeyIndex, ColorFromNormalizedHex(normalized));
-            return null;
-        }
-        catch (Exception exception)
-        {
-            AppLog.Error("OpenRGB colour preview failed", exception);
-            return $"OpenRGB preview unavailable: {exception.Message}";
-        }
-    }
-
     public static async Task PulseIndicatorAsync(RgbLightingSnapshot snapshot, int halfCycleMilliseconds, CancellationToken cancellation)
     {
         var halfCycle = Math.Clamp(halfCycleMilliseconds, 120, 2000);
