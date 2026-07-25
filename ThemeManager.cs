@@ -62,6 +62,20 @@ internal static class ThemeManager
 
     internal static Brush Brush(string key) => (Brush)Application.Current.Resources[key];
 
+    internal static string ExportConfiguration() => JsonSerializer.Serialize(new AppearanceSettings { Theme = Current });
+
+    internal static bool TryImportConfiguration(string json)
+    {
+        try
+        {
+            var settings = JsonSerializer.Deserialize<AppearanceSettings>(json);
+            if (settings is null || !Enum.IsDefined(settings.Theme)) return false;
+            Apply(settings.Theme);
+            return true;
+        }
+        catch { return false; }
+    }
+
     private static SolidColorBrush MakeBrush(string color)
     {
         var brush = (SolidColorBrush)new BrushConverter().ConvertFromString(color)!;

@@ -1,7 +1,7 @@
 <Window x:Class="AutoClicker.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Settings" Icon="Assets/AutoClickerIcon.ico" Width="440" Height="530" ResizeMode="NoResize" WindowStyle="None" AllowsTransparency="True" Background="Transparent" FontFamily="Segoe UI" WindowStartupLocation="CenterOwner">
+        Title="Settings" Icon="Assets/AutoClickerIcon.ico" Width="440" Height="602" ResizeMode="NoResize" WindowStyle="None" AllowsTransparency="True" Background="Transparent" FontFamily="Segoe UI" WindowStartupLocation="CenterOwner">
     <Border Background="{DynamicResource AppBackgroundBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="14">
         <Grid Margin="1">
             <Grid.RowDefinitions><RowDefinition Height="62" /><RowDefinition Height="*" /><RowDefinition Height="58" /></Grid.RowDefinitions>
@@ -13,9 +13,11 @@
                 <TextBlock Text="Connects only to OpenRGB on this PC (127.0.0.1:6742)." Foreground="{DynamicResource TextMutedBrush}" FontSize="11" Margin="0,4,0,9" />
                 <CheckBox x:Name="AutoStartOpenRgb" Content="Start OpenRGB automatically when needed" FontWeight="SemiBold" />
                 <TextBlock Text="Uses a normal local OpenRGB install; never launches a second instance." Foreground="{DynamicResource TextMutedBrush}" FontSize="11" Margin="0,4,0,5" />
-                <CheckBox x:Name="StopAutoStartedOpenRgb" Content="Stop it when AutoClicker closes" FontWeight="SemiBold" Margin="0,0,0,13" />
+                <CheckBox x:Name="StopAutoStartedOpenRgb" Content="Stop OpenRGB if AutoClicker started it" FontWeight="SemiBold" />
+                <TextBlock Text="Never stops an OpenRGB instance that was already running." Foreground="{DynamicResource TextMutedBrush}" FontSize="11" Margin="0,4,0,13" />
                 <CheckBox x:Name="EnableCrashRecovery" Content="Restart after an unexpected crash" FontWeight="SemiBold" />
                 <TextBlock Text="Closes and forced termination never restart the app. Repeated crashes are paused automatically." Foreground="{DynamicResource TextMutedBrush}" FontSize="11" Margin="0,4,0,13" />
+                <Border Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1" CornerRadius="7" Padding="10,8" Margin="0,0,0,13"><StackPanel><TextBlock Text="Configuration backup" Style="{StaticResource SectionTitle}"/><TextBlock Text="Full backup includes defaults, RGB, appearance, window preferences, and every saved sequence." Foreground="{DynamicResource TextMutedBrush}" FontSize="10" TextWrapping="Wrap" Margin="0,3,0,7"/><StackPanel Orientation="Horizontal"><Button Content="Export full backup" Click="ExportBackup_Click" Style="{StaticResource GhostButton}"/><Button Content="Import full backup" Click="ImportBackup_Click" Style="{StaticResource GhostButton}" Margin="7,0,0,0"/></StackPanel></StackPanel></Border>
                 <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                     <StackPanel><TextBlock Text="Keyboard" Foreground="{DynamicResource TextMutedBrush}" FontSize="10" Margin="0,0,0,4" /><ComboBox x:Name="KeyboardCombo" DisplayMemberPath="Name" /></StackPanel>
                     <Button Grid.Column="1" Content="Refresh keyboards" Click="FindKeyboards_Click" Style="{StaticResource GhostButton}" Margin="10,15,0,0" />

@@ -9,13 +9,17 @@ public partial class SettingsWindow : Window
     private readonly string hotkeyName;
     private readonly string hotkeyKeyName;
     private readonly Func<bool> resetToDefaults;
+    private readonly Func<string, string?> exportBackup;
+    private readonly Func<string, string?> importBackup;
 
-    public SettingsWindow(RgbSettings current, string hotkeyName, string hotkeyKeyName, Func<bool> resetToDefaults)
+    public SettingsWindow(RgbSettings current, string hotkeyName, string hotkeyKeyName, Func<bool> resetToDefaults, Func<string, string?> exportBackup, Func<string, string?> importBackup)
     {
         InitializeComponent();
         this.hotkeyName = hotkeyName;
         this.hotkeyKeyName = hotkeyKeyName;
         this.resetToDefaults = resetToDefaults;
+        this.exportBackup = exportBackup;
+        this.importBackup = importBackup;
         Settings = new RgbSettings { Enabled = current.Enabled, DeviceIndex = current.DeviceIndex, DeviceName = current.DeviceName, AutoStart = current.AutoStart, StopAutoStartedOnExit = current.StopAutoStartedOnExit, CrashRecoveryEnabled = current.CrashRecoveryEnabled, IndicatorColor = current.IndicatorColor, LightingEffect = current.LightingEffect, PulseSpeedMilliseconds = current.PulseSpeedMilliseconds };
         EnableOpenRgb.IsChecked = Settings.Enabled;
         AutoStartOpenRgb.IsChecked = Settings.AutoStart;
@@ -44,6 +48,24 @@ public partial class SettingsWindow : Window
     }
 
     private void FindKeyboards_Click(object sender, RoutedEventArgs e) => RefreshKeyboards();
+
+    private void ExportBackup_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.SaveFileDialog { Filter = "AutoClicker backup (*.json)|*.json", FileName = "AutoClicker-backup.json", AddExtension = true };
+        if (dialog.ShowDialog(this) != true) return;
+        var error = exportBackup(dialog.FileName);
+        ConnectionStatus.Text = error is null ? "Full configuration backup exported." : error;
+        ConnectionStatus.Foreground = ThemeManager.Brush(error is null ? "SuccessBrush" : "ErrorBrush");
+    }
+
+    private void ImportBackup_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "AutoClicker backup (*.json)|*.json" };
+        if (dialog.ShowDialog(this) != true) return;
+        var error = importBackup(dialog.FileName);
+        ConnectionStatus.Text = error is null ? "Full backup imported. Close Settings to use it." : error;
+        ConnectionStatus.Foreground = ThemeManager.Brush(error is null ? "SuccessBrush" : "ErrorBrush");
+    }
 
     private void LightingEffect_Changed(object sender, RoutedEventArgs e) => UpdatePulseSpeedEnabled();
 

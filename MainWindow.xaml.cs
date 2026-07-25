@@ -18,6 +18,7 @@ public partial class MainWindow : Window
     private static readonly string DefaultsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoClicker", "defaults.json");
     private static readonly string RgbSettingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoClicker", "rgb-settings.json");
     private static readonly string UiPreferencesPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoClicker", "ui-preferences.json");
+    private static readonly string SequenceLibraryPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoClicker", "sequence-library.json");
     private const double ExpandedWindowHeight = 558;
     private const double CompactWindowHeight = 166;
     private readonly DispatcherTimer resetTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
@@ -34,6 +35,7 @@ public partial class MainWindow : Window
     private ComboBoxItem? actionBeforeKeyCapture;
     private int customSpamVirtualKey;
     private List<SequenceStep> customSequence = [];
+    private List<SequencePreset> sequenceLibrary = [];
     private bool settingsOpen;
     private int hotkey = System.Windows.Input.KeyInterop.VirtualKeyFromKey(System.Windows.Input.Key.F6);
     private uint hotkeyModifiers;
@@ -55,6 +57,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        LoadSequenceLibrary();
+        RefreshSequencePresetActions();
         LoadDefaults();
         LoadRgbSettings();
         LoadUiPreferences();
@@ -129,7 +133,7 @@ public partial class MainWindow : Window
         }
         if (settingsOpen) return;
         settingsOpen = true;
-        var dialog = new SettingsWindow(rgbSettings, FormatHotkey(), HotkeyKeyName(), ResetToFactoryDefaults) { Owner = this };
+        var dialog = new SettingsWindow(rgbSettings, FormatHotkey(), HotkeyKeyName(), ResetToFactoryDefaults, ExportFullBackup, ImportFullBackup) { Owner = this };
         try
         {
             if (dialog.ShowDialog() == true)
@@ -249,14 +253,35 @@ public partial class MainWindow : Window
     private void ActionCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (updatingActionSelection || ButtonCombo is null || PickKeyItem is null) return;
+        var selectedAction = Selected(ButtonCombo);
+        if (selectedAction.StartsWith("Preset:", StringComparison.Ordinal))
+        {
+            var preset = sequenceLibrary.FirstOrDefault(item => item.Id == selectedAction[7..]);
+            if (preset is not null)
+            {
+                customSequence = preset.Steps.Select(step => step.Clone()).ToList();
+                SequenceItem.Content = $"Custom sequence — {preset.Name}";
+                updatingActionSelection = true; ButtonCombo.SelectedItem = SequenceItem; updatingActionSelection = false;
+                UpdateLiveInputMode();
+                Status($"Ready — {preset.Name} will be repeated.", ThemeManager.Brush("SuccessBrush"));
+                return;
+            }
+        }
         if (Selected(ButtonCombo) is "Sequence" or "EditSequence")
         {
             var previous = e.RemovedItems.OfType<ComboBoxItem>().FirstOrDefault();
             if (Selected(ButtonCombo) == "EditSequence" || customSequence.Count == 0)
             {
-                var editor = new SequenceEditorWindow(customSequence) { Owner = this };
-                if (editor.ShowDialog() == true) customSequence = editor.Steps.Select(step => step.Clone()).ToList();
-                else if (previous is not null) { updatingActionSelection = true; ButtonCombo.SelectedItem = previous; updatingActionSelection = false; UpdateLiveInputMode(); return; }
+                var editor = new SequenceEditorWindow(customSequence, sequenceLibrary) { Owner = this };
+                var accepted = editor.ShowDialog() == true;
+                if (accepted) customSequence = editor.Steps.Select(step => step.Clone()).ToList();
+                if (editor.LibraryChanged)
+                {
+                    sequenceLibrary = editor.Library.Select(preset => preset.Clone()).ToList();
+                    SaveSequenceLibrary();
+                    RefreshSequencePresetActions();
+                }
+                if (!accepted && previous is not null) { updatingActionSelection = true; ButtonCombo.SelectedItem = previous; updatingActionSelection = false; UpdateLiveInputMode(); return; }
             }
             if (customSequence.Count >= 2)
             {
@@ -797,12 +822,55 @@ public partial class MainWindow : Window
     {
         try
         {
-            var settings = new AppDefaults { Hours = Read(HoursBox, 0, 999), Minutes = Read(MinutesBox, 0, 59), Seconds = Read(SecondsBox, 0, 59), Milliseconds = Read(MillisBox, 1, 999), MouseButton = Selected(ButtonCombo), Input = Selected(ButtonCombo), CustomKey = customSpamVirtualKey, CustomSequence = customSequence.Select(step => step.Clone()).ToList(), ClickType = Selected(TypeCombo), RepeatUntilStopped = UntilStoppedRadio.IsChecked == true, RepeatCount = Read(CountBox, 1, 999999), FixedPosition = FixedPositionRadio.IsChecked == true, X = Read(XBox, -32768, 32767), Y = Read(YBox, -32768, 32767), Hotkey = hotkey, HotkeyModifiers = hotkeyModifiers, Rgb = rgbSettings };
+            var settings = CreateCurrentDefaults();
             Directory.CreateDirectory(Path.GetDirectoryName(DefaultsPath)!);
             File.WriteAllText(DefaultsPath, JsonSerializer.Serialize(settings));
             Status("Current settings saved as the default.", ThemeManager.Brush("SuccessBrush"));
         }
         catch { Status("Could not save the default settings.", ThemeManager.Brush("ErrorBrush")); }
+    }
+
+    private AppDefaults CreateCurrentDefaults() => new() { Hours = Read(HoursBox, 0, 999), Minutes = Read(MinutesBox, 0, 59), Seconds = Read(SecondsBox, 0, 59), Milliseconds = Read(MillisBox, 1, 999), MouseButton = Selected(ButtonCombo), Input = Selected(ButtonCombo), CustomKey = customSpamVirtualKey, CustomSequence = customSequence.Select(step => step.Clone()).ToList(), ClickType = Selected(TypeCombo), RepeatUntilStopped = UntilStoppedRadio.IsChecked == true, RepeatCount = Read(CountBox, 1, 999999), FixedPosition = FixedPositionRadio.IsChecked == true, X = Read(XBox, -32768, 32767), Y = Read(YBox, -32768, 32767), Hotkey = hotkey, HotkeyModifiers = hotkeyModifiers, Rgb = rgbSettings };
+
+    private string? ExportFullBackup(string path)
+    {
+        try
+        {
+            ConfigBackupStore.Write(path, new ConfigBackupDocument
+            {
+                DefaultsJson = JsonSerializer.Serialize(CreateCurrentDefaults()),
+                RgbJson = JsonSerializer.Serialize(rgbSettings),
+                UiPreferencesJson = JsonSerializer.Serialize(new UiPreferences { Pinned = Topmost, CompactMode = compactMode }),
+                AppearanceJson = ThemeManager.ExportConfiguration(),
+                SequenceLibraryJson = JsonSerializer.Serialize(new SequenceLibraryDocument { Presets = sequenceLibrary.Select(preset => preset.Clone()).ToList() })
+            });
+            return null;
+        }
+        catch (Exception exception) { AppLog.Error("Could not export full backup", exception); return $"Could not export backup: {exception.Message}"; }
+    }
+
+    private string? ImportFullBackup(string path)
+    {
+        if (clickCancellation is not null) return "Stop AutoClicker before importing a backup.";
+        try
+        {
+            var backup = ConfigBackupStore.Read(path);
+            var defaults = JsonSerializer.Deserialize<AppDefaults>(backup.DefaultsJson) ?? throw new InvalidDataException("Backup settings are invalid.");
+            var rgb = string.IsNullOrWhiteSpace(backup.RgbJson) ? defaults.Rgb ?? new RgbSettings() : JsonSerializer.Deserialize<RgbSettings>(backup.RgbJson) ?? new RgbSettings();
+            var ui = string.IsNullOrWhiteSpace(backup.UiPreferencesJson) ? new UiPreferences() : JsonSerializer.Deserialize<UiPreferences>(backup.UiPreferencesJson) ?? new UiPreferences();
+            var library = string.IsNullOrWhiteSpace(backup.SequenceLibraryJson) ? new SequenceLibraryDocument() : JsonSerializer.Deserialize<SequenceLibraryDocument>(backup.SequenceLibraryJson) ?? new SequenceLibraryDocument();
+            if (!string.IsNullOrWhiteSpace(backup.AppearanceJson) && !ThemeManager.TryImportConfiguration(backup.AppearanceJson)) throw new InvalidDataException("Backup appearance settings are invalid.");
+
+            if (hotkeyRegistered) { UnregisterHotKey(hwnd, HotkeyId); hotkeyRegistered = false; }
+            ApplyDefaults(defaults);
+            rgbSettings = rgb; SaveRgbSettings(); CrashRecovery.UpdateEnabled(rgb.CrashRecoveryEnabled);
+            sequenceLibrary = library.Presets.Where(preset => preset.Steps.Count >= 2).Select(preset => preset.Clone()).ToList(); SaveSequenceLibrary(); RefreshSequencePresetActions();
+            Topmost = ui.Pinned; compactMode = ui.CompactMode; UpdatePinUi(); ApplyCompactMode(); SaveUiPreferences();
+            UpdateThemeButton(); RestoreLiveArea(); RegisterConfiguredHotkey();
+            SaveDefaults();
+            return null;
+        }
+        catch (Exception exception) { AppLog.Error("Could not import full backup", exception); return $"Could not import backup: {exception.Message}"; }
     }
 
     private bool LoadDefaults()
@@ -841,6 +909,22 @@ public partial class MainWindow : Window
             File.WriteAllText(RgbSettingsPath, JsonSerializer.Serialize(rgbSettings));
         }
         catch { }
+    }
+
+    private void LoadSequenceLibrary() => sequenceLibrary = SequenceLibraryStore.Load(SequenceLibraryPath);
+    private void SaveSequenceLibrary()
+    {
+        try { SequenceLibraryStore.Save(SequenceLibraryPath, sequenceLibrary); }
+        catch { }
+    }
+
+    private void RefreshSequencePresetActions()
+    {
+        if (ButtonCombo is null || EditSequenceItem is null) return;
+        foreach (var item in ButtonCombo.Items.OfType<ComboBoxItem>().Where(item => item.Tag?.ToString()?.StartsWith("Preset:", StringComparison.Ordinal) == true).ToList()) ButtonCombo.Items.Remove(item);
+        var insertAt = ButtonCombo.Items.IndexOf(EditSequenceItem) + 1;
+        foreach (var preset in sequenceLibrary.OrderBy(preset => preset.Name, StringComparer.OrdinalIgnoreCase))
+            ButtonCombo.Items.Insert(insertAt++, new ComboBoxItem { Content = $"Sequence: {preset.Name}", Tag = $"Preset:{preset.Id}" });
     }
 
     private void LoadRgbSettings()

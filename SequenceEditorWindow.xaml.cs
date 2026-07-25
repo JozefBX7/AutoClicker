@@ -10,13 +10,18 @@ public partial class SequenceEditorWindow : Window
     private bool pickingKey;
     private int customKey;
     private string selectedAction = "Left";
+    private readonly List<SequencePreset> library;
+    public bool LibraryChanged { get; private set; }
     public IReadOnlyList<SequenceStep> Steps => steps.Select(step => step.Clone()).ToList();
+    public IReadOnlyList<SequencePreset> Library => library.Select(preset => preset.Clone()).ToList();
 
-    public SequenceEditorWindow(IEnumerable<SequenceStep> current)
+    public SequenceEditorWindow(IEnumerable<SequenceStep> current, IEnumerable<SequencePreset> library)
     {
         InitializeComponent();
         steps = new ObservableCollection<SequenceStep>(current.Select(step => step.Clone()));
+        this.library = library.Select(preset => preset.Clone()).ToList();
         StepsList.ItemsSource = steps;
+        PresetCombo.ItemsSource = this.library;
         UpdateActionButtons();
     }
 
@@ -68,6 +73,38 @@ public partial class SequenceEditorWindow : Window
         KeyboardActionButton.ToolTip = selectedAction == "Custom" && customKey != 0
             ? $"Keyboard key: {System.Windows.Input.KeyInterop.KeyFromVirtualKey(customKey)} — click to change"
             : "Add a keyboard key";
+    }
+
+    private void PresetCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (PresetCombo.SelectedItem is SequencePreset preset) PresetNameBox.Text = preset.Name;
+    }
+
+    private void LoadPreset_Click(object sender, RoutedEventArgs e)
+    {
+        if (PresetCombo.SelectedItem is not SequencePreset preset) { HintLabel.Text = "Choose a saved sequence to load."; return; }
+        steps.Clear();
+        foreach (var step in preset.Steps) steps.Add(step.Clone());
+        HintLabel.Text = $"Loaded {preset.Name}.";
+    }
+
+    private void SavePreset_Click(object sender, RoutedEventArgs e)
+    {
+        var name = PresetNameBox.Text.Trim();
+        if (steps.Count < 2) { HintLabel.Text = "Add at least two actions before saving a preset."; return; }
+        if (string.IsNullOrWhiteSpace(name)) { HintLabel.Text = "Give this sequence a preset name."; return; }
+        var preset = PresetCombo.SelectedItem as SequencePreset;
+        if (preset is null || !string.Equals(preset.Name, name, StringComparison.OrdinalIgnoreCase))
+        {
+            preset = library.FirstOrDefault(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (preset is null) { preset = new SequencePreset { Name = name }; library.Add(preset); }
+        }
+        preset.Name = name;
+        preset.Steps = steps.Select(step => step.Clone()).ToList();
+        LibraryChanged = true;
+        PresetCombo.Items.Refresh();
+        PresetCombo.SelectedItem = preset;
+        HintLabel.Text = $"Saved {name} to your sequence library.";
     }
     private void Remove_Click(object sender, RoutedEventArgs e) { if (StepsList.SelectedItem is SequenceStep step) steps.Remove(step); }
     private void MoveUp_Click(object sender, RoutedEventArgs e) { var i = StepsList.SelectedIndex; if (i > 0) { steps.Move(i, i - 1); StepsList.SelectedIndex = i - 1; } }
