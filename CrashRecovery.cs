@@ -9,8 +9,8 @@ internal static class CrashRecovery
 {
     internal const int ManagedCrashExitCode = 0xAC71;
     internal const int MaxRestartAttemptsPerMinute = 3;
-    private static readonly string SettingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoClicker", "rgb-settings.json");
-    private static readonly string CrashHistoryPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoClicker", "crash-history.json");
+    private static readonly string SettingsPath = AppPaths.ConfigFile("rgb-settings.json");
+    private static readonly string CrashHistoryPath = AppPaths.ConfigFile("crash-history.json");
     private static EventWaitHandle? cleanShutdown;
     private static bool watcherStarted;
 

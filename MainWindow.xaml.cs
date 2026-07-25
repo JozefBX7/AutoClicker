@@ -15,10 +15,10 @@ public partial class MainWindow : Window
 {
     private const int HotkeyId = 0xC11C;
     private const int WmHotkey = 0x0312;
-    private static readonly string DefaultsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoClicker", "defaults.json");
-    private static readonly string RgbSettingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoClicker", "rgb-settings.json");
-    private static readonly string UiPreferencesPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoClicker", "ui-preferences.json");
-    private static readonly string SequenceLibraryPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoClicker", "sequence-library.json");
+    private static readonly string DefaultsPath = AppPaths.ConfigFile("defaults.json");
+    private static readonly string RgbSettingsPath = AppPaths.ConfigFile("rgb-settings.json");
+    private static readonly string UiPreferencesPath = AppPaths.ConfigFile("ui-preferences.json");
+    private static readonly string SequenceLibraryPath = AppPaths.ConfigFile("sequence-library.json");
     private const double ExpandedWindowHeight = 558;
     private const double CompactWindowHeight = 166;
     private readonly DispatcherTimer resetTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };

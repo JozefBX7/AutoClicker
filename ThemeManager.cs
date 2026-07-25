@@ -9,7 +9,7 @@ internal enum AppTheme { Dark, Light }
 
 internal static class ThemeManager
 {
-    private static readonly string SettingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoClicker", "appearance.json");
+    private static readonly string SettingsPath = AppPaths.ConfigFile("appearance.json");
     internal static AppTheme Current { get; private set; } = AppTheme.Dark;
 
     private static readonly Dictionary<string, string> LightPalette = new()

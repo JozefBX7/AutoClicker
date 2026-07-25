@@ -1,0 +1,35 @@
+using System.IO;
+
+namespace AutoClicker;
+
+internal static class AppPaths
+{
+    private const string PortableMarkerName = "portable.flag";
+    internal static bool IsPortable { get; } = File.Exists(Path.Combine(AppContext.BaseDirectory, PortableMarkerName));
+    private static readonly string configDirectory = ResolveConfigDirectory();
+
+    internal static string ConfigDirectory => configDirectory;
+    internal static string ConfigFile(string fileName) => Path.Combine(ConfigDirectory, fileName);
+
+    internal static string InstalledConfigDirectory(string localApplicationData) => Path.Combine(localApplicationData, "AutoClicker");
+    internal static string PortableConfigDirectory(string baseDirectory) => Path.Combine(baseDirectory, "Data");
+
+    private static string ResolveConfigDirectory()
+    {
+        var fallback = InstalledConfigDirectory(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+        if (!IsPortable) return fallback;
+
+        var portableDirectory = PortableConfigDirectory(AppContext.BaseDirectory);
+        try
+        {
+            Directory.CreateDirectory(portableDirectory);
+            return portableDirectory;
+        }
+        catch
+        {
+            // A portable build launched from a read-only location still works;
+            // it simply falls back to the standard per-user configuration store.
+            return fallback;
+        }
+    }
+}

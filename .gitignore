@@ -4,6 +4,8 @@
 bin-*/
 test-artifacts/
 TestResults/
+artifacts/
+dist/
 
 # Per-user IDE and project settings
 *.user
