@@ -854,30 +854,16 @@ public partial class MainWindow : Window
 
     private void LoadUiPreferences()
     {
-        try
-        {
-            if (File.Exists(UiPreferencesPath))
-            {
-                var preferences = JsonSerializer.Deserialize<UiPreferences>(File.ReadAllText(UiPreferencesPath));
-                if (preferences is not null)
-                {
-                    Topmost = preferences.Pinned;
-                    compactMode = preferences.CompactMode;
-                }
-            }
-        }
-        catch { }
+        var preferences = UiPreferencesStore.Load(UiPreferencesPath);
+        Topmost = preferences.Pinned;
+        compactMode = preferences.CompactMode;
         UpdatePinUi();
         ApplyCompactMode();
     }
 
     private void SaveUiPreferences()
     {
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(UiPreferencesPath)!);
-            File.WriteAllText(UiPreferencesPath, JsonSerializer.Serialize(new UiPreferences { Pinned = Topmost, CompactMode = compactMode }));
-        }
+        try { UiPreferencesStore.Save(UiPreferencesPath, new UiPreferences { Pinned = Topmost, CompactMode = compactMode }); }
         catch { }
     }
 
@@ -921,7 +907,7 @@ public partial class MainWindow : Window
     }
     private string HotkeyKeyName() => System.Windows.Input.KeyInterop.KeyFromVirtualKey(hotkey).ToString();
     private string FormatHotkey() => FormatHotkey(hotkey, hotkeyModifiers);
-    private static string FormatHotkey(int key, uint modifiers) { var parts = new List<string>(); if ((modifiers & 2) != 0) parts.Add("Ctrl"); if ((modifiers & 1) != 0) parts.Add("Alt"); if ((modifiers & 4) != 0) parts.Add("Shift"); parts.Add(System.Windows.Input.KeyInterop.KeyFromVirtualKey(key).ToString()); return string.Join(" + ", parts); }
+    private static string FormatHotkey(int key, uint modifiers) => HotkeyFormatter.Format(key, modifiers);
     private static string FormatInputKey(int virtualKey)
     {
         var key = System.Windows.Input.KeyInterop.KeyFromVirtualKey(virtualKey);
@@ -1019,7 +1005,6 @@ public partial class MainWindow : Window
     }
 
     private sealed class AppDefaults { public int Hours { get; set; } public int Minutes { get; set; } public int Seconds { get; set; } public int Milliseconds { get; set; } = 100; public string MouseButton { get; set; } = "Left"; public string? Input { get; set; } public int CustomKey { get; set; } public List<SequenceStep>? CustomSequence { get; set; } public string ClickType { get; set; } = "Single"; public bool RepeatUntilStopped { get; set; } = true; public int RepeatCount { get; set; } = 10; public bool FixedPosition { get; set; } public int X { get; set; } public int Y { get; set; } public int Hotkey { get; set; } = 117; public uint HotkeyModifiers { get; set; } public RgbSettings? Rgb { get; set; } }
-    private sealed class UiPreferences { public bool Pinned { get; set; } public bool CompactMode { get; set; } }
     [Flags] private enum MouseFlags : uint { LeftDown = 2, LeftUp = 4, RightDown = 8, RightUp = 16, MiddleDown = 32, MiddleUp = 64 }
     [Flags] private enum KeyboardFlags : uint { None = 0, ExtendedKey = 1, KeyUp = 2 }
     [StructLayout(LayoutKind.Sequential)] private struct Input { public uint Type; public InputUnion Data; }

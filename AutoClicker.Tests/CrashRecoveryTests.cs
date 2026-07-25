@@ -42,4 +42,12 @@ public sealed class CrashRecoveryTests
     [DataRow(4, false)]
     public void AllowsRestart_StopsAfterThreeAttempts(int crashCount, bool expected) =>
         Assert.AreEqual(expected, CrashRecovery.AllowsRestart(crashCount));
+
+    [DataTestMethod]
+    [DataRow(new string[] { })]
+    [DataRow(new[] { "--crash-watchdog" })]
+    [DataRow(new[] { "--crash-watchdog", "not-a-pid", "event" })]
+    [DataRow(new[] { "--other-mode", "1", "event" })]
+    public void TryRunWatchdog_RejectsMalformedArgumentsWithoutStartingAWatcher(string[] arguments) =>
+        Assert.IsFalse(CrashRecovery.TryRunWatchdog(arguments));
 }

@@ -41,4 +41,31 @@ public sealed class RgbSettingsTests
     [TestMethod]
     public void KeyboardDevice_UsesItsNameForDisplay() =>
         Assert.AreEqual("Corsair K70 RGB", new KeyboardDevice(4, "Corsair K70 RGB").ToString());
+
+    [TestMethod]
+    public void SelectKeyboard_PrefersCaseInsensitiveNameOverDeviceIndex()
+    {
+        var selected = OpenRgbHighlighter.SelectKeyboard(
+            [new KeyboardDevice(1, "Corsair K70 RGB"), new KeyboardDevice(2, "Other keyboard")],
+            new RgbSettings { DeviceIndex = 2, DeviceName = "corsair k70 rgb" });
+
+        Assert.AreEqual(1, selected?.Index);
+    }
+
+    [TestMethod]
+    public void SelectKeyboard_GracefullyFallsBackWhenThereIsOnlyOneKeyboard()
+    {
+        var selected = OpenRgbHighlighter.SelectKeyboard([new KeyboardDevice(9, "Replacement keyboard")], new RgbSettings { DeviceName = "Old keyboard" });
+        Assert.AreEqual(9, selected?.Index);
+    }
+
+    [TestMethod]
+    public void SelectKeyboard_DoesNotGuessBetweenSeveralDifferentKeyboards()
+    {
+        var selected = OpenRgbHighlighter.SelectKeyboard(
+            [new KeyboardDevice(1, "Keyboard A"), new KeyboardDevice(2, "Keyboard B")],
+            new RgbSettings { DeviceName = "Missing keyboard" });
+
+        Assert.IsNull(selected);
+    }
 }

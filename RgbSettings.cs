@@ -119,10 +119,15 @@ public static class OpenRgbHighlighter
 
     public static KeyboardDevice? ResolveKeyboard(RgbSettings settings)
     {
-        var keyboards = FindKeyboards();
-        var namedMatch = keyboards.FirstOrDefault(device => string.Equals(device.Name, settings.DeviceName, StringComparison.OrdinalIgnoreCase));
+        return SelectKeyboard(FindKeyboards(), settings);
+    }
+
+    internal static KeyboardDevice? SelectKeyboard(IEnumerable<KeyboardDevice> keyboards, RgbSettings settings)
+    {
+        var candidates = keyboards.ToArray();
+        var namedMatch = candidates.FirstOrDefault(device => string.Equals(device.Name, settings.DeviceName, StringComparison.OrdinalIgnoreCase));
         if (namedMatch is not null) return namedMatch;
-        return keyboards.Length == 1 ? keyboards[0] : null;
+        return candidates.Length == 1 ? candidates[0] : null;
     }
 
     public static bool TryNormalizeIndicatorColor(string? value, out string normalized)
