@@ -9,6 +9,7 @@ public sealed class RgbSettingsTests
     [DataRow("#22d3ee", "#22D3EE")]
     [DataRow("22D3EE", "#22D3EE")]
     [DataRow("  #abc  ", "#AABBCC")]
+    [DataRow("#ffffff", "#FFFFFF")]
     public void NormalizeIndicatorColor_AcceptsSupportedHexForms(string value, string expected)
     {
         Assert.IsTrue(OpenRgbHighlighter.TryNormalizeIndicatorColor(value, out var normalized));

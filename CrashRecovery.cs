@@ -87,7 +87,7 @@ internal static class CrashRecovery
 
             // This is a kernel wait, not a polling loop: the watchdog consumes no CPU while AutoClicker is healthy.
             var signalled = WaitHandle.WaitAny([cleanExit, parentExited]);
-            if (signalled == 0 || cleanExit.WaitOne(0) || !IsCrashExitCode(parent.ExitCode)) return;
+            if (!ShouldRestartAfterExit(signalled == 0 || cleanExit.WaitOne(0), parent.ExitCode)) return;
             if (!RecordCrashAndAllowRestart())
             {
                 AppLog.Info("Crash recovery paused after repeated crashes; AutoClicker was not restarted.");
@@ -122,6 +122,9 @@ internal static class CrashRecovery
         0xE0434352 or 0x80131506 or 0xC0000005 or 0xC0000409 => true,
         _ => false
     };
+
+    internal static bool ShouldRestartAfterExit(bool cleanShutdownSignalled, int exitCode) =>
+        !cleanShutdownSignalled && IsCrashExitCode(exitCode);
 
     private static bool RecordCrashAndAllowRestart()
     {

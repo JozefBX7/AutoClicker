@@ -22,6 +22,14 @@ public sealed class CrashRecoveryTests
     public void IsCrashExitCode_DoesNotTreatNormalOrForcedStopsAsCrashes(int exitCode) =>
         Assert.IsFalse(CrashRecovery.IsCrashExitCode(exitCode));
 
+    [DataTestMethod]
+    [DataRow(false, 0xAC71, true)]
+    [DataRow(true, 0xAC71, false)]
+    [DataRow(false, 0, false)]
+    [DataRow(false, unchecked((int)0xC000013A), false)]
+    public void ShouldRestartAfterExit_RequiresAnUncleanRecognisedCrash(bool cleanShutdown, int exitCode, bool expected) =>
+        Assert.AreEqual(expected, CrashRecovery.ShouldRestartAfterExit(cleanShutdown, exitCode));
+
     [TestMethod]
     public void NextCrashCount_IncrementsInsideTheOneMinuteWindow()
     {

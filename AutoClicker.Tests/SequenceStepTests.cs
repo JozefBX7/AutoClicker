@@ -36,6 +36,15 @@ public sealed class SequenceStepTests
     }
 
     [TestMethod]
+    public void ToString_DescribesAnExplicitDelayEvent()
+    {
+        var step = new SequenceStep { Input = "Delay", DelayAfterMilliseconds = 180 };
+
+        Assert.AreEqual("Wait", step.Describe());
+        Assert.AreEqual("Wait 180 ms", step.ToString());
+    }
+
+    [TestMethod]
     public void Describe_FormatsCustomVirtualKeys() =>
         Assert.AreEqual("A", new SequenceStep { Input = "Custom", CustomKey = 0x41 }.Describe());
 }

@@ -401,13 +401,7 @@ public partial class MainWindow : Window
             var actionInputs = settings.KeyboardVirtualKey is int virtualKey ? CreateKeyInputs(virtualKey) : CreateClickInputs(settings.Button);
             while (!cancellation.IsCancellationRequested && (!settings.MaximumClicks.HasValue || sent < settings.MaximumClicks.Value))
             {
-                if (Stopwatch.GetTimestamp() - Volatile.Read(ref lastGuiHeartbeat) > Stopwatch.Frequency * 5)
-                {
-                    watchdogExpired = true;
-                    cancellation.Cancel();
-                    break;
-                }
-                timer.WaitUntil(nextClickAt, cancellation.Token);
+                if (!WaitUntilGuiIsHealthy(timer, nextClickAt, cancellation, ref watchdogExpired)) break;
                 var now = Stopwatch.GetTimestamp();
                 // Do not burst a backlog after a long scheduler stall. Resume the
                 // fixed cadence from the current instant instead.
@@ -418,14 +412,15 @@ public partial class MainWindow : Window
                     {
                         if (step.IsDelay)
                         {
-                            timer.WaitUntil(Stopwatch.GetTimestamp() + step.DelayAfterMilliseconds * Stopwatch.Frequency / 1000d, cancellation.Token);
+                            if (!WaitUntilGuiIsHealthy(timer, Stopwatch.GetTimestamp() + step.DelayAfterMilliseconds * Stopwatch.Frequency / 1000d, cancellation, ref watchdogExpired)) break;
                             continue;
                         }
                         if (settings.FixedPosition && step.IsMouse) SetCursorPos(settings.X, settings.Y);
                         SendAction(step.Inputs, false);
                         if (step.DelayAfterMilliseconds > 0)
-                            timer.WaitUntil(Stopwatch.GetTimestamp() + step.DelayAfterMilliseconds * Stopwatch.Frequency / 1000d, cancellation.Token);
+                            if (!WaitUntilGuiIsHealthy(timer, Stopwatch.GetTimestamp() + step.DelayAfterMilliseconds * Stopwatch.Frequency / 1000d, cancellation, ref watchdogExpired)) break;
                     }
+                    if (watchdogExpired || cancellation.IsCancellationRequested) break;
                 }
                 else
                 {
@@ -487,6 +482,25 @@ public partial class MainWindow : Window
         Status($"Ready — press {FormatHotkey()} to start or stop.", ThemeManager.Brush("SuccessBrush"));
         SetTaskbarIcon(running: false);
         StopRgbIndicator();
+    }
+
+    private bool WaitUntilGuiIsHealthy(PrecisionTimer timer, double targetTimestamp, CancellationTokenSource cancellation, ref bool watchdogExpired)
+    {
+        // A long configured delay still wakes at most once per second. This is a
+        // kernel wait (no polling loop) and guarantees the worker honours the
+        // five-second GUI heartbeat safety limit even while waiting.
+        while (true)
+        {
+            var now = Stopwatch.GetTimestamp();
+            if (WorkerSafety.IsGuiHeartbeatExpired(Volatile.Read(ref lastGuiHeartbeat), now, Stopwatch.Frequency))
+            {
+                watchdogExpired = true;
+                cancellation.Cancel();
+                return false;
+            }
+            if (now >= targetTimestamp) return true;
+            timer.WaitUntil(Math.Min(targetTimestamp, now + Stopwatch.Frequency), cancellation.Token);
+        }
     }
 
     internal bool IsClicking => clickCancellation is not null;
