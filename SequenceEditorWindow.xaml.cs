@@ -11,6 +11,7 @@ public partial class SequenceEditorWindow : Window
     private int customKey;
     private string selectedAction = "Left";
     private Point dragStart;
+    private SequenceStep? draggingStep;
     private readonly List<SequencePreset> library;
     public bool LibraryChanged { get; private set; }
     public IReadOnlyList<SequenceStep> Steps => steps.Select(step => step.Clone()).ToList();
@@ -56,8 +57,9 @@ public partial class SequenceEditorWindow : Window
     private void AddDelay_Click(object sender, RoutedEventArgs e)
     {
         var delay = int.TryParse(DelayBox.Text, out var value) ? Math.Clamp(value, 1, 600000) : 100;
-        steps.Add(new SequenceStep { Input = "Delay", DelayAfterMilliseconds = delay });
-        StepsList.SelectedIndex = steps.Count - 1;
+        var insertAt = StepsList.SelectedIndex is var selectedIndex && selectedIndex >= 0 ? selectedIndex + 1 : steps.Count;
+        steps.Insert(insertAt, new SequenceStep { Input = "Delay", DelayAfterMilliseconds = delay });
+        StepsList.SelectedIndex = insertAt;
         HintLabel.Text = $"Wait {delay:N0} ms added.";
     }
 
@@ -74,16 +76,34 @@ public partial class SequenceEditorWindow : Window
         if (e.LeftButton != System.Windows.Input.MouseButtonState.Pressed) return;
         var position = e.GetPosition(StepsList);
         if (Math.Abs(position.X - dragStart.X) < SystemParameters.MinimumHorizontalDragDistance && Math.Abs(position.Y - dragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
-        if (StepsList.SelectedItem is SequenceStep step) DragDrop.DoDragDrop(StepsList, step, DragDropEffects.Move);
+        if (StepsList.SelectedItem is not SequenceStep step) return;
+        draggingStep = step;
+        try { DragDrop.DoDragDrop(StepsList, step, DragDropEffects.Move); }
+        finally { draggingStep = null; }
+    }
+    private void StepsList_DragOver(object sender, DragEventArgs e)
+    {
+        if (draggingStep is null || !e.Data.GetDataPresent(typeof(SequenceStep))) { e.Effects = DragDropEffects.None; return; }
+        var target = StepAt(e.OriginalSource as DependencyObject);
+        if (target is not null && !ReferenceEquals(target, draggingStep))
+        {
+            var targetIndex = steps.IndexOf(target);
+            var sourceIndex = steps.IndexOf(draggingStep);
+            var container = ItemsControl.ContainerFromElement(StepsList, e.OriginalSource as DependencyObject) as FrameworkElement;
+            var insertAfter = container is not null && e.GetPosition(container).Y > container.ActualHeight / 2;
+            var destination = targetIndex + (insertAfter ? 1 : 0);
+            if (sourceIndex < destination) destination--;
+            if (sourceIndex >= 0 && destination >= 0 && sourceIndex != destination) steps.Move(sourceIndex, destination);
+            StepsList.SelectedItem = draggingStep;
+        }
+        e.Effects = DragDropEffects.Move;
+        e.Handled = true;
     }
     private void StepsList_Drop(object sender, DragEventArgs e)
     {
-        if (!e.Data.GetDataPresent(typeof(SequenceStep)) || e.Data.GetData(typeof(SequenceStep)) is not SequenceStep source) return;
-        var target = (e.OriginalSource as DependencyObject) is { } element ? (ItemsControl.ContainerFromElement(StepsList, element) as FrameworkElement)?.DataContext as SequenceStep : null;
-        if (target is null || ReferenceEquals(source, target)) return;
-        var from = steps.IndexOf(source); var to = steps.IndexOf(target);
-        if (from >= 0 && to >= 0) { steps.Move(from, to); StepsList.SelectedItem = source; }
+        e.Handled = true;
     }
+    private SequenceStep? StepAt(DependencyObject? element) => element is null ? null : (ItemsControl.ContainerFromElement(StepsList, element) as FrameworkElement)?.DataContext as SequenceStep;
 
     private void UpdateActionButtons()
     {
