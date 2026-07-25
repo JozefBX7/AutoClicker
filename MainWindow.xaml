@@ -34,8 +34,7 @@
                         </Border>
                         <Button Content="Settings" Click="SettingsButton_Click" Style="{StaticResource HeaderButton}" Margin="0,0,6,0" />
                         <StackPanel Orientation="Horizontal">
-                            <Button x:Name="CollapseButton" ContentTemplate="{StaticResource CollapseIcon}" Click="CollapseButton_Click" ToolTip="Hide settings" Style="{StaticResource PinButton}" />
-                            <Button x:Name="ThemeButton" Content="Theme" ContentTemplate="{StaticResource MoonIcon}" Click="ThemeButton_Click" ToolTip="Switch to light mode" Style="{StaticResource PinButton}" Margin="3,0,0,0" />
+                            <Button x:Name="ThemeButton" Content="Theme" ContentTemplate="{StaticResource MoonIcon}" Click="ThemeButton_Click" ToolTip="Switch to light mode" Style="{StaticResource PinButton}" />
                             <Button x:Name="PinButton" Content="Pin" ContentTemplate="{StaticResource PinIcon}" Click="PinButton_Click" ToolTip="Keep on top" Style="{StaticResource PinButton}" Margin="3,0,0,0" />
                             <Button Click="CloseButton_Click" ToolTip="Quit the app" Style="{StaticResource CloseButton}" Foreground="{DynamicResource TextMutedBrush}" Margin="3,0,0,0">
                             <Viewbox Width="12" Height="12"><Viewbox.RenderTransform><TranslateTransform X="-1" /></Viewbox.RenderTransform><Path Data="M 2 2 L 10 10 M 10 2 L 2 10" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" /></Viewbox>
@@ -120,6 +119,7 @@
                     <TextBlock x:Name="StatusLabel" Grid.Column="1" Text="Ready" Margin="12,0,0,0" HorizontalAlignment="Right" VerticalAlignment="Center" TextAlignment="Right" TextWrapping="Wrap" Foreground="{DynamicResource SuccessBrush}" FontSize="11" />
                 </Grid>
             </Border>
+            <Button x:Name="CollapseButton" Grid.Row="2" Panel.ZIndex="2" ContentTemplate="{StaticResource CollapseIcon}" Click="CollapseButton_Click" ToolTip="Hide settings" Style="{StaticResource PinButton}" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,-14,0,0" />
         </Grid>
     </Border>
 </Window>
