@@ -19,7 +19,11 @@ public sealed class RgbSettings
     public string LightingEffect { get; set; } = "Constant";
     public int PulseSpeedMilliseconds { get; set; } = 450;
 
-    public bool IsPulse => string.Equals(LightingEffect, "Pulse", StringComparison.OrdinalIgnoreCase);
+    // "Pulse" was the former name for the on/off effect. Keep it as a
+    // backwards-compatible alias so existing saved settings become Blink.
+    public bool IsBlink => string.Equals(LightingEffect, "Blink", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(LightingEffect, "Pulse", StringComparison.OrdinalIgnoreCase);
+    public bool IsPulse => string.Equals(LightingEffect, "Fade", StringComparison.OrdinalIgnoreCase);
 }
 
 public sealed record KeyboardDevice(int Index, string Name)
@@ -219,7 +223,7 @@ public static class OpenRgbHighlighter
         catch (Exception exception) { AppLog.Error("OpenRGB indicator restore failed", exception); }
     }
 
-    public static async Task PulseIndicatorAsync(RgbLightingSnapshot snapshot, int halfCycleMilliseconds, CancellationToken cancellation)
+    public static async Task BlinkIndicatorAsync(RgbLightingSnapshot snapshot, int halfCycleMilliseconds, CancellationToken cancellation)
     {
         var halfCycle = Math.Clamp(halfCycleMilliseconds, 120, 2000);
         var lit = true;
@@ -233,7 +237,28 @@ public static class OpenRgbHighlighter
             }
         }
         catch (OperationCanceledException) { }
-        catch (Exception exception) { AppLog.Error("OpenRGB pulse effect failed", exception); }
+        catch (Exception exception) { AppLog.Error("OpenRGB blink effect failed", exception); }
+    }
+
+    public static async Task FadePulseIndicatorAsync(RgbLightingSnapshot snapshot, int cycleMilliseconds, CancellationToken cancellation)
+    {
+        // Eight frames per cycle caps OpenRGB traffic at eight single-key updates
+        // per second (at the fastest setting). Task.Delay is timer-based, so this
+        // stays negligible beside a game or the input worker.
+        const int framesPerCycle = 8;
+        var cycle = Math.Clamp(cycleMilliseconds, 1000, 6000);
+        var frameDelay = TimeSpan.FromMilliseconds(cycle / framesPerCycle);
+        try
+        {
+            for (var frame = 0; ; frame = (frame + 1) % framesPerCycle)
+            {
+                var strength = 0.5d - 0.5d * Math.Cos(2d * Math.PI * frame / framesPerCycle);
+                SetIndicatorBlend(snapshot, strength);
+                await Task.Delay(frameDelay, cancellation);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception exception) { AppLog.Error("OpenRGB fade pulse effect failed", exception); }
     }
 
     public static async Task<string?> FlashKeyAsync(RgbSettings settings, string keyName)
@@ -276,6 +301,22 @@ public static class OpenRgbHighlighter
         using var client = new OpenRgbClient(name: "AutoClicker");
         client.SetCustomMode(snapshot.DeviceIndex);
         client.UpdateSingleLed(snapshot.DeviceIndex, snapshot.KeyIndex, snapshot.Colors[snapshot.KeyIndex]);
+    }
+
+    private static void SetIndicatorBlend(RgbLightingSnapshot snapshot, double strength)
+    {
+        using var client = new OpenRgbClient(name: "AutoClicker");
+        client.SetCustomMode(snapshot.DeviceIndex);
+        client.UpdateSingleLed(snapshot.DeviceIndex, snapshot.KeyIndex, BlendColor(snapshot.Colors[snapshot.KeyIndex], snapshot.IndicatorColor, strength));
+    }
+
+    internal static Color BlendColor(Color baseColor, Color indicatorColor, double strength)
+    {
+        var amount = Math.Clamp(strength, 0d, 1d);
+        return new Color(
+            (byte)Math.Round(baseColor.R + (indicatorColor.R - baseColor.R) * amount),
+            (byte)Math.Round(baseColor.G + (indicatorColor.G - baseColor.G) * amount),
+            (byte)Math.Round(baseColor.B + (indicatorColor.B - baseColor.B) * amount));
     }
 
     private static Color IndicatorColor(RgbSettings settings)

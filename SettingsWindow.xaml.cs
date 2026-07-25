@@ -236,7 +236,13 @@ public partial class SettingsWindow : Window
         DialogResult = true;
     }
 
-    private int ReadPulseSpeed() => int.TryParse(PulseSpeedBox.Text, out var value) ? Math.Clamp(value, 120, 2000) : 450;
+    private int ReadPulseSpeed()
+    {
+        var fallback = string.Equals(SelectedEffect(), "Fade", StringComparison.OrdinalIgnoreCase) ? 1200 : 450;
+        return int.TryParse(PulseSpeedBox.Text, out var value)
+            ? string.Equals(SelectedEffect(), "Fade", StringComparison.OrdinalIgnoreCase) ? Math.Clamp(value, 1000, 6000) : Math.Clamp(value, 120, 2000)
+            : fallback;
+    }
 
     private void UpdateColorPreview()
     {
@@ -259,11 +265,25 @@ public partial class SettingsWindow : Window
             Convert.ToInt32(normalized[5..7], 16));
     }
 
-    private string SelectedEffect() => (LightingEffectCombo.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Content?.ToString() ?? "Constant";
-    private void SelectEffect(string effect) => LightingEffectCombo.SelectedItem = LightingEffectCombo.Items.OfType<System.Windows.Controls.ComboBoxItem>().FirstOrDefault(item => string.Equals(item.Content?.ToString(), effect, StringComparison.OrdinalIgnoreCase)) ?? LightingEffectCombo.Items[0];
+    private string SelectedEffect() => ((LightingEffectCombo.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Content?.ToString() ?? "Constant") switch { "Pulse" => "Fade", _ => (LightingEffectCombo.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Content?.ToString() ?? "Constant" };
+    private void SelectEffect(string effect)
+    {
+        var displayEffect = string.Equals(effect, "Fade", StringComparison.OrdinalIgnoreCase) ? "Pulse"
+            : string.Equals(effect, "Pulse", StringComparison.OrdinalIgnoreCase) ? "Blink" : effect;
+        LightingEffectCombo.SelectedItem = LightingEffectCombo.Items.OfType<System.Windows.Controls.ComboBoxItem>().FirstOrDefault(item => string.Equals(item.Content?.ToString(), displayEffect, StringComparison.OrdinalIgnoreCase)) ?? LightingEffectCombo.Items[0];
+    }
     private void UpdatePulseSpeedEnabled()
     {
-        if (PulseSpeedBox is null) return;
-        PulseSpeedBox.IsEnabled = string.Equals(SelectedEffect(), "Pulse", StringComparison.OrdinalIgnoreCase);
+        if (PulseSpeedBox is null || EffectSpeedHint is null) return;
+        var effect = SelectedEffect();
+        PulseSpeedBox.IsEnabled = !string.Equals(effect, "Constant", StringComparison.OrdinalIgnoreCase);
+        if (string.Equals(effect, "Fade", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!int.TryParse(PulseSpeedBox.Text, out var speed) || speed < 1000) PulseSpeedBox.Text = "1200";
+            EffectSpeedHint.Text = "Pulse is a smooth fade cycle (1000–6000 ms), capped at 8 key updates per second.";
+        }
+        else if (string.Equals(effect, "Blink", StringComparison.OrdinalIgnoreCase))
+            EffectSpeedHint.Text = "Blink is on/off; speed is the time per state (120–2000 ms).";
+        else EffectSpeedHint.Text = "Constant keeps the key lit continuously.";
     }
 }

@@ -702,11 +702,13 @@ public partial class MainWindow : Window
                         if (generation == rgbIndicatorGeneration)
                         {
                             rgbSnapshot = snapshot;
-                            if (settings.IsPulse)
+                            if (settings.IsBlink || settings.IsPulse)
                             {
                                 var pulseCancellation = new CancellationTokenSource();
                                 rgbPulseCancellation = pulseCancellation;
-                                rgbPulseTask = Task.Run(() => OpenRgbHighlighter.PulseIndicatorAsync(snapshot, settings.PulseSpeedMilliseconds, pulseCancellation.Token));
+                                rgbPulseTask = Task.Run(() => settings.IsBlink
+                                    ? OpenRgbHighlighter.BlinkIndicatorAsync(snapshot, settings.PulseSpeedMilliseconds, pulseCancellation.Token)
+                                    : OpenRgbHighlighter.FadePulseIndicatorAsync(snapshot, settings.PulseSpeedMilliseconds, pulseCancellation.Token));
                             }
                         }
                         else restoreImmediately = true;

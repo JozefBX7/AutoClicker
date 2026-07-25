@@ -28,7 +28,7 @@ public sealed class RgbSettingsTests
     }
 
     [TestMethod]
-    public void RgbSettings_DefaultsAreSafeAndPulseIsCaseInsensitive()
+    public void RgbSettings_DefaultsAreSafeAndLegacyPulseMigratesToBlink()
     {
         var settings = new RgbSettings();
         Assert.IsTrue(settings.CrashRecoveryEnabled);
@@ -36,7 +36,22 @@ public sealed class RgbSettingsTests
         Assert.IsFalse(settings.IsPulse);
 
         settings.LightingEffect = "pUlSe";
+        Assert.IsTrue(settings.IsBlink);
+        Assert.IsFalse(settings.IsPulse);
+
+        settings.LightingEffect = "Fade";
         Assert.IsTrue(settings.IsPulse);
+    }
+
+    [TestMethod]
+    public void BlendColor_InterpolatesAndClampsTheFadeStrength()
+    {
+        var baseColor = new OpenRGB.NET.Color(10, 20, 30);
+        var indicator = new OpenRGB.NET.Color(110, 120, 130);
+
+        Assert.AreEqual(new OpenRGB.NET.Color(10, 20, 30), OpenRgbHighlighter.BlendColor(baseColor, indicator, -1));
+        Assert.AreEqual(new OpenRGB.NET.Color(60, 70, 80), OpenRgbHighlighter.BlendColor(baseColor, indicator, 0.5));
+        Assert.AreEqual(new OpenRGB.NET.Color(110, 120, 130), OpenRgbHighlighter.BlendColor(baseColor, indicator, 2));
     }
 
     [TestMethod]
