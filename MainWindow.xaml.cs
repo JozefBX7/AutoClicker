@@ -254,40 +254,27 @@ public partial class MainWindow : Window
     {
         if (updatingActionSelection || ButtonCombo is null || PickKeyItem is null) return;
         var selectedAction = Selected(ButtonCombo);
-        if (selectedAction.StartsWith("Preset:", StringComparison.Ordinal))
+        if (selectedAction == "Sequence")
         {
-            var preset = sequenceLibrary.FirstOrDefault(item => item.Id == selectedAction[7..]);
-            if (preset is not null)
-            {
-                customSequence = preset.Steps.Select(step => step.Clone()).ToList();
-                SequenceItem.Content = $"Custom sequence — {preset.Name}";
-                updatingActionSelection = true; ButtonCombo.SelectedItem = SequenceItem; updatingActionSelection = false;
-                UpdateLiveInputMode();
-                Status($"Ready — {preset.Name} will be repeated.", ThemeManager.Brush("SuccessBrush"));
-                return;
-            }
+            SequenceItem.Content = "Custom sequence";
+            UpdateLiveInputMode();
+            ShowReadyActionStatus();
+            return;
         }
-        if (Selected(ButtonCombo) is "Sequence" or "EditSequence")
+        if (selectedAction == "EditSequence")
         {
             var previous = e.RemovedItems.OfType<ComboBoxItem>().FirstOrDefault();
-            if (Selected(ButtonCombo) == "EditSequence" || customSequence.Count == 0)
+            var editor = new SequenceEditorWindow(customSequence, sequenceLibrary) { Owner = this };
+            var accepted = editor.ShowDialog() == true;
+            if (accepted) customSequence = editor.Steps.Select(step => step.Clone()).ToList();
+            if (editor.LibraryChanged)
             {
-                var editor = new SequenceEditorWindow(customSequence, sequenceLibrary) { Owner = this };
-                var accepted = editor.ShowDialog() == true;
-                if (accepted) customSequence = editor.Steps.Select(step => step.Clone()).ToList();
-                if (editor.LibraryChanged)
-                {
-                    sequenceLibrary = editor.Library.Select(preset => preset.Clone()).ToList();
-                    SaveSequenceLibrary();
-                    RefreshSequencePresetActions();
-                }
-                if (!accepted && previous is not null) { updatingActionSelection = true; ButtonCombo.SelectedItem = previous; updatingActionSelection = false; UpdateLiveInputMode(); return; }
+                sequenceLibrary = editor.Library.Select(preset => preset.Clone()).ToList();
+                SaveSequenceLibrary();
+                RefreshSequencePresetActions();
             }
-            if (customSequence.Count >= 2)
-            {
-                SequenceItem.Content = $"Custom sequence ({customSequence.Count} actions)";
-                updatingActionSelection = true; ButtonCombo.SelectedItem = SequenceItem; updatingActionSelection = false;
-            }
+            if (!accepted && previous is not null) { updatingActionSelection = true; ButtonCombo.SelectedItem = previous; updatingActionSelection = false; UpdateLiveInputMode(); return; }
+            if (customSequence.Count >= 2) { SequenceItem.Content = "Custom sequence"; updatingActionSelection = true; ButtonCombo.SelectedItem = SequenceItem; updatingActionSelection = false; }
             else if (previous is not null) { updatingActionSelection = true; ButtonCombo.SelectedItem = previous; updatingActionSelection = false; }
             UpdateLiveInputMode();
             ShowReadyActionStatus();
@@ -913,7 +900,7 @@ public partial class MainWindow : Window
         HoursBox.Text = s.Hours.ToString(); MinutesBox.Text = s.Minutes.ToString(); SecondsBox.Text = s.Seconds.ToString(); MillisBox.Text = s.Milliseconds.ToString();
         customSpamVirtualKey = s.CustomKey;
         customSequence = s.CustomSequence?.Select(step => step.Clone()).ToList() ?? [];
-        SequenceItem.Content = customSequence.Count >= 2 ? $"Custom sequence ({customSequence.Count} actions)" : "Custom sequence";
+        SequenceItem.Content = "Custom sequence";
         CustomKeyItem.Content = customSpamVirtualKey != 0 ? $"Key: {FormatInputKey(customSpamVirtualKey)}" : "Custom key";
         Select(ButtonCombo, string.IsNullOrWhiteSpace(s.Input) ? s.MouseButton : s.Input); Select(TypeCombo, s.ClickType); UntilStoppedRadio.IsChecked = s.RepeatUntilStopped; CountRadio.IsChecked = !s.RepeatUntilStopped; CountBox.Text = s.RepeatCount.ToString();
         CurrentPositionRadio.IsChecked = !s.FixedPosition; FixedPositionRadio.IsChecked = s.FixedPosition; XBox.Text = s.X.ToString(); YBox.Text = s.Y.ToString();
@@ -943,11 +930,45 @@ public partial class MainWindow : Window
 
     private void RefreshSequencePresetActions()
     {
-        if (ButtonCombo is null || EditSequenceItem is null) return;
-        foreach (var item in ButtonCombo.Items.OfType<ComboBoxItem>().Where(item => item.Tag?.ToString()?.StartsWith("Preset:", StringComparison.Ordinal) == true).ToList()) ButtonCombo.Items.Remove(item);
-        var insertAt = ButtonCombo.Items.IndexOf(EditSequenceItem) + 1;
+        if (SequencePresetMenu is null) return;
+        SequencePresetMenu.Items.Clear();
+        if (sequenceLibrary.Count == 0)
+        {
+            SequencePresetMenu.Items.Add(new MenuItem { Header = "No saved sequences", IsEnabled = false });
+            return;
+        }
         foreach (var preset in sequenceLibrary.OrderBy(preset => preset.Name, StringComparer.OrdinalIgnoreCase))
-            ButtonCombo.Items.Insert(insertAt++, new ComboBoxItem { Content = $"Sequence: {preset.Name}", Tag = $"Preset:{preset.Id}" });
+        {
+            var item = new MenuItem { Header = preset.Name, Tag = preset.Id };
+            item.Click += SequencePresetMenuItem_Click;
+            SequencePresetMenu.Items.Add(item);
+        }
+    }
+
+    private void OpenSequencePresetMenu()
+    {
+        SequencePresetMenu.PlacementTarget = ButtonCombo;
+        SequencePresetMenu.IsOpen = true;
+    }
+
+    private void SequenceItem_PreviewMouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        // This also covers choosing Custom sequence when it is already selected.
+        // Delay until WPF has dismissed the ComboBox popup, then place the saved
+        // presets directly beside it.
+        _ = Dispatcher.BeginInvoke(OpenSequencePresetMenu, DispatcherPriority.ContextIdle);
+    }
+
+    private void SequencePresetMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string presetId }) return;
+        var preset = sequenceLibrary.FirstOrDefault(item => item.Id == presetId);
+        if (preset is null) return;
+        customSequence = preset.Steps.Select(step => step.Clone()).ToList();
+        SequenceItem.Content = "Custom sequence";
+        updatingActionSelection = true; ButtonCombo.SelectedItem = SequenceItem; updatingActionSelection = false;
+        UpdateLiveInputMode();
+        Status($"Ready — {preset.Name} will be repeated.", ThemeManager.Brush("SuccessBrush"));
     }
 
     private void LoadRgbSettings()
