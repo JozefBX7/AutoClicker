@@ -373,6 +373,7 @@ public partial class MainWindow : Window
         var settings = new ClickSettings(FixedPositionRadio.IsChecked == true, Read(XBox, -32768, 32767), Read(YBox, -32768, 32767), input, keyboardVirtualKey == 0 ? null : keyboardVirtualKey, Selected(TypeCombo) == "Double", CountRadio.IsChecked == true ? Read(CountBox, 1, 999999) : null, input == "Sequence" ? BuildSequence(customSequence) : null);
         AppLog.Info($"Starting {ActivityVerb().ToLowerInvariant()} | Input={input} | IntervalMs={delay.TotalMilliseconds:0.###} | Repeat={(settings.MaximumClicks?.ToString() ?? "until stopped")}");
         StartButton.IsEnabled = false; StopButton.IsEnabled = true;
+        CollapseButton.IsEnabled = false;
         LiveArea.Background = ThemeManager.Brush("AccentBrush");
         LiveArea.BorderBrush = ThemeManager.Brush("AccentHoverBrush");
         LiveCountLabel.Text = liveClickCount == 0 ? "0 clicks" : $"{liveClickCount:N0} clicks";
@@ -478,6 +479,7 @@ public partial class MainWindow : Window
         cancellation?.Cancel();
         if (cancellation is not null) AppLog.Info("Click/spam worker stop requested.");
         StartButton.IsEnabled = true; StopButton.IsEnabled = false;
+        CollapseButton.IsEnabled = true;
         LiveArea.Background = ThemeManager.Brush("ControlBrush");
         LiveArea.BorderBrush = ThemeManager.Brush("LiveBorderBrush");
         if (liveClickCount == 0) LiveCountLabel.Text = "Start to test";
