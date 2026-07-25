@@ -107,16 +107,27 @@ public partial class SettingsWindow : Window
 
     private void PickIndicatorColor_Click(object sender, RoutedEventArgs e)
     {
-        var current = ParseColor(IndicatorColorBox.Text) ?? System.Drawing.Color.FromArgb(34, 211, 238);
-        using var dialog = new System.Windows.Forms.ColorDialog
-        {
-            Color = current,
-            FullOpen = true,
-            AnyColor = true
-        };
+        var dialog = new ColorPickerWindow(IndicatorColorBox.Text, FlashPickedColourAsync) { Owner = this };
+        if (dialog.ShowDialog() == true) IndicatorColorBox.Text = dialog.SelectedColor;
+    }
 
-        if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
-        IndicatorColorBox.Text = $"#{dialog.Color.R:X2}{dialog.Color.G:X2}{dialog.Color.B:X2}";
+    private async Task<string?> FlashPickedColourAsync(string color)
+    {
+        if (EnableOpenRgb.IsChecked != true || KeyboardCombo.SelectedItem is not KeyboardDevice keyboard)
+            return "Enable OpenRGB lighting and select a keyboard to preview this colour.";
+
+        var settings = new RgbSettings
+        {
+            Enabled = true,
+            DeviceIndex = keyboard.Index,
+            DeviceName = keyboard.Name,
+            AutoStart = AutoStartOpenRgb.IsChecked == true,
+            StopAutoStartedOnExit = StopAutoStartedOpenRgb.IsChecked == true,
+            IndicatorColor = color
+        };
+        var availability = await OpenRgbHighlighter.EnsureSdkAsync(settings);
+        if (!availability.IsAvailable) return availability.Message ?? "OpenRGB's SDK server is unavailable.";
+        return await OpenRgbHighlighter.FlashKeyAsync(settings, hotkeyKeyName);
     }
 
     private void RestoreDefaults_Click(object sender, RoutedEventArgs e)
