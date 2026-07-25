@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Media;
+using System.Diagnostics;
 
 namespace AutoClicker;
 
@@ -48,6 +49,39 @@ public partial class SettingsWindow : Window
     }
 
     private void FindKeyboards_Click(object sender, RoutedEventArgs e) => RefreshKeyboards();
+
+    private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
+    {
+        CheckUpdatesButton.IsEnabled = false;
+        DownloadUpdateButton.Visibility = Visibility.Collapsed;
+        UpdateStatus.Text = "Checking GitHub Releases…";
+        UpdateStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+        try
+        {
+            var update = await UpdateService.CheckForUpdateAsync(AppPaths.IsPortable, CancellationToken.None);
+            UpdateStatus.Text = update.Message;
+            UpdateStatus.Foreground = ThemeManager.Brush(update.IsUpdateAvailable ? "SuccessBrush" : "TextMutedBrush");
+            if (update.IsUpdateAvailable && update.DownloadUri is not null)
+            {
+                DownloadUpdateButton.Tag = update.DownloadUri;
+                DownloadUpdateButton.Visibility = Visibility.Visible;
+            }
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error("GitHub update check failed", exception);
+            UpdateStatus.Text = "Could not check GitHub Releases. Open Releases to download an update manually.";
+            UpdateStatus.Foreground = ThemeManager.Brush("WarningBrush");
+        }
+        finally { CheckUpdatesButton.IsEnabled = true; }
+    }
+
+    private void OpenReleases_Click(object sender, RoutedEventArgs e) => OpenUrl(UpdateService.ReleasesUrl);
+    private void DownloadUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        if (DownloadUpdateButton.Tag is Uri url) OpenUrl(url);
+    }
+    private static void OpenUrl(Uri url) => Process.Start(new ProcessStartInfo(url.AbsoluteUri) { UseShellExecute = true });
 
     private void ExportBackup_Click(object sender, RoutedEventArgs e)
     {

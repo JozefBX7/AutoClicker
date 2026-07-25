@@ -13,6 +13,12 @@ The installer stores user settings in `%LocalAppData%\AutoClicker`. The portable
 
 Uninstalling deliberately preserves your user settings and backups. Delete `%LocalAppData%\AutoClicker` (installed) or the portable `Data` folder only if you want to remove them.
 
+## Updates
+
+In **Settings → Updates**, users can manually check GitHub Releases. When a newer version is found, AutoClicker opens the matching installer or portable ZIP in the browser; it never downloads or runs an update automatically. Running a newer installer upgrades the existing installation, while portable users replace the executable and keep their `Data` folder.
+
+The in-app update check needs the GitHub release to be public. A private repository cannot be queried anonymously without shipping a secret token, which would be unsafe. For private releases, the **Open Releases** button still works for users signed into GitHub with repository access. To share updates with friends without access, make the releases public or use another public download page such as Google Drive.
+
 Use AutoClicker only where automated input is permitted. Press the configured global hotkey (F6 by default) at any time to stop.
 
 ## Publish a release
