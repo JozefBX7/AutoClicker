@@ -12,6 +12,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="MainForm.cs" />
+    <Compile Remove="AutoClicker.Tests\**\*.cs" />
   </ItemGroup>
   <ItemGroup>
     <Using Remove="System.Drawing" />

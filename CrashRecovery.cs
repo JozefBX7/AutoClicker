@@ -8,6 +8,7 @@ namespace AutoClicker;
 internal static class CrashRecovery
 {
     internal const int ManagedCrashExitCode = 0xAC71;
+    internal const int MaxRestartAttemptsPerMinute = 3;
     private static readonly string SettingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoClicker", "rgb-settings.json");
     private static readonly string CrashHistoryPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoClicker", "crash-history.json");
     private static EventWaitHandle? cleanShutdown;
@@ -115,7 +116,7 @@ internal static class CrashRecovery
         catch { return true; }
     }
 
-    private static bool IsCrashExitCode(int exitCode) => unchecked((uint)exitCode) switch
+    internal static bool IsCrashExitCode(int exitCode) => unchecked((uint)exitCode) switch
     {
         ManagedCrashExitCode => true,
         0xE0434352 or 0x80131506 or 0xC0000005 or 0xC0000409 => true,
@@ -130,14 +131,19 @@ internal static class CrashRecovery
             var history = File.Exists(CrashHistoryPath)
                 ? JsonSerializer.Deserialize<CrashHistory>(File.ReadAllText(CrashHistoryPath)) ?? new CrashHistory()
                 : new CrashHistory();
-            history.Count = now - history.LastCrashUtc < TimeSpan.FromMinutes(1) ? history.Count + 1 : 1;
+            history.Count = NextCrashCount(history.Count, history.LastCrashUtc, now);
             history.LastCrashUtc = now;
             Directory.CreateDirectory(Path.GetDirectoryName(CrashHistoryPath)!);
             File.WriteAllText(CrashHistoryPath, JsonSerializer.Serialize(history));
-            return history.Count <= 3;
+            return AllowsRestart(history.Count);
         }
         catch { return true; }
     }
+
+    internal static int NextCrashCount(int previousCount, DateTimeOffset previousCrash, DateTimeOffset now) =>
+        now - previousCrash < TimeSpan.FromMinutes(1) ? previousCount + 1 : 1;
+
+    internal static bool AllowsRestart(int crashCount) => crashCount <= MaxRestartAttemptsPerMinute;
 
     private sealed class CrashHistory
     {

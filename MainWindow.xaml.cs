@@ -341,7 +341,7 @@ public partial class MainWindow : Window
             Status($"{FormatInputKey(keyboardVirtualKey)} is also the start/stop hotkey. Choose another key or change the hotkey first.", ThemeManager.Brush("WarningBrush"));
             return;
         }
-        var delay = TimeSpan.FromHours(Read(HoursBox, 0, 999)) + TimeSpan.FromMinutes(Read(MinutesBox, 0, 59)) + TimeSpan.FromSeconds(Read(SecondsBox, 0, 59)) + TimeSpan.FromMilliseconds(Read(MillisBox, 1, 999));
+        var delay = InputRules.CreateInterval(Read(HoursBox, 0, 999), Read(MinutesBox, 0, 59), Read(SecondsBox, 0, 59), Read(MillisBox, 1, 999));
         var cancellation = new CancellationTokenSource();
         clickCancellation = cancellation;
         Volatile.Write(ref lastGuiHeartbeat, Stopwatch.GetTimestamp());
@@ -595,7 +595,7 @@ public partial class MainWindow : Window
         UpdateLiveAreaTextContrast();
     }
 
-    private bool IsKeyboardInputSelected() => ButtonCombo?.SelectedItem is ComboBoxItem && (Selected(ButtonCombo) is "Space" or "Enter" or "Custom");
+    private bool IsKeyboardInputSelected() => ButtonCombo?.SelectedItem is ComboBoxItem && InputRules.IsKeyboardAction(Selected(ButtonCombo));
 
     private void ShowReadyActionStatus()
     {
@@ -603,17 +603,7 @@ public partial class MainWindow : Window
         Status($"Ready — {SelectedActionDescription()} will be repeated.", ThemeManager.Brush("SuccessBrush"));
     }
 
-    private string SelectedActionDescription() => Selected(ButtonCombo) switch
-    {
-        "Left" => "Left click",
-        "Right" => "Right click",
-        "Middle" => "Middle click",
-        "Space" => "Space",
-        "Enter" => "Enter",
-        "Custom" when customSpamVirtualKey != 0 => FormatInputKey(customSpamVirtualKey),
-        "Sequence" => "Custom sequence",
-        _ => "Selected action"
-    };
+    private string SelectedActionDescription() => InputRules.DescribeAction(Selected(ButtonCombo), customSpamVirtualKey);
 
     private string ActivityVerb() => Selected(ButtonCombo) == "Sequence"
         ? "Running sequence"
@@ -901,7 +891,7 @@ public partial class MainWindow : Window
         CollapseButton.ToolTip = compactMode ? "Show settings" : "Hide settings";
     }
 
-    private static int Read(TextBox box, int min, int max) => int.TryParse(box.Text, out var value) ? Math.Clamp(value, min, max) : min;
+    private static int Read(TextBox box, int min, int max) => InputRules.ParseClamped(box.Text, min, max);
     private static string Selected(ComboBox combo)
     {
         var item = (ComboBoxItem)combo.SelectedItem;

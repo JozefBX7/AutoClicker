@@ -2,6 +2,8 @@
 [Bb]in/
 [Oo]bj/
 bin-*/
+test-artifacts/
+TestResults/
 
 # Per-user IDE and project settings
 *.user

@@ -9,3 +9,9 @@ dotnet run --project C:\repos\AutoClicker\AutoClicker.csproj
 ```
 
 Use only where automated input is permitted. Press **F6** at any time to stop clicking.
+
+## Test
+
+```powershell
+dotnet test C:\repos\AutoClicker\AutoClicker.Tests\AutoClicker.Tests.csproj
+```
