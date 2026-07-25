@@ -178,6 +178,12 @@
         <DataTemplate x:Key="SunIcon">
             <Viewbox Width="14" Height="14"><Grid Width="24" Height="24"><Ellipse Width="9" Height="9" Fill="{DynamicResource TextAccentBrush}" /><Path Stroke="{DynamicResource TextAccentBrush}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M 12 1 L 12 4 M 12 20 L 12 23 M 1 12 L 4 12 M 20 12 L 23 12 M 4.2 4.2 L 6.3 6.3 M 17.7 17.7 L 19.8 19.8 M 19.8 4.2 L 17.7 6.3 M 6.3 17.7 L 4.2 19.8" /></Grid></Viewbox>
         </DataTemplate>
+        <DataTemplate x:Key="CollapseIcon">
+            <Viewbox Width="14" Height="14"><Path Data="M 4 15 L 12 7 L 20 15" Stroke="{DynamicResource TextAccentBrush}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" /></Viewbox>
+        </DataTemplate>
+        <DataTemplate x:Key="ExpandIcon">
+            <Viewbox Width="14" Height="14"><Path Data="M 4 9 L 12 17 L 20 9" Stroke="{DynamicResource TextAccentBrush}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" /></Viewbox>
+        </DataTemplate>
         <Style x:Key="CloseButton" TargetType="Button" BasedOn="{StaticResource HeaderIconButton}">
             <Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" /><Setter Property="BorderThickness" Value="0" />
             <Style.Triggers>

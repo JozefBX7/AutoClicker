@@ -20,6 +20,7 @@ public partial class App : System.Windows.Application
 
     private void EmergencyStop()
     {
+        if (!Dispatcher.CheckAccess()) return;
         if (Current?.MainWindow is MainWindow window) window.EmergencyStop();
     }
 

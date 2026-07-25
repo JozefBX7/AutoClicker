@@ -17,6 +17,9 @@ public partial class MainWindow : Window
     private const int WmHotkey = 0x0312;
     private static readonly string DefaultsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoClicker", "defaults.json");
     private static readonly string RgbSettingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoClicker", "rgb-settings.json");
+    private static readonly string UiPreferencesPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoClicker", "ui-preferences.json");
+    private const double ExpandedWindowHeight = 558;
+    private const double CompactWindowHeight = 166;
     private readonly DispatcherTimer resetTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
     private readonly DispatcherTimer flashTimer = new() { Interval = TimeSpan.FromMilliseconds(85) };
     private readonly DispatcherTimer guiHeartbeatTimer = new() { Interval = TimeSpan.FromSeconds(1) };
@@ -47,12 +50,14 @@ public partial class MainWindow : Window
     private int rgbIndicatorGeneration;
     private long lastGuiHeartbeat;
     private int statusRevision;
+    private bool compactMode;
 
     public MainWindow()
     {
         InitializeComponent();
         LoadDefaults();
         LoadRgbSettings();
+        LoadUiPreferences();
         UpdateHotkeyLabel();
         UpdateThemeButton();
         UpdateLiveInputMode();
@@ -99,6 +104,19 @@ public partial class MainWindow : Window
     private void PinButton_Click(object sender, RoutedEventArgs e)
     {
         Topmost = !Topmost;
+        UpdatePinUi();
+        SaveUiPreferences();
+    }
+
+    private void CollapseButton_Click(object sender, RoutedEventArgs e)
+    {
+        compactMode = !compactMode;
+        ApplyCompactMode();
+        SaveUiPreferences();
+    }
+
+    private void UpdatePinUi()
+    {
         PinButton.Tag = Topmost ? "Pinned" : null;
         PinButton.ToolTip = Topmost ? "Always on top — click to unpin" : "Keep on top";
     }
@@ -581,7 +599,7 @@ public partial class MainWindow : Window
 
     private void ShowReadyActionStatus()
     {
-        if (clickCancellation is not null) return;
+        if (clickCancellation is not null || StatusLabel is null) return;
         Status($"Ready — {SelectedActionDescription()} will be repeated.", ThemeManager.Brush("SuccessBrush"));
     }
 
@@ -776,6 +794,11 @@ public partial class MainWindow : Window
         catch { }
         SaveRgbSettings();
         CrashRecovery.UpdateEnabled(rgbSettings.CrashRecoveryEnabled);
+        Topmost = false;
+        compactMode = false;
+        UpdatePinUi();
+        ApplyCompactMode();
+        SaveUiPreferences();
         Status("Factory default values restored.", ThemeManager.Brush("SuccessBrush"));
         return true;
     }
@@ -839,6 +862,45 @@ public partial class MainWindow : Window
         catch { }
     }
 
+    private void LoadUiPreferences()
+    {
+        try
+        {
+            if (File.Exists(UiPreferencesPath))
+            {
+                var preferences = JsonSerializer.Deserialize<UiPreferences>(File.ReadAllText(UiPreferencesPath));
+                if (preferences is not null)
+                {
+                    Topmost = preferences.Pinned;
+                    compactMode = preferences.CompactMode;
+                }
+            }
+        }
+        catch { }
+        UpdatePinUi();
+        ApplyCompactMode();
+    }
+
+    private void SaveUiPreferences()
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(UiPreferencesPath)!);
+            File.WriteAllText(UiPreferencesPath, JsonSerializer.Serialize(new UiPreferences { Pinned = Topmost, CompactMode = compactMode }));
+        }
+        catch { }
+    }
+
+    private void ApplyCompactMode()
+    {
+        if (SettingsContent is null || SetDefaultButton is null || CollapseButton is null) return;
+        SettingsContent.Visibility = compactMode ? Visibility.Collapsed : Visibility.Visible;
+        SetDefaultButton.Visibility = compactMode ? Visibility.Collapsed : Visibility.Visible;
+        Height = compactMode ? CompactWindowHeight : ExpandedWindowHeight;
+        CollapseButton.ContentTemplate = (DataTemplate)FindResource(compactMode ? "ExpandIcon" : "CollapseIcon");
+        CollapseButton.ToolTip = compactMode ? "Show settings" : "Hide settings";
+    }
+
     private static int Read(TextBox box, int min, int max) => int.TryParse(box.Text, out var value) ? Math.Clamp(value, min, max) : min;
     private static string Selected(ComboBox combo)
     {
@@ -878,9 +940,11 @@ public partial class MainWindow : Window
     private static uint GetModifiers() { uint m = 0; var mods = System.Windows.Input.Keyboard.Modifiers; if (mods.HasFlag(System.Windows.Input.ModifierKeys.Control)) m |= 2; if (mods.HasFlag(System.Windows.Input.ModifierKeys.Alt)) m |= 1; if (mods.HasFlag(System.Windows.Input.ModifierKeys.Shift)) m |= 4; return m; }
     private int Status(string text, Brush color)
     {
+        var revision = ++statusRevision;
+        if (StatusLabel is null) return revision;
         StatusLabel.Text = text;
         StatusLabel.Foreground = color;
-        return ++statusRevision;
+        return revision;
     }
 
     private void ShowOpenRgbStartedStatus(int generation)
@@ -965,6 +1029,7 @@ public partial class MainWindow : Window
     }
 
     private sealed class AppDefaults { public int Hours { get; set; } public int Minutes { get; set; } public int Seconds { get; set; } public int Milliseconds { get; set; } = 100; public string MouseButton { get; set; } = "Left"; public string? Input { get; set; } public int CustomKey { get; set; } public List<SequenceStep>? CustomSequence { get; set; } public string ClickType { get; set; } = "Single"; public bool RepeatUntilStopped { get; set; } = true; public int RepeatCount { get; set; } = 10; public bool FixedPosition { get; set; } public int X { get; set; } public int Y { get; set; } public int Hotkey { get; set; } = 117; public uint HotkeyModifiers { get; set; } public RgbSettings? Rgb { get; set; } }
+    private sealed class UiPreferences { public bool Pinned { get; set; } public bool CompactMode { get; set; } }
     [Flags] private enum MouseFlags : uint { LeftDown = 2, LeftUp = 4, RightDown = 8, RightUp = 16, MiddleDown = 32, MiddleUp = 64 }
     [Flags] private enum KeyboardFlags : uint { None = 0, ExtendedKey = 1, KeyUp = 2 }
     [StructLayout(LayoutKind.Sequential)] private struct Input { public uint Type; public InputUnion Data; }

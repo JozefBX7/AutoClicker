@@ -29,6 +29,7 @@
                             </StackPanel>
                         </Border>
                         <Button Content="Settings" Click="SettingsButton_Click" Style="{StaticResource HeaderButton}" />
+                        <Button x:Name="CollapseButton" ContentTemplate="{StaticResource CollapseIcon}" Click="CollapseButton_Click" ToolTip="Hide settings" Style="{StaticResource PinButton}" Margin="8,0,0,0" />
                         <Button x:Name="ThemeButton" Content="Theme" ContentTemplate="{StaticResource MoonIcon}" Click="ThemeButton_Click" ToolTip="Switch to light mode" Style="{StaticResource PinButton}" Margin="8,0,0,0" />
                         <Button x:Name="PinButton" Content="Pin" ContentTemplate="{StaticResource PinIcon}" Click="PinButton_Click" ToolTip="Keep on top" Style="{StaticResource PinButton}" Margin="8,0,0,0" />
                         <Button Click="CloseButton_Click" ToolTip="Quit the app" Style="{StaticResource CloseButton}" Foreground="{DynamicResource TextMutedBrush}" Margin="8,0,0,0">
@@ -38,7 +39,7 @@
                 </Grid>
             </Border>
 
-            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Disabled">
+            <ScrollViewer x:Name="SettingsContent" Grid.Row="1" VerticalScrollBarVisibility="Disabled">
                 <StackPanel Margin="22,16,22,8">
                     <Grid Margin="0,0,0,12">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
@@ -108,7 +109,7 @@
                     <StackPanel Orientation="Horizontal" Grid.Column="0">
                         <Button x:Name="StartButton" Content="Start" Click="StartButton_Click" Style="{StaticResource PrimaryButton}" Width="86" />
                         <Button x:Name="StopButton" Content="Stop" Click="StopButton_Click" Style="{StaticResource DangerButton}" Width="76" Margin="8,0,0,0" IsEnabled="False" />
-                        <Button Content="Set as default" ToolTip="Save every setting, including the hotkey, as the startup default." Click="SaveDefaultButton_Click" Style="{StaticResource GhostButton}" Margin="8,0,0,0" />
+                        <Button x:Name="SetDefaultButton" Content="Set as default" ToolTip="Save every setting, including the hotkey, as the startup default." Click="SaveDefaultButton_Click" Style="{StaticResource GhostButton}" Margin="8,0,0,0" />
                     </StackPanel>
                     <TextBlock x:Name="StatusLabel" Grid.Column="1" Text="Ready" Margin="12,0,0,0" HorizontalAlignment="Right" VerticalAlignment="Center" TextAlignment="Right" TextWrapping="Wrap" Foreground="{DynamicResource SuccessBrush}" FontSize="11" />
                 </Grid>
