@@ -219,6 +219,24 @@ public static class OpenRgbHighlighter
         catch (Exception exception) { AppLog.Error("OpenRGB indicator restore failed", exception); }
     }
 
+    /// <summary>Updates a temporary indicator preview without replacing its original LED snapshot.</summary>
+    public static string? PreviewIndicator(RgbLightingSnapshot snapshot, string indicatorColor)
+    {
+        if (!TryNormalizeIndicatorColor(indicatorColor, out var normalized)) return "Enter a colour as a hex value, for example #22D3EE.";
+        try
+        {
+            using var client = new OpenRgbClient(name: "AutoClicker");
+            client.SetCustomMode(snapshot.DeviceIndex);
+            client.UpdateSingleLed(snapshot.DeviceIndex, snapshot.KeyIndex, ColorFromNormalizedHex(normalized));
+            return null;
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error("OpenRGB colour preview failed", exception);
+            return $"OpenRGB preview unavailable: {exception.Message}";
+        }
+    }
+
     public static async Task PulseIndicatorAsync(RgbLightingSnapshot snapshot, int halfCycleMilliseconds, CancellationToken cancellation)
     {
         var halfCycle = Math.Clamp(halfCycleMilliseconds, 120, 2000);
@@ -281,11 +299,14 @@ public static class OpenRgbHighlighter
     private static Color IndicatorColor(RgbSettings settings)
     {
         TryNormalizeIndicatorColor(settings.IndicatorColor, out var hex);
-        return new Color(
+        return ColorFromNormalizedHex(hex);
+    }
+
+    private static Color ColorFromNormalizedHex(string hex) =>
+        new(
             byte.Parse(hex[1..3], NumberStyles.HexNumber, CultureInfo.InvariantCulture),
             byte.Parse(hex[3..5], NumberStyles.HexNumber, CultureInfo.InvariantCulture),
             byte.Parse(hex[5..7], NumberStyles.HexNumber, CultureInfo.InvariantCulture));
-    }
 
     private static bool SameKey(string ledName, string keyName)
     {

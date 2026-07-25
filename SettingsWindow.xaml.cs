@@ -71,18 +71,85 @@ public partial class SettingsWindow : Window
 
     private void IndicatorColorBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e) => UpdateColorPreview();
 
-    private void PickIndicatorColor_Click(object sender, RoutedEventArgs e)
+    private async void PickIndicatorColor_Click(object sender, RoutedEventArgs e)
     {
-        var current = ParseColor(IndicatorColorBox.Text) ?? System.Drawing.Color.FromArgb(34, 211, 238);
-        using var dialog = new System.Windows.Forms.ColorDialog
+        RgbLightingSnapshot? snapshot = null;
+        var previewFailed = false;
+        ColorPickerButton.IsEnabled = false;
+        try
         {
-            Color = current,
-            FullOpen = true,
-            AnyColor = true
-        };
+            OpenRgbHighlighter.TryNormalizeIndicatorColor(IndicatorColorBox.Text, out var initialColor);
+            var previewHint = "Choose an RGB colour. Live preview needs OpenRGB lighting and a selected keyboard.";
+            if (EnableOpenRgb.IsChecked == true && KeyboardCombo.SelectedItem is KeyboardDevice keyboard)
+            {
+                var previewSettings = new RgbSettings
+                {
+                    Enabled = true,
+                    DeviceIndex = keyboard.Index,
+                    DeviceName = keyboard.Name,
+                    AutoStart = AutoStartOpenRgb.IsChecked == true,
+                    StopAutoStartedOnExit = StopAutoStartedOpenRgb.IsChecked == true,
+                    IndicatorColor = initialColor
+                };
+                var availability = await OpenRgbHighlighter.EnsureSdkAsync(previewSettings);
+                if (availability.IsAvailable)
+                {
+                    var started = await Task.Run(() =>
+                    {
+                        var captured = OpenRgbHighlighter.EnableKeyIndicator(previewSettings, hotkeyKeyName, out var error);
+                        return (Snapshot: captured, Error: error);
+                    });
+                    snapshot = started.Snapshot;
+                    if (snapshot is null)
+                    {
+                        previewHint = "Live key preview is unavailable; you can still choose a colour.";
+                        ConnectionStatus.Text = started.Error ?? previewHint;
+                        ConnectionStatus.Foreground = ThemeManager.Brush("WarningBrush");
+                    }
+                    else previewHint = $"{hotkeyName} previews each colour and is restored when this picker closes.";
+                }
+                else
+                {
+                    previewHint = "OpenRGB preview is unavailable; you can still choose a colour.";
+                    ConnectionStatus.Text = availability.Message ?? previewHint;
+                    ConnectionStatus.Foreground = ThemeManager.Brush("WarningBrush");
+                }
+            }
 
-        if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
-        IndicatorColorBox.Text = $"#{dialog.Color.R:X2}{dialog.Color.G:X2}{dialog.Color.B:X2}";
+            var dialog = new ColorPickerWindow(initialColor, previewHint) { Owner = this };
+            if (snapshot is not null)
+            {
+                dialog.PreviewColorChanged += color =>
+                {
+                    var error = OpenRgbHighlighter.PreviewIndicator(snapshot, color);
+                    if (error is null) return;
+                    previewFailed = true;
+                    ConnectionStatus.Text = error;
+                    ConnectionStatus.Foreground = ThemeManager.Brush("ErrorBrush");
+                };
+            }
+            if (dialog.ShowDialog() == true) IndicatorColorBox.Text = dialog.SelectedColor;
+        }
+        catch (Exception exception)
+        {
+            previewFailed = true;
+            AppLog.Error("Could not open the indicator colour picker", exception);
+            ConnectionStatus.Text = $"Could not open the colour picker: {exception.Message}";
+            ConnectionStatus.Foreground = ThemeManager.Brush("ErrorBrush");
+        }
+        finally
+        {
+            if (snapshot is not null)
+            {
+                await Task.Run(() => OpenRgbHighlighter.RestoreIndicator(snapshot));
+                if (!previewFailed)
+                {
+                    ConnectionStatus.Text = "Colour preview ended; the original hotkey colour was restored.";
+                    ConnectionStatus.Foreground = ThemeManager.Brush("SuccessBrush");
+                }
+            }
+            ColorPickerButton.IsEnabled = true;
+        }
     }
 
     private void RestoreDefaults_Click(object sender, RoutedEventArgs e)
