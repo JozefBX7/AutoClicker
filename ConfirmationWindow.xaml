@@ -1,0 +1,13 @@
+<Window x:Class="AutoClicker.ConfirmationWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Icon="Assets/AutoClickerIcon.ico" Width="390" Height="205" ResizeMode="NoResize" WindowStyle="None" AllowsTransparency="True" Background="Transparent" FontFamily="Segoe UI" WindowStartupLocation="CenterOwner">
+    <Border Background="{DynamicResource AppBackgroundBrush}" BorderBrush="{DynamicResource ControlBorderBrush}" BorderThickness="1" CornerRadius="14">
+        <Grid Margin="1">
+            <Grid.RowDefinitions><RowDefinition Height="58" /><RowDefinition Height="*" /><RowDefinition Height="58" /></Grid.RowDefinitions>
+            <Border Background="{DynamicResource PanelBrush}" CornerRadius="13,13,0,0" MouseLeftButtonDown="Header_MouseLeftButtonDown"><TextBlock x:Name="TitleLabel" Margin="20,0" VerticalAlignment="Center" FontSize="17" FontWeight="SemiBold" Foreground="{DynamicResource TextStrongBrush}" /></Border>
+            <TextBlock x:Name="MessageLabel" Grid.Row="1" Margin="20,17" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
+            <Border Grid.Row="2" Background="{DynamicResource PanelBrush}" CornerRadius="0,0,13,13" Padding="20,10"><StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><Button x:Name="CancelButton" Content="Cancel" Click="CancelButton_Click" Style="{StaticResource GhostButton}" /><Button x:Name="ConfirmButton" Click="ConfirmButton_Click" Style="{StaticResource DangerButton}" Margin="8,0,0,0" /></StackPanel></Border>
+        </Grid>
+    </Border>
+</Window>

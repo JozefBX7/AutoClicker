@@ -1,0 +1,118 @@
+<Window x:Class="AutoClicker.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="AutoClicker" Icon="Assets/AutoClickerIcon.ico" Width="522" Height="558" ResizeMode="NoResize" WindowStartupLocation="CenterScreen"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        FontFamily="Segoe UI" PreviewKeyDown="Window_PreviewKeyDown" PreviewMouseLeftButtonDown="Window_PreviewMouseLeftButtonDown" SourceInitialized="Window_SourceInitialized" Closing="Window_Closing">
+    <Border Background="{DynamicResource AppBackgroundBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="16" SnapsToDevicePixels="True">
+        <Grid Margin="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="76" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="82" />
+            </Grid.RowDefinitions>
+            <Border Grid.Row="0" Background="{DynamicResource PanelBrush}" CornerRadius="15,15,0,0" MouseLeftButtonDown="Header_MouseLeftButtonDown">
+                <Grid Margin="22,13">
+                    <StackPanel>
+                        <TextBlock Text="AutoClicker" FontSize="20" FontWeight="SemiBold" Foreground="{DynamicResource TextStrongBrush}" />
+                        <TextBlock FontSize="11" Foreground="{DynamicResource TextMutedBrush}" ><Run Text="Pretty, fast"/><LineBreak/><Run/><LineBreak/><Run/></TextBlock>
+                    </StackPanel>
+                    <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Border Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource ControlBorderBrush}" BorderThickness="1" CornerRadius="8" Margin="0,0,8,0">
+                            <StackPanel Orientation="Horizontal">
+                                <StackPanel Orientation="Horizontal" Margin="10,0">
+                                    <TextBlock Text="HOTKEY  " FontSize="9" FontWeight="Bold" Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="HotkeyLabel" Text="F6" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource HotkeyTextBrush}" VerticalAlignment="Center" />
+                                </StackPanel>
+                                <Border Width="1" Background="{DynamicResource ControlBorderBrush}" />
+                                <Button x:Name="HotkeyButton" Content="Edit" ContentTemplate="{StaticResource HotkeyEditIcon}" Click="HotkeyButton_Click" ToolTip="Change hotkey" Style="{StaticResource HeaderEmbeddedIconButton}" />
+                            </StackPanel>
+                        </Border>
+                        <Button Content="Settings" Click="SettingsButton_Click" Style="{StaticResource HeaderButton}" />
+                        <Button x:Name="ThemeButton" Content="Theme" ContentTemplate="{StaticResource MoonIcon}" Click="ThemeButton_Click" ToolTip="Switch to light mode" Style="{StaticResource PinButton}" Margin="8,0,0,0" />
+                        <Button x:Name="PinButton" Content="Pin" ContentTemplate="{StaticResource PinIcon}" Click="PinButton_Click" ToolTip="Keep on top" Style="{StaticResource PinButton}" Margin="8,0,0,0" />
+                        <Button Click="CloseButton_Click" ToolTip="Quit the app" Style="{StaticResource CloseButton}" Foreground="{DynamicResource TextMutedBrush}" Margin="8,0,0,0">
+                            <Viewbox Width="12" Height="12"><Viewbox.RenderTransform><TranslateTransform X="-1" /></Viewbox.RenderTransform><Path Data="M 2 2 L 10 10 M 10 2 L 2 10" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" /></Viewbox>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Disabled">
+                <StackPanel Margin="22,16,22,8">
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <Border Style="{StaticResource Card}" Margin="0,0,6,0">
+                            <StackPanel>
+                                <TextBlock Text="Interval" Style="{StaticResource SectionTitle}" />
+                                <TextBlock x:Name="IntervalHint" Text="Time between clicks" Style="{StaticResource SectionHint}" />
+                                <Grid Margin="0,12,0,0">
+                                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+                                    <StackPanel><TextBlock Text="Hours" Style="{StaticResource FieldLabel}" /><TextBox x:Name="HoursBox" Text="0" /></StackPanel>
+                                    <StackPanel Grid.Column="1" Margin="6,0,0,0"><TextBlock Text="Minutes" Style="{StaticResource FieldLabel}" /><TextBox x:Name="MinutesBox" Text="0" /></StackPanel>
+                                    <StackPanel Grid.Column="2" Margin="6,0,0,0"><TextBlock Text="Seconds" Style="{StaticResource FieldLabel}" /><TextBox x:Name="SecondsBox" Text="0" /></StackPanel>
+                                    <StackPanel Grid.Column="3" Margin="6,0,0,0"><TextBlock Text="Millis" Style="{StaticResource FieldLabel}" /><TextBox x:Name="MillisBox" Text="100" /></StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Column="1" Style="{StaticResource Card}" Margin="6,0,0,0">
+                            <StackPanel>
+                                <TextBlock Text="Action" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Text="Mouse or keyboard input" Style="{StaticResource SectionHint}" />
+                                <Grid Margin="0,12,0,0"><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+                                    <StackPanel><TextBlock Text="Input" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="ButtonCombo" SelectedIndex="0" SelectionChanged="ActionCombo_SelectionChanged"><ComboBoxItem Content="Left click" Tag="Left" /><ComboBoxItem Content="Right click" Tag="Right" /><ComboBoxItem Content="Middle click" Tag="Middle" /><ComboBoxItem Content="Space" Tag="Space" /><ComboBoxItem Content="Enter" Tag="Enter" /><ComboBoxItem x:Name="CustomKeyItem" Content="Custom key" Tag="Custom" /><ComboBoxItem x:Name="PickKeyItem" Content="Pick a key…" Tag="Pick" /><ComboBoxItem x:Name="SequenceItem" Content="Custom sequence" Tag="Sequence" /><ComboBoxItem x:Name="EditSequenceItem" Content="Edit custom sequence…" Tag="EditSequence" /></ComboBox></StackPanel>
+                                    <StackPanel Grid.Column="1" Margin="8,0,0,0"><TextBlock Text="Action" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="TypeCombo" SelectedIndex="0"><ComboBoxItem Content="Single" /><ComboBoxItem Content="Double" /></ComboBox></StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <Border Style="{StaticResource Card}" Margin="0,0,6,0">
+                            <StackPanel>
+                                <TextBlock Text="Repeat" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Text="Stop automatically, or keep going" Style="{StaticResource SectionHint}" />
+                                <RadioButton x:Name="UntilStoppedRadio" GroupName="RepeatMode" Content="Repeat until stopped" IsChecked="True" Margin="0,12,0,7" Checked="RepeatMode_Changed" />
+                                <StackPanel Orientation="Horizontal"><RadioButton x:Name="CountRadio" GroupName="RepeatMode" Content="Repeat" Checked="RepeatMode_Changed" /><TextBox x:Name="CountBox" Text="10" Width="52" Margin="8,-4,6,0" IsEnabled="False" /><TextBlock Text="times" Foreground="{DynamicResource TextMutedBrush}" FontSize="12" /></StackPanel>
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Column="1" Style="{StaticResource Card}" Margin="6,0,0,0">
+                            <StackPanel>
+                                <TextBlock Text="Position" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Text="Use the cursor, or fixed coordinates" Style="{StaticResource SectionHint}" />
+                                <RadioButton x:Name="CurrentPositionRadio" GroupName="PositionMode" Content="Current cursor position" IsChecked="True" Margin="0,12,0,4" Checked="PositionMode_Changed" />
+                                <StackPanel Orientation="Horizontal"><RadioButton x:Name="FixedPositionRadio" GroupName="PositionMode" Content="Fixed" Checked="PositionMode_Changed" /><TextBlock Text="X" Style="{StaticResource InlineLabel}" /><TextBox x:Name="XBox" Text="0" Width="45" IsEnabled="False" Margin="4,-4,5,0" /><TextBlock Text="Y" Style="{StaticResource InlineLabel}" /><TextBox x:Name="YBox" Text="0" Width="45" IsEnabled="False" Margin="4,-4,0,0" /></StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <Border x:Name="LiveArea" Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource LiveBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="13,10" PreviewMouseDown="LiveArea_PreviewMouseDown">
+                        <Grid>
+                            <StackPanel><TextBlock x:Name="LiveTitleLabel" Text="LIVE CLICK AREA" FontSize="9" FontWeight="Bold" Foreground="{DynamicResource TextMutedBrush}" /><TextBlock x:Name="LiveCountLabel" Text="Start to test" FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,0" /><TextBlock x:Name="LiveIntervalLabel" Text="Waiting for clicks" FontSize="10" Foreground="{DynamicResource TextMutedBrush}" Margin="0,2,0,0" /></StackPanel>
+                            <StackPanel HorizontalAlignment="Right" VerticalAlignment="Center" Orientation="Horizontal">
+                                <TextBlock x:Name="LiveMouseHint" Text="Hover here while running" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource TextMutedBrush}" />
+                                <Grid x:Name="LiveKeyFocusBox" Width="158" Visibility="Collapsed">
+                                    <TextBox x:Name="KeyTestBox" IsReadOnly="True" FontSize="10" Padding="8,5" PreviewKeyDown="KeyTestBox_PreviewKeyDown" GotKeyboardFocus="KeyTestBox_GotKeyboardFocus" />
+                                    <TextBlock x:Name="KeyTestPlaceholder" Text="Focus here while running" IsHitTestVisible="False" Margin="9,0" VerticalAlignment="Center" FontSize="10" Foreground="{DynamicResource TextMutedBrush}" />
+                                </Grid>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <Border Grid.Row="2" Background="{DynamicResource PanelBrush}" CornerRadius="0,0,15,15" Padding="22,14">
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal" Grid.Column="0">
+                        <Button x:Name="StartButton" Content="Start" Click="StartButton_Click" Style="{StaticResource PrimaryButton}" Width="86" />
+                        <Button x:Name="StopButton" Content="Stop" Click="StopButton_Click" Style="{StaticResource DangerButton}" Width="76" Margin="8,0,0,0" IsEnabled="False" />
+                        <Button Content="Set as default" ToolTip="Save every setting, including the hotkey, as the startup default." Click="SaveDefaultButton_Click" Style="{StaticResource GhostButton}" Margin="8,0,0,0" />
+                    </StackPanel>
+                    <TextBlock x:Name="StatusLabel" Grid.Column="1" Text="Ready" Margin="12,0,0,0" HorizontalAlignment="Right" VerticalAlignment="Center" TextAlignment="Right" TextWrapping="Wrap" Foreground="{DynamicResource SuccessBrush}" FontSize="11" />
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</Window>

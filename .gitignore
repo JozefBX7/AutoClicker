@@ -1,0 +1,12 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+bin-*/
+
+# Per-user IDE and project settings
+*.user
+*.suo
+.vs/
+
+# Runtime diagnostics
+AutoClicker.log
