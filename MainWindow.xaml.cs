@@ -958,12 +958,14 @@ public partial class MainWindow : Window
 
     private void ApplyCompactMode()
     {
-        if (SettingsContent is null || SetDefaultButton is null || CollapseButton is null) return;
+        if (SettingsContent is null || SetDefaultButton is null || CollapseButton is null || CollapseGlyph is null || CollapseLabel is null) return;
         SettingsContent.Visibility = compactMode ? Visibility.Collapsed : Visibility.Visible;
         SetDefaultButton.Visibility = compactMode ? Visibility.Collapsed : Visibility.Visible;
         Height = compactMode ? CompactWindowHeight : ExpandedWindowHeight;
-        CollapseButton.ContentTemplate = (DataTemplate)FindResource(compactMode ? "ExpandIcon" : "CollapseIcon");
-        CollapseButton.ToolTip = compactMode ? "Show settings" : "Hide settings";
+        var isCompact = compactMode;
+        CollapseGlyph.ContentTemplate = (DataTemplate)FindResource(isCompact ? "ExpandIcon" : "CollapseIcon");
+        CollapseLabel.Text = isCompact ? "Show settings" : "Hide settings";
+        CollapseButton.ToolTip = CollapseLabel.Text;
     }
 
     private static int Read(TextBox box, int min, int max) => InputRules.ParseClamped(box.Text, min, max);
