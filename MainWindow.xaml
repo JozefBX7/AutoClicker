@@ -87,7 +87,7 @@
                             <StackPanel>
                                 <TextBlock Text="Position" Style="{StaticResource SectionTitle}" />
                                 <TextBlock Text="Use the cursor, or fixed coordinates" Style="{StaticResource SectionHint}" />
-                                <RadioButton x:Name="CurrentPositionRadio" GroupName="PositionMode" Content="Current cursor position" IsChecked="True" Margin="0,12,0,4" Checked="PositionMode_Changed" />
+                                <RadioButton x:Name="CurrentPositionRadio" GroupName="PositionMode" Content="Current cursor position" IsChecked="True" Margin="0,12,0,7" Checked="PositionMode_Changed" />
                                 <StackPanel Orientation="Horizontal"><RadioButton x:Name="FixedPositionRadio" GroupName="PositionMode" Content="Fixed" Checked="PositionMode_Changed" /><TextBlock Text="X" Style="{StaticResource InlineLabel}" /><TextBox x:Name="XBox" Text="0" Width="45" IsEnabled="False" Margin="4,-4,5,0" /><TextBlock Text="Y" Style="{StaticResource InlineLabel}" /><TextBox x:Name="YBox" Text="0" Width="45" IsEnabled="False" Margin="4,-4,0,0" /></StackPanel>
                             </StackPanel>
                         </Border>
