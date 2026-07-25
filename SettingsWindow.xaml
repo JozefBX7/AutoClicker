@@ -14,7 +14,7 @@
                         <StackPanel>
                             <TextBlock Text="Keyboard lighting" Style="{StaticResource SectionTitle}" />
                             <TextBlock Text="OpenRGB controls the selected keyboard locally (127.0.0.1:6742)." Foreground="{DynamicResource TextMutedBrush}" FontSize="10" TextWrapping="Wrap" Margin="0,2,0,9" />
-                            <CheckBox x:Name="EnableOpenRgb" Content="Light the hotkey with OpenRGB" FontWeight="SemiBold" />
+                            <CheckBox x:Name="EnableOpenRgb" Content="Light the hotkey with OpenRGB while AutoClicker is active" FontWeight="SemiBold" />
                             <CheckBox x:Name="AutoStartOpenRgb" Content="Start OpenRGB automatically when needed" FontWeight="SemiBold" Margin="0,8,0,0" />
                             <TextBlock Text="Uses a normal local OpenRGB install; never launches a second instance." Foreground="{DynamicResource TextMutedBrush}" FontSize="10" Margin="0,3,0,0" />
                             <CheckBox x:Name="StopAutoStartedOpenRgb" Content="Stop OpenRGB if AutoClicker started it" FontWeight="SemiBold" Margin="0,8,0,0" />
