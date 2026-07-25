@@ -211,7 +211,9 @@ public partial class SettingsWindow : Window
         ColorPreview.Background = color is null
             ? ThemeManager.Brush("DisabledBrush")
             : new SolidColorBrush(Color.FromRgb(color.Value.R, color.Value.G, color.Value.B));
-        ColorPreview.ToolTip = color is null ? "Enter a valid hex colour" : $"Selected colour: {IndicatorColorBox.Text.ToUpperInvariant()}";
+        ColorPickerButton.ToolTip = color is null
+            ? "Choose indicator colour — enter a valid hex value"
+            : $"Choose indicator colour (currently {IndicatorColorBox.Text.ToUpperInvariant()})";
     }
 
     private static System.Drawing.Color? ParseColor(string value)
