@@ -29,4 +29,12 @@ public sealed class UpdateServiceTests
     [TestMethod]
     public void DownloadUrl_SelectsTheInstallerAsset() =>
         StringAssert.EndsWith(UpdateService.DownloadUrl("v1.2.3", portable: false).AbsoluteUri, "/v1.2.3/AutoClicker-Setup-x64.exe");
+
+    [TestMethod]
+    public void IsOfficialDownloadUrl_AcceptsOnlyThisRepositorysGithubReleaseAssets()
+    {
+        Assert.IsTrue(UpdateService.IsOfficialDownloadUrl(UpdateService.DownloadUrl("v1.2.3", portable: false)));
+        Assert.IsFalse(UpdateService.IsOfficialDownloadUrl(new Uri("https://example.com/AutoClicker-Setup-x64.exe")));
+        Assert.IsFalse(UpdateService.IsOfficialDownloadUrl(new Uri("https://github.com/other/AutoClicker/releases/download/v1.2.3/AutoClicker-Setup-x64.exe")));
+    }
 }

@@ -15,7 +15,7 @@ Uninstalling deliberately preserves your user settings and backups. Delete `%Loc
 
 ## Updates
 
-In **Settings → Updates**, users can manually check GitHub Releases. When a newer version is found, AutoClicker opens the matching installer or portable ZIP in the browser; it never downloads or runs an update automatically. Running a newer installer upgrades the existing installation, while portable users replace the executable and keep their `Data` folder.
+In **Settings → Updates**, users can manually check GitHub Releases; AutoClicker never checks in the background. For an installed copy, a newer version can be explicitly downloaded and passed to the normal installer after confirmation. Portable copies open the matching ZIP in the browser so users can extract it over the portable folder while preserving `Data`.
 
 The in-app update check needs the GitHub release to be public. A private repository cannot be queried anonymously without shipping a secret token, which would be unsafe. For private releases, the **Open Releases** button still works for users signed into GitHub with repository access. To share updates with friends without access, make the releases public or use another public download page such as Google Drive.
 

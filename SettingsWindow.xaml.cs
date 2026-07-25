@@ -63,7 +63,8 @@ public partial class SettingsWindow : Window
             UpdateStatus.Foreground = ThemeManager.Brush(update.IsUpdateAvailable ? "SuccessBrush" : "TextMutedBrush");
             if (update.IsUpdateAvailable && update.DownloadUri is not null)
             {
-                DownloadUpdateButton.Tag = update.DownloadUri;
+                DownloadUpdateButton.Tag = update;
+                DownloadUpdateButton.Content = AppPaths.IsPortable ? "Download portable update" : "Download && install";
                 DownloadUpdateButton.Visibility = Visibility.Visible;
             }
         }
@@ -77,9 +78,39 @@ public partial class SettingsWindow : Window
     }
 
     private void OpenReleases_Click(object sender, RoutedEventArgs e) => OpenUrl(UpdateService.ReleasesUrl);
-    private void DownloadUpdate_Click(object sender, RoutedEventArgs e)
+    private async void DownloadUpdate_Click(object sender, RoutedEventArgs e)
     {
-        if (DownloadUpdateButton.Tag is Uri url) OpenUrl(url);
+        if (DownloadUpdateButton.Tag is not UpdateCheckResult { DownloadUri: { } downloadUri } update) return;
+        if (AppPaths.IsPortable)
+        {
+            OpenUrl(downloadUri);
+            UpdateStatus.Text = "Download opened. Extract it over the portable copy after AutoClicker closes; its Data folder is preserved.";
+            UpdateStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+            return;
+        }
+
+        var confirmation = new ConfirmationWindow(
+            "Install update",
+            $"Download and run AutoClicker {update.LatestTag} from the official GitHub Release? AutoClicker will close before setup starts.",
+            "Download and install") { Owner = this };
+        if (confirmation.ShowDialog() != true) return;
+
+        DownloadUpdateButton.IsEnabled = false;
+        UpdateStatus.Text = "Downloading the installer from GitHub Releases…";
+        UpdateStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+        try
+        {
+            var installerPath = await UpdateService.DownloadInstallerAsync(downloadUri, update.LatestTag ?? "latest", CancellationToken.None);
+            Process.Start(new ProcessStartInfo(installerPath) { UseShellExecute = true });
+            System.Windows.Application.Current.Shutdown();
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error("GitHub update installer download failed", exception);
+            UpdateStatus.Text = "Could not download the installer. Open Releases to download the update manually.";
+            UpdateStatus.Foreground = ThemeManager.Brush("WarningBrush");
+            DownloadUpdateButton.IsEnabled = true;
+        }
     }
     private static void OpenUrl(Uri url) => Process.Start(new ProcessStartInfo(url.AbsoluteUri) { UseShellExecute = true });
 

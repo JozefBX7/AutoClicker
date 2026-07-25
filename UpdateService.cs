@@ -1,6 +1,7 @@
 using System.Net.Http;
 using System.Reflection;
 using System.Text.Json;
+using System.IO;
 
 namespace AutoClicker;
 
@@ -21,6 +22,8 @@ internal static class UpdateService
             using var client = new HttpClient();
             client.DefaultRequestHeaders.UserAgent.ParseAdd("AutoClicker-update-check");
             using var response = await client.GetAsync(LatestReleaseApi, cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return new(false, null, null, "No published GitHub Release is available yet.");
             if (!response.IsSuccessStatusCode)
                 return new(false, null, null, "Could not check GitHub Releases. Open Releases to download an update manually.");
 
@@ -53,4 +56,30 @@ internal static class UpdateService
 
     internal static bool TryParseVersion(string tag, out Version version) =>
         Version.TryParse(tag.Trim().TrimStart('v', 'V'), out version!);
+
+    internal static bool IsOfficialDownloadUrl(Uri uri) =>
+        uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+        && uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
+        && uri.AbsolutePath.StartsWith($"/{Repository}/releases/download/", StringComparison.Ordinal);
+
+    internal static async Task<string> DownloadInstallerAsync(Uri downloadUri, string versionTag, CancellationToken cancellationToken)
+    {
+        if (!IsOfficialDownloadUrl(downloadUri))
+            throw new InvalidOperationException("The update download is not an official AutoClicker GitHub Release.");
+
+        var safeTag = string.Concat(versionTag.Where(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '_'));
+        if (string.IsNullOrWhiteSpace(safeTag)) safeTag = "latest";
+        var directory = Path.Combine(Path.GetTempPath(), "AutoClicker", "Updates");
+        Directory.CreateDirectory(directory);
+        var destination = Path.Combine(directory, $"AutoClicker-Setup-x64-{safeTag}.exe");
+
+        using var client = new HttpClient();
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("AutoClicker-update-installer");
+        using var response = await client.GetAsync(downloadUri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
+        await using var target = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None);
+        await source.CopyToAsync(target, cancellationToken);
+        return destination;
+    }
 }
