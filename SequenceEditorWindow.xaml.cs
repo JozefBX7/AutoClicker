@@ -23,7 +23,9 @@ public partial class SequenceEditorWindow : Window
         this.library = library.Select(preset => preset.Clone()).ToList();
         StepsList.ItemsSource = steps;
         PresetCombo.ItemsSource = this.library;
+        steps.CollectionChanged += (_, _) => UpdateEmptyStates();
         UpdateActionButtons();
+        UpdateEmptyStates();
     }
 
     private void Header_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e) { if (e.LeftButton == System.Windows.Input.MouseButtonState.Pressed) DragMove(); }
@@ -123,7 +125,14 @@ public partial class SequenceEditorWindow : Window
         LibraryChanged = true;
         PresetCombo.Items.Refresh();
         PresetCombo.SelectedItem = preset;
+        UpdateEmptyStates();
         HintLabel.Text = $"Saved {name} to your sequence library.";
+    }
+
+    private void UpdateEmptyStates()
+    {
+        if (EmptyStepsLabel is not null) EmptyStepsLabel.Visibility = steps.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (EmptyPresetsLabel is not null) EmptyPresetsLabel.Visibility = library.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
     private void Remove_Click(object sender, RoutedEventArgs e) { if (StepsList.SelectedItem is SequenceStep step) steps.Remove(step); }
     private void MoveUp_Click(object sender, RoutedEventArgs e) { var i = StepsList.SelectedIndex; if (i > 0) { steps.Move(i, i - 1); StepsList.SelectedIndex = i - 1; } }
