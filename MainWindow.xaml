@@ -13,12 +13,16 @@
             </Grid.RowDefinitions>
             <Border Grid.Row="0" Background="{DynamicResource PanelBrush}" CornerRadius="15,15,0,0" MouseLeftButtonDown="Header_MouseLeftButtonDown">
                 <Grid Margin="22,13">
-                    <StackPanel>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center">
                         <TextBlock Text="AutoClicker" FontSize="20" FontWeight="SemiBold" Foreground="{DynamicResource TextStrongBrush}" />
-                        <TextBlock FontSize="11" Foreground="{DynamicResource TextMutedBrush}" ><Run Text="Pretty, fast"/><LineBreak/><Run/><LineBreak/><Run/></TextBlock>
+                        <TextBlock Text="Pretty, fast" FontSize="11" Foreground="{DynamicResource TextMutedBrush}" />
                     </StackPanel>
-                    <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                        <Border Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource ControlBorderBrush}" BorderThickness="1" CornerRadius="8" Margin="0,0,8,0">
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Border Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource ControlBorderBrush}" BorderThickness="1" CornerRadius="8" Margin="0,0,6,0">
                             <StackPanel Orientation="Horizontal">
                                 <StackPanel Orientation="Horizontal" Margin="10,0">
                                     <TextBlock Text="HOTKEY  " FontSize="9" FontWeight="Bold" Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center" />
@@ -28,13 +32,15 @@
                                 <Button x:Name="HotkeyButton" Content="Edit" ContentTemplate="{StaticResource HotkeyEditIcon}" Click="HotkeyButton_Click" ToolTip="Change hotkey" Style="{StaticResource HeaderEmbeddedIconButton}" />
                             </StackPanel>
                         </Border>
-                        <Button Content="Settings" Click="SettingsButton_Click" Style="{StaticResource HeaderButton}" />
-                        <Button x:Name="CollapseButton" ContentTemplate="{StaticResource CollapseIcon}" Click="CollapseButton_Click" ToolTip="Hide settings" Style="{StaticResource PinButton}" Margin="8,0,0,0" />
-                        <Button x:Name="ThemeButton" Content="Theme" ContentTemplate="{StaticResource MoonIcon}" Click="ThemeButton_Click" ToolTip="Switch to light mode" Style="{StaticResource PinButton}" Margin="8,0,0,0" />
-                        <Button x:Name="PinButton" Content="Pin" ContentTemplate="{StaticResource PinIcon}" Click="PinButton_Click" ToolTip="Keep on top" Style="{StaticResource PinButton}" Margin="8,0,0,0" />
-                        <Button Click="CloseButton_Click" ToolTip="Quit the app" Style="{StaticResource CloseButton}" Foreground="{DynamicResource TextMutedBrush}" Margin="8,0,0,0">
+                        <Button Content="Settings" Click="SettingsButton_Click" Style="{StaticResource HeaderButton}" Margin="0,0,6,0" />
+                        <StackPanel Orientation="Horizontal">
+                            <Button x:Name="CollapseButton" ContentTemplate="{StaticResource CollapseIcon}" Click="CollapseButton_Click" ToolTip="Hide settings" Style="{StaticResource PinButton}" />
+                            <Button x:Name="ThemeButton" Content="Theme" ContentTemplate="{StaticResource MoonIcon}" Click="ThemeButton_Click" ToolTip="Switch to light mode" Style="{StaticResource PinButton}" Margin="3,0,0,0" />
+                            <Button x:Name="PinButton" Content="Pin" ContentTemplate="{StaticResource PinIcon}" Click="PinButton_Click" ToolTip="Keep on top" Style="{StaticResource PinButton}" Margin="3,0,0,0" />
+                            <Button Click="CloseButton_Click" ToolTip="Quit the app" Style="{StaticResource CloseButton}" Foreground="{DynamicResource TextMutedBrush}" Margin="3,0,0,0">
                             <Viewbox Width="12" Height="12"><Viewbox.RenderTransform><TranslateTransform X="-1" /></Viewbox.RenderTransform><Path Data="M 2 2 L 10 10 M 10 2 L 2 10" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" /></Viewbox>
-                        </Button>
+                            </Button>
+                        </StackPanel>
                     </StackPanel>
                 </Grid>
             </Border>
