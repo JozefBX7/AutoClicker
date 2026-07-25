@@ -10,6 +10,7 @@ public partial class SequenceEditorWindow : Window
     private bool pickingKey;
     private int customKey;
     private string selectedAction = "Left";
+    private Point dragStart;
     private readonly List<SequencePreset> library;
     public bool LibraryChanged { get; private set; }
     public IReadOnlyList<SequenceStep> Steps => steps.Select(step => step.Clone()).ToList();
@@ -27,12 +28,9 @@ public partial class SequenceEditorWindow : Window
 
     private void Header_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e) { if (e.LeftButton == System.Windows.Input.MouseButtonState.Pressed) DragMove(); }
     private void CloseButton_Click(object sender, RoutedEventArgs e) => DialogResult = false;
-    private void MouseActionButton_Click(object sender, RoutedEventArgs e)
+    private void DirectAction_Click(object sender, RoutedEventArgs e)
     {
-        selectedAction = ((Button)sender).CommandParameter?.ToString() ?? "Left";
-        pickingKey = false;
-        UpdateActionButtons();
-        HintLabel.Text = $"{new SequenceStep { Input = selectedAction }.Describe()} ready to add.";
+        AddEvent(((Button)sender).CommandParameter?.ToString() ?? "Left");
     }
 
     private void KeyboardActionButton_Click(object sender, RoutedEventArgs e)
@@ -51,17 +49,38 @@ public partial class SequenceEditorWindow : Window
         if (customKey == 0) return;
         selectedAction = "Custom";
         pickingKey = false;
-        UpdateActionButtons();
-        HintLabel.Text = $"{key} ready to add.";
+        AddEvent("Custom", customKey);
     }
-    private void Add_Click(object sender, RoutedEventArgs e)
+    private void AddDelay_Click(object sender, RoutedEventArgs e)
     {
-        var input = selectedAction;
-        if (input == "Custom" && customKey == 0) { HintLabel.Text = "Choose the keyboard button and press a key first."; return; }
-        var delay = int.TryParse(DelayBox.Text, out var value) ? Math.Clamp(value, 0, 600000) : 0;
-        steps.Add(new SequenceStep { Input = input, CustomKey = input == "Custom" ? customKey : 0, DelayAfterMilliseconds = delay });
+        var delay = int.TryParse(DelayBox.Text, out var value) ? Math.Clamp(value, 1, 600000) : 100;
+        steps.Add(new SequenceStep { Input = "Delay", DelayAfterMilliseconds = delay });
         StepsList.SelectedIndex = steps.Count - 1;
-        HintLabel.Text = "Action added. Add another step, or save the sequence.";
+        HintLabel.Text = $"Wait {delay:N0} ms added.";
+    }
+
+    private void AddEvent(string input, int key = 0)
+    {
+        steps.Add(new SequenceStep { Input = input, CustomKey = key });
+        StepsList.SelectedIndex = steps.Count - 1;
+        HintLabel.Text = $"{steps[^1].Describe()} added.";
+    }
+
+    private void StepsList_PreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e) => dragStart = e.GetPosition(StepsList);
+    private void StepsList_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (e.LeftButton != System.Windows.Input.MouseButtonState.Pressed) return;
+        var position = e.GetPosition(StepsList);
+        if (Math.Abs(position.X - dragStart.X) < SystemParameters.MinimumHorizontalDragDistance && Math.Abs(position.Y - dragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+        if (StepsList.SelectedItem is SequenceStep step) DragDrop.DoDragDrop(StepsList, step, DragDropEffects.Move);
+    }
+    private void StepsList_Drop(object sender, DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(typeof(SequenceStep)) || e.Data.GetData(typeof(SequenceStep)) is not SequenceStep source) return;
+        var target = (e.OriginalSource as DependencyObject) is { } element ? (ItemsControl.ContainerFromElement(StepsList, element) as FrameworkElement)?.DataContext as SequenceStep : null;
+        if (target is null || ReferenceEquals(source, target)) return;
+        var from = steps.IndexOf(source); var to = steps.IndexOf(target);
+        if (from >= 0 && to >= 0) { steps.Move(from, to); StepsList.SelectedItem = source; }
     }
 
     private void UpdateActionButtons()

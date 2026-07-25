@@ -8,7 +8,9 @@ public sealed class SequenceStep
 
     public SequenceStep Clone() => new() { Input = Input, CustomKey = CustomKey, DelayAfterMilliseconds = DelayAfterMilliseconds };
 
-    public override string ToString() => $"{Describe()}  → wait {DelayAfterMilliseconds:N0} ms";
+    public override string ToString() => Input == "Delay"
+        ? $"Wait {DelayAfterMilliseconds:N0} ms"
+        : DelayAfterMilliseconds > 0 ? $"{Describe()}  → wait {DelayAfterMilliseconds:N0} ms" : Describe();
 
     public string Describe() => Input switch
     {
@@ -18,6 +20,7 @@ public sealed class SequenceStep
         "Space" => "Space",
         "Enter" => "Enter",
         "Custom" => System.Windows.Input.KeyInterop.KeyFromVirtualKey(CustomKey).ToString(),
+        "Delay" => "Wait",
         _ => Input
     };
 }

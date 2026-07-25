@@ -415,9 +415,14 @@ public partial class MainWindow : Window
                 {
                     foreach (var step in settings.Sequence)
                     {
+                        if (step.IsDelay)
+                        {
+                            timer.WaitUntil(Stopwatch.GetTimestamp() + step.DelayAfterMilliseconds * Stopwatch.Frequency / 1000d, cancellation.Token);
+                            continue;
+                        }
                         if (settings.FixedPosition && step.IsMouse) SetCursorPos(settings.X, settings.Y);
                         SendAction(step.Inputs, false);
-                        if (step.DelayAfterMilliseconds > 0 && step != settings.Sequence[^1])
+                        if (step.DelayAfterMilliseconds > 0)
                             timer.WaitUntil(Stopwatch.GetTimestamp() + step.DelayAfterMilliseconds * Stopwatch.Frequency / 1000d, cancellation.Token);
                     }
                 }
@@ -1049,8 +1054,9 @@ public partial class MainWindow : Window
     }
     private static SequenceAction[] BuildSequence(IEnumerable<SequenceStep> sequence) => sequence.Select(step =>
     {
+        if (step.Input == "Delay") return new SequenceAction([], false, true, Math.Clamp(step.DelayAfterMilliseconds, 1, 600000));
         var key = step.Input switch { "Space" => 0x20, "Enter" => 0x0D, "Custom" => step.CustomKey, _ => 0 };
-        return new SequenceAction(key == 0 ? CreateClickInputs(step.Input) : CreateKeyInputs(key), key == 0, Math.Clamp(step.DelayAfterMilliseconds, 0, 600000));
+        return new SequenceAction(key == 0 ? CreateClickInputs(step.Input) : CreateKeyInputs(key), key == 0, false, Math.Clamp(step.DelayAfterMilliseconds, 0, 600000));
     }).ToArray();
     private static bool IsExtendedKey(int virtualKey) => virtualKey is 0x21 or 0x22 or 0x23 or 0x24 or 0x25 or 0x26 or 0x27 or 0x28 or 0x2D or 0x2E or 0x5B or 0x5C or 0x5D or 0xA3 or 0xA5 or 0x6F;
     private static void SendAction(Input[] inputs, bool doubleClick)
@@ -1060,7 +1066,7 @@ public partial class MainWindow : Window
     }
 
     private sealed record ClickSettings(bool FixedPosition, int X, int Y, string Button, int? KeyboardVirtualKey, bool DoubleClick, int? MaximumClicks, SequenceAction[]? Sequence);
-    private sealed record SequenceAction(Input[] Inputs, bool IsMouse, int DelayAfterMilliseconds);
+    private sealed record SequenceAction(Input[] Inputs, bool IsMouse, bool IsDelay, int DelayAfterMilliseconds);
     private sealed class PrecisionTimer : IDisposable
     {
         private const uint TimerAllAccess = 0x001F0003;
