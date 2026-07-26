@@ -69,6 +69,7 @@ public partial class SequenceEditorWindow : Window
     private void StepsList_PreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e) => dragStart = e.GetPosition(StepsList);
     private void StepsList_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
     {
+        if (System.Windows.Input.Keyboard.FocusedElement is TextBox) return;
         if (e.LeftButton != System.Windows.Input.MouseButtonState.Pressed) return;
         var position = e.GetPosition(StepsList);
         if (Math.Abs(position.X - dragStart.X) < SystemParameters.MinimumHorizontalDragDistance && Math.Abs(position.Y - dragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
@@ -139,6 +140,23 @@ public partial class SequenceEditorWindow : Window
     {
         if (EmptyStepsLabel is not null) EmptyStepsLabel.Visibility = steps.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         if (EmptyPresetsLabel is not null) EmptyPresetsLabel.Visibility = library.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void DelayEventBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (sender is not TextBox { DataContext: SequenceStep { Input: "Delay" } step } box) return;
+        if (int.TryParse(box.Text, out var milliseconds)) step.DelayAfterMilliseconds = Math.Clamp(milliseconds, 1, 600000);
+    }
+
+    private void DelayEventBox_GotKeyboardFocus(object sender, System.Windows.Input.KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is TextBox box) box.SelectAll();
+    }
+
+    private void DelayEventBox_LostKeyboardFocus(object sender, System.Windows.Input.KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is TextBox { DataContext: SequenceStep { Input: "Delay" } step } box)
+            box.Text = Math.Clamp(step.DelayAfterMilliseconds, 1, 600000).ToString();
     }
     private void Remove_Click(object sender, RoutedEventArgs e) { if (StepsList.SelectedItem is SequenceStep step) steps.Remove(step); }
     private void MoveUp_Click(object sender, RoutedEventArgs e) { var i = StepsList.SelectedIndex; if (i > 0) { steps.Move(i, i - 1); StepsList.SelectedIndex = i - 1; } }
