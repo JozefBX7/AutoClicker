@@ -61,7 +61,7 @@
                                 </Grid>
                             </StackPanel>
                         </Border>
-                        <Border Grid.Column="1" Style="{StaticResource Card}" Margin="6,0,0,0">
+                        <Border x:Name="PositionCard" Grid.Column="1" Style="{StaticResource Card}" Margin="6,0,0,0">
                             <StackPanel>
                                 <TextBlock Text="Action" Style="{StaticResource SectionTitle}" />
                                 <TextBlock Text="Mouse or keyboard input" Style="{StaticResource SectionHint}" />

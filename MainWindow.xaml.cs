@@ -458,7 +458,6 @@ public partial class MainWindow : Window
                             if (!WaitUntilGuiIsHealthy(timer, Stopwatch.GetTimestamp() + step.DelayAfterMilliseconds * Stopwatch.Frequency / 1000d, cancellation, ref watchdogExpired)) break;
                             continue;
                         }
-                        if (settings.FixedPosition && step.IsMouse) SetCursorPos(settings.X, settings.Y);
                         SendAction(step.Inputs, false);
                         if (step.DelayAfterMilliseconds > 0)
                             if (!WaitUntilGuiIsHealthy(timer, Stopwatch.GetTimestamp() + step.DelayAfterMilliseconds * Stopwatch.Frequency / 1000d, cancellation, ref watchdogExpired)) break;
@@ -649,11 +648,13 @@ public partial class MainWindow : Window
     {
         if (ButtonCombo?.SelectedItem is not ComboBoxItem
             || LiveMouseHint is null || LiveKeyFocusBox is null || LiveTitleLabel is null
-            || IntervalHint is null || LiveCountLabel is null || LiveIntervalLabel is null || TypeCombo is null) return;
+            || IntervalHint is null || LiveCountLabel is null || LiveIntervalLabel is null || TypeCombo is null || PositionCard is null) return;
         var sequenceInput = Selected(ButtonCombo) == "Sequence";
         var keyboardInput = IsKeyboardInputSelected();
         var hold = InputRules.IsHoldAction(Selected(TypeCombo));
         TypeCombo.IsEnabled = !sequenceInput;
+        PositionCard.IsEnabled = !sequenceInput && !keyboardInput;
+        UpdatePositionInputEnabled();
         LiveArea.IsHitTestVisible = !sequenceInput;
         LiveArea.Opacity = sequenceInput ? 0.7 : 1;
         if (sequenceInput)
@@ -866,8 +867,15 @@ public partial class MainWindow : Window
     }
     private void PositionMode_Changed(object sender, RoutedEventArgs e)
     {
-        if (XBox is null || YBox is null || FixedPositionRadio is null) return;
-        var enabled = FixedPositionRadio.IsChecked == true; XBox.IsEnabled = enabled; YBox.IsEnabled = enabled;
+        UpdatePositionInputEnabled();
+    }
+
+    private void UpdatePositionInputEnabled()
+    {
+        if (XBox is null || YBox is null || FixedPositionRadio is null || PositionCard is null) return;
+        var enabled = PositionCard.IsEnabled && FixedPositionRadio.IsChecked == true;
+        XBox.IsEnabled = enabled;
+        YBox.IsEnabled = enabled;
     }
     private void SaveDefaultButton_Click(object sender, RoutedEventArgs e)
     {
