@@ -126,7 +126,7 @@
                 </StackPanel>
             </Button>
             <Popup x:Name="SequencePresetPopup" Placement="Right" PlacementTarget="{Binding ElementName=SequenceItem}" StaysOpen="True" AllowsTransparency="True" PopupAnimation="Fade">
-                <Border Background="{DynamicResource InputBrush}" BorderBrush="{DynamicResource ControlBorderBrush}" BorderThickness="1" CornerRadius="7" Padding="3" MinWidth="190" MaxWidth="250">
+                <Border x:Name="SequencePresetFlyoutSurface" Background="{DynamicResource InputBrush}" BorderBrush="{DynamicResource ControlBorderBrush}" BorderThickness="1" CornerRadius="7" Padding="3" MinWidth="190" MaxWidth="250">
                     <Grid MaxHeight="200"><ListBox x:Name="SequencePresetList" SelectionChanged="SequencePresetList_SelectionChanged"/><TextBlock x:Name="EmptySequencePresetsLabel" Text="No saved sequences have been added yet." IsHitTestVisible="False" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" TextAlignment="Center" VerticalAlignment="Center" Margin="14"/></Grid>
                 </Border>
             </Popup>

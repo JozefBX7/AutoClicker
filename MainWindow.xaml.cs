@@ -993,8 +993,13 @@ public partial class MainWindow : Window
 
     private void ButtonCombo_DropDownClosed(object sender, EventArgs e)
     {
-        // Reset the Popup state so the flyout can open again next time.
-        if (SequencePresetPopup is not null) SequencePresetPopup.IsOpen = false;
+        // Clicking a flyout item also closes the ComboBox. Let that click reach
+        // the Popup before deciding whether this was an outside close.
+        _ = Dispatcher.BeginInvoke(() =>
+        {
+            if (SequencePresetPopup is not null && (SequencePresetFlyoutSurface is null || !SequencePresetFlyoutSurface.IsMouseOver))
+                SequencePresetPopup.IsOpen = false;
+        }, DispatcherPriority.ApplicationIdle);
     }
 
     private void SequencePresetList_SelectionChanged(object sender, SelectionChangedEventArgs e)
