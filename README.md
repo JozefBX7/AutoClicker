@@ -13,7 +13,7 @@ Get AutoClicker from the [latest release](../../releases/latest).
 - **Installer (recommended):** `AutoClicker-Setup-x64.exe` installs the app and includes an uninstaller.
 - **Portable:** `AutoClicker-Portable-x64.zip` runs without installation. Keep its `Data` folder with the app to retain your settings.
 
-Uninstalling keeps your settings and saved sequences. You can remove them manually later if you want a fresh start.
+Uninstalling keeps your settings and saved sequences. You can remove them manually later if you wish.
 
 ## Updates
 
