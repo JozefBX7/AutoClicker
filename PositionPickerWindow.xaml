@@ -1,0 +1,12 @@
+<Window x:Class="AutoClicker.PositionPickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent" ShowInTaskbar="False" Topmost="True" Focusable="True" SizeToContent="WidthAndHeight"
+        PreviewKeyDown="Window_PreviewKeyDown">
+    <Border Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" CornerRadius="9" Padding="10,6">
+            <StackPanel>
+                <TextBlock x:Name="PositionLabel" Text="X: 0   Y: 0" Foreground="{DynamicResource TextAccentBrush}" FontWeight="SemiBold" />
+                <TextBlock Text="Click to select • Esc to cancel" Margin="0,2,0,0" FontSize="10" Foreground="{DynamicResource TextMutedBrush}" />
+            </StackPanel>
+    </Border>
+</Window>

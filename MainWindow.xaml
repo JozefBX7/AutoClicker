@@ -37,7 +37,12 @@
                             <Button x:Name="ThemeButton" Content="Theme" ContentTemplate="{StaticResource MoonIcon}" Click="ThemeButton_Click" ToolTip="Switch to light mode" Style="{StaticResource PinButton}" />
                             <Button x:Name="PinButton" Content="Pin" ContentTemplate="{StaticResource PinIcon}" Click="PinButton_Click" ToolTip="Keep on top" Style="{StaticResource PinButton}" Margin="3,0,0,0" />
                             <Button Click="CloseButton_Click" ToolTip="Quit the app" Style="{StaticResource CloseButton}" Foreground="{DynamicResource TextMutedBrush}" Margin="3,0,0,0">
-                            <Viewbox Width="12" Height="12"><Viewbox.RenderTransform><TranslateTransform X="-1" /></Viewbox.RenderTransform><Path Data="M 2 2 L 10 10 M 10 2 L 2 10" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" /></Viewbox>
+                                <Viewbox Width="12" Height="12">
+                                    <Viewbox.RenderTransform>
+                                        <TranslateTransform X="-1" />
+                                    </Viewbox.RenderTransform>
+                                    <Path Data="M 2 2 L 10 10 M 10 2 L 2 10" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                                </Viewbox>
                             </Button>
                         </StackPanel>
                     </StackPanel>
@@ -47,64 +52,207 @@
             <ScrollViewer x:Name="SettingsContent" Grid.Row="1" VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="22,16,22,8">
                     <Grid Margin="0,0,0,12">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
                         <Border Style="{StaticResource Card}" Margin="0,0,6,0">
                             <StackPanel>
                                 <TextBlock Text="Interval" Style="{StaticResource SectionTitle}" />
                                 <TextBlock x:Name="IntervalHint" Text="Time between clicks" Style="{StaticResource SectionHint}" />
                                 <Grid Margin="0,12,0,0">
-                                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
-                                    <StackPanel><TextBlock Text="Hours" Style="{StaticResource FieldLabel}" /><TextBox x:Name="HoursBox" Text="0" LostKeyboardFocus="IntervalBox_LostKeyboardFocus" /></StackPanel>
-                                    <StackPanel Grid.Column="1" Margin="6,0,0,0"><TextBlock Text="Minutes" Style="{StaticResource FieldLabel}" /><TextBox x:Name="MinutesBox" Text="0" LostKeyboardFocus="IntervalBox_LostKeyboardFocus" /></StackPanel>
-                                    <StackPanel Grid.Column="2" Margin="6,0,0,0"><TextBlock Text="Seconds" Style="{StaticResource FieldLabel}" /><TextBox x:Name="SecondsBox" Text="0" LostKeyboardFocus="IntervalBox_LostKeyboardFocus" /></StackPanel>
-                                    <StackPanel Grid.Column="3" Margin="6,0,0,0"><TextBlock Text="Millis" Style="{StaticResource FieldLabel}" /><TextBox x:Name="MillisBox" Text="100" LostKeyboardFocus="IntervalBox_LostKeyboardFocus" /></StackPanel>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition />
+                                        <ColumnDefinition />
+                                        <ColumnDefinition />
+                                        <ColumnDefinition />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="Hours" Style="{StaticResource FieldLabel}" />
+                                        <TextBox x:Name="HoursBox" Text="0" LostKeyboardFocus="IntervalBox_LostKeyboardFocus" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                                        <TextBlock Text="Minutes" Style="{StaticResource FieldLabel}" />
+                                        <TextBox x:Name="MinutesBox" Text="0" LostKeyboardFocus="IntervalBox_LostKeyboardFocus" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Margin="6,0,0,0">
+                                        <TextBlock Text="Seconds" Style="{StaticResource FieldLabel}" />
+                                        <TextBox x:Name="SecondsBox" Text="0" LostKeyboardFocus="IntervalBox_LostKeyboardFocus" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="3" Margin="6,0,0,0">
+                                        <TextBlock Text="Millis" Style="{StaticResource FieldLabel}" />
+                                        <TextBox x:Name="MillisBox" Text="100" LostKeyboardFocus="IntervalBox_LostKeyboardFocus" />
+                                    </StackPanel>
                                 </Grid>
                             </StackPanel>
                         </Border>
                         <Border Grid.Column="1" Style="{StaticResource Card}" Margin="6,0,0,0">
                             <StackPanel>
-                                <Grid><TextBlock Text="Action" Style="{StaticResource SectionTitle}" /><Button x:Name="InputPulseButton" Content="Pulse" Click="InputPulseButton_Click" Style="{StaticResource GhostButton}" FontSize="10" Padding="7,3" HorizontalAlignment="Right" VerticalAlignment="Top" ToolTip="Configure click and key press duration" /></Grid>
+                                <Grid>
+                                    <TextBlock Text="Action" Style="{StaticResource SectionTitle}" />
+                                    <Button x:Name="InputPulseButton" Content="Pulse" Click="InputPulseButton_Click" Style="{StaticResource GhostButton}" FontSize="10" Padding="7,3" HorizontalAlignment="Right" VerticalAlignment="Top" ToolTip="Configure click and key press duration" />
+                                </Grid>
                                 <TextBlock Text="Mouse or keyboard input" Style="{StaticResource SectionHint}" />
-                                <Grid Margin="0,12,0,0"><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
-                                    <StackPanel><TextBlock Text="Input" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="ButtonCombo" SelectedIndex="0" SelectionChanged="ActionCombo_SelectionChanged"><ComboBoxItem Content="Left click" Tag="Left" /><ComboBoxItem Content="Right click" Tag="Right" /><ComboBoxItem Content="Middle click" Tag="Middle" /><ComboBoxItem Content="Space" Tag="Space" /><ComboBoxItem Content="Enter" Tag="Enter" /><ComboBoxItem x:Name="CustomKeyItem" Content="Custom key" Tag="Custom" /><ComboBoxItem x:Name="PickKeyItem" Content="Pick a key…" Tag="Pick" /><ComboBoxItem x:Name="SequenceItem" Content="Custom sequence" Tag="Sequence" IsEnabled="False" /><ComboBoxItem x:Name="EmptySequencePresetsItem" Content="  No saved sequences have been added yet." IsEnabled="False" /><ComboBoxItem x:Name="EditSequenceItem" Content="Open custom sequence editor" Tag="EditSequence" /></ComboBox></StackPanel>
-                                    <StackPanel Grid.Column="1" Margin="8,0,0,0"><TextBlock Text="Action" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="TypeCombo" SelectedIndex="0" SelectionChanged="TypeCombo_SelectionChanged"><ComboBoxItem Content="Single" /><ComboBoxItem Content="Double" /><ComboBoxItem Content="Hold" /></ComboBox></StackPanel>
+                                <Grid Margin="0,12,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition />
+                                        <ColumnDefinition />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="Input" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox x:Name="ButtonCombo" SelectedIndex="0" SelectionChanged="ActionCombo_SelectionChanged">
+                                            <ComboBoxItem Content="Left click" Tag="Left" />
+                                            <ComboBoxItem Content="Right click" Tag="Right" />
+                                            <ComboBoxItem Content="Middle click" Tag="Middle" />
+                                            <ComboBoxItem Content="Space" Tag="Space" />
+                                            <ComboBoxItem Content="Enter" Tag="Enter" />
+                                            <ComboBoxItem x:Name="CustomKeyItem" Content="Custom key" Tag="Custom" />
+                                            <ComboBoxItem x:Name="PickKeyItem" Content="Pick a key…" Tag="Pick" />
+                                            <ComboBoxItem x:Name="SequenceItem" Content="Custom sequence" Tag="Sequence" IsEnabled="False" />
+                                            <ComboBoxItem x:Name="EmptySequencePresetsItem" Content="  No saved sequences have been added yet." IsEnabled="False" />
+                                            <ComboBoxItem x:Name="EditSequenceItem" Content="Open custom sequence editor" Tag="EditSequence" />
+                                        </ComboBox>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                        <TextBlock Text="Action" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox x:Name="TypeCombo" SelectedIndex="0" SelectionChanged="TypeCombo_SelectionChanged">
+                                            <ComboBoxItem Content="Single" />
+                                            <ComboBoxItem Content="Double" />
+                                            <ComboBoxItem Content="Hold" />
+                                        </ComboBox>
+                                    </StackPanel>
                                 </Grid>
                             </StackPanel>
                         </Border>
                     </Grid>
 
                     <Grid Margin="0,0,0,12">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
                         <Border Style="{StaticResource Card}" Margin="0,0,6,0">
                             <StackPanel>
                                 <TextBlock Text="Repeat" Style="{StaticResource SectionTitle}" />
                                 <TextBlock Text="Stop automatically, or keep going" Style="{StaticResource SectionHint}" />
                                 <RadioButton x:Name="UntilStoppedRadio" GroupName="RepeatMode" Content="Repeat until stopped" IsChecked="True" Margin="0,12,0,7" Checked="RepeatMode_Changed" />
-                                <StackPanel Orientation="Horizontal"><RadioButton x:Name="CountRadio" GroupName="RepeatMode" Content="Repeat" Checked="RepeatMode_Changed" /><TextBox x:Name="CountBox" Text="10" Width="52" Margin="8,-4,6,0" IsEnabled="False" /><TextBlock Text="times" Foreground="{DynamicResource TextMutedBrush}" FontSize="12" /></StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <RadioButton x:Name="CountRadio" GroupName="RepeatMode" Content="Repeat" Checked="RepeatMode_Changed" />
+                                    <TextBox x:Name="CountBox" Text="10" Width="52" Margin="8,-4,6,0" IsEnabled="False" />
+                                    <TextBlock Text="times" Foreground="{DynamicResource TextMutedBrush}" FontSize="12" />
+                                </StackPanel>
                             </StackPanel>
                         </Border>
                         <Border x:Name="PositionCard" Grid.Column="1" Style="{StaticResource Card}" Margin="6,0,0,0">
-                            <StackPanel>
+                            <StackPanel Margin="0,0,-5,0">
                                 <TextBlock Text="Position" Style="{StaticResource SectionTitle}" />
                                 <TextBlock Text="Use the cursor, or fixed coordinates" Style="{StaticResource SectionHint}" />
                                 <RadioButton x:Name="CurrentPositionRadio" GroupName="PositionMode" Content="Current cursor position" IsChecked="True" Margin="0,12,0,7" Checked="PositionMode_Changed" />
-                                <StackPanel Orientation="Horizontal"><RadioButton x:Name="FixedPositionRadio" GroupName="PositionMode" Content="Fixed" Checked="PositionMode_Changed" /><TextBlock Text="X" Style="{StaticResource InlineLabel}" /><TextBox x:Name="XBox" Text="0" Width="45" IsEnabled="False" Margin="4,-4,5,0" /><TextBlock Text="Y" Style="{StaticResource InlineLabel}" /><TextBox x:Name="YBox" Text="0" Width="45" IsEnabled="False" Margin="4,-4,0,0" /></StackPanel>
+                                <Grid Width="210">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="58" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="54.272" />
+                                        <ColumnDefinition Width="8.697"/>
+                                        <ColumnDefinition Width="1.183"/>
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <RadioButton x:Name="FixedPositionRadio" GroupName="PositionMode" Content="Fixed" Checked="PositionMode_Changed" Grid.ColumnSpan="2" Margin="0,0,10,0" />
+                                    <TextBlock Grid.Column="1" Text="X" Style="{StaticResource InlineLabel}" Margin="26,0,38,0" Grid.ColumnSpan="2" />
+                                    <TextBox x:Name="XBox" Grid.Column="2" Text="0" IsEnabled="False" Margin="8,-4,12,0" RenderTransformOrigin="0.5,0.5" >
+                                        <TextBox.RenderTransform>
+                                            <TransformGroup>
+                                                <ScaleTransform/>
+                                                <SkewTransform AngleY="0.007"/>
+                                                <RotateTransform/>
+                                                <TranslateTransform Y="-0.001"/>
+                                            </TransformGroup>
+                                        </TextBox.RenderTransform>
+                                    </TextBox>
+                                    <TextBlock Grid.Column="2" Text="Y" Style="{StaticResource InlineLabel}" Margin="63,0,30,0" Grid.ColumnSpan="3" />
+                                    <TextBox x:Name="YBox" Grid.Column="4" Text="0" IsEnabled="False" Margin="3,-4,1,0" RenderTransformOrigin="0.5,0.5" >
+                                        <TextBox.RenderTransform>
+                                            <TransformGroup>
+                                                <ScaleTransform/>
+                                                <SkewTransform AngleY="0.146"/>
+                                                <RotateTransform/>
+                                                <TranslateTransform Y="0.06"/>
+                                            </TransformGroup>
+                                        </TextBox.RenderTransform>
+                                    </TextBox>
+                                    <Button x:Name="PickPositionButton" Grid.Column="5" Click="PickPositionButton_Click" Style="{StaticResource GhostButton}" ToolTip="Pick a position anywhere on screen" Width="22" Height="22" Padding="0" Margin="3,3,-15,2" RenderTransformOrigin="0.5,0.5" Grid.ColumnSpan="3">
+                                        <Button.RenderTransform>
+                                            <TransformGroup>
+                                                <ScaleTransform/>
+                                                <SkewTransform AngleY="0.298"/>
+                                                <RotateTransform/>
+                                                <TranslateTransform Y="0.057"/>
+                                            </TransformGroup>
+                                        </Button.RenderTransform>
+                                        <Viewbox Width="12" Height="12">
+                                            <Path Data="M 2 11 L 2 8 L 7.5 2.5 L 10.5 5.5 L 5 11 Z M 7.5 2.5 L 8.5 1.5 L 11.5 4.5 L 10.5 5.5 M 3 8 L 5 10" Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.4" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Fill="Transparent" />
+                                        </Viewbox>
+                                    </Button>
+                                </Grid>
                             </StackPanel>
                         </Border>
                     </Grid>
 
                     <Grid Margin="0,0,0,12">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
                         <Border Grid.Column="1" Style="{StaticResource Card}" Margin="6,0,0,0">
                             <StackPanel>
-                                <StackPanel Orientation="Horizontal"><TextBlock Text="Target window" Style="{StaticResource SectionTitle}" /><CheckBox x:Name="EnableTargetWindowCheckBox" IsChecked="True" Checked="EnableTargetWindowCheckBox_Changed" Unchecked="EnableTargetWindowCheckBox_Changed" ToolTip="Enable target window restriction" VerticalAlignment="Center" Margin="8,0,0,0"><CheckBox.Template><ControlTemplate TargetType="CheckBox"><Border x:Name="Track" Width="28" Height="16" CornerRadius="8" Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource ControlBorderBrush}" BorderThickness="1"><Ellipse x:Name="Thumb" Width="10" Height="10" Fill="{DynamicResource TextMutedBrush}" HorizontalAlignment="Left" Margin="2" /></Border><ControlTemplate.Triggers><Trigger Property="IsChecked" Value="True"><Setter TargetName="Track" Property="Background" Value="{DynamicResource AccentBrush}" /><Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /><Setter TargetName="Thumb" Property="Fill" Value="White" /><Setter TargetName="Thumb" Property="HorizontalAlignment" Value="Right" /></Trigger><Trigger Property="IsEnabled" Value="False"><Setter TargetName="Track" Property="Opacity" Value="0.45" /></Trigger></ControlTemplate.Triggers></ControlTemplate></CheckBox.Template></CheckBox><Border Width="18" Height="18" CornerRadius="9" Background="Transparent" BorderBrush="{DynamicResource TextAccentBrush}" BorderThickness="1" Margin="6,-1,0,0" VerticalAlignment="Top" ToolTipService.ShowDuration="30000"><Border.ToolTip><TextBlock Text="Optional: leave this blank for global input to the active window. Enter an executable name to run only while that app is active, or use the search icon to select one visible window." TextWrapping="Wrap" MaxWidth="275" /></Border.ToolTip><TextBlock Text="i" Foreground="{DynamicResource TextAccentBrush}" FontSize="11" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border></StackPanel>
-                                <Grid Margin="0,6,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Target window" Style="{StaticResource SectionTitle}" />
+                                    <CheckBox x:Name="EnableTargetWindowCheckBox" IsChecked="True" Checked="EnableTargetWindowCheckBox_Changed" Unchecked="EnableTargetWindowCheckBox_Changed" ToolTip="Enable target window restriction" VerticalAlignment="Center" Margin="8,0,0,0">
+                                        <CheckBox.Template>
+                                            <ControlTemplate TargetType="CheckBox">
+                                                <Border x:Name="Track" Width="28" Height="16" CornerRadius="8" Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource ControlBorderBrush}" BorderThickness="1">
+                                                    <Ellipse x:Name="Thumb" Width="10" Height="10" Fill="{DynamicResource TextMutedBrush}" HorizontalAlignment="Left" Margin="2" />
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsChecked" Value="True">
+                                                        <Setter TargetName="Track" Property="Background" Value="{DynamicResource AccentBrush}" />
+                                                        <Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                                        <Setter TargetName="Thumb" Property="Fill" Value="White" />
+                                                        <Setter TargetName="Thumb" Property="HorizontalAlignment" Value="Right" />
+                                                    </Trigger>
+                                                    <Trigger Property="IsEnabled" Value="False">
+                                                        <Setter TargetName="Track" Property="Opacity" Value="0.45" />
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </CheckBox.Template>
+                                    </CheckBox>
+                                    <Border Width="18" Height="18" CornerRadius="9" Background="Transparent" BorderBrush="{DynamicResource TextAccentBrush}" BorderThickness="1" Margin="6,-1,0,0" VerticalAlignment="Top" ToolTipService.ShowDuration="30000">
+                                        <Border.ToolTip>
+                                            <TextBlock Text="Optional: leave this blank for global input to the active window. Enter an executable name to run only while that app is active, or use the search icon to select one visible window." TextWrapping="Wrap" MaxWidth="275" />
+                                        </Border.ToolTip>
+                                        <TextBlock Text="i" Foreground="{DynamicResource TextAccentBrush}" FontSize="11" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Border>
+                                </StackPanel>
+                                <Grid Margin="0,6,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
                                     <TextBox x:Name="TargetExecutableBox" TextChanged="TargetExecutableBox_TextChanged" ToolTip="Executable name, for example notepad.exe" />
                                     <Button Grid.Column="1" Click="FindWindowsButton_Click" Style="{StaticResource GhostButton}" ToolTip="Choose a visible window" Width="30" Height="30" Padding="0" Margin="6,0,0,0">
-                                        <Grid Width="14" Height="14"><Ellipse Width="9" Height="9" Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.5" HorizontalAlignment="Left" VerticalAlignment="Top" /><Line X1="9" Y1="9" X2="14" Y2="14" Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" /></Grid>
+                                        <Grid Width="14" Height="14">
+                                            <Ellipse Width="9" Height="9" Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.5" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                                            <Line X1="9" Y1="9" X2="14" Y2="14" Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                                        </Grid>
                                     </Button>
                                     <Button x:Name="ClearTargetWindowButton" Grid.Column="2" Click="ClearTargetWindowButton_Click" Style="{StaticResource GhostButton}" ToolTip="Clear the selected target window" Width="30" Height="30" Padding="0" Margin="6,0,0,0">
-                                        <Viewbox Width="11" Height="11"><Path Data="M 2 2 L 10 10 M 10 2 L 2 10" Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" /></Viewbox>
+                                        <Viewbox Width="11" Height="11">
+                                            <Path Data="M 2 2 L 10 10 M 10 2 L 2 10" Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                                        </Viewbox>
                                     </Button>
                                 </Grid>
                                 <TextBlock x:Name="TargetWindowHint" Text="Global input enabled." Foreground="{DynamicResource TextMutedBrush}" FontSize="10" ToolTip="Input is sent to whichever window is active." Margin="0,5,0,0" />
@@ -128,7 +276,10 @@
 
             <Border Grid.Row="2" Background="{DynamicResource PanelBrush}" CornerRadius="0,0,15,15" Padding="22,14">
                 <Grid>
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
                     <StackPanel Orientation="Horizontal" Grid.Column="0">
                         <Button x:Name="StartButton" Content="Start" Click="StartButton_Click" Style="{StaticResource PrimaryButton}" Width="86" />
                         <Button x:Name="StopButton" Content="Stop" Click="StopButton_Click" Style="{StaticResource DangerButton}" Width="76" Margin="8,0,0,0" IsEnabled="False" />

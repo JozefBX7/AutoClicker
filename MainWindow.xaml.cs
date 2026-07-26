@@ -964,12 +964,29 @@ public partial class MainWindow : Window
         UpdatePositionInputEnabled();
     }
 
+    private void PickPositionButton_Click(object sender, RoutedEventArgs e)
+    {
+        Status("Select a position anywhere on screen. Press Escape to cancel.", ThemeManager.Brush("WarningBrush"));
+        var picker = new PositionPickerWindow { Owner = this };
+        if (picker.ShowDialog() != true) return;
+        ApplyPickedPosition(PositionSelection.FromPickedPoint(picker.SelectedX, picker.SelectedY));
+    }
+
+    private void ApplyPickedPosition(PositionSelection selection)
+    {
+        FixedPositionRadio.IsChecked = selection.FixedPosition;
+        XBox.Text = selection.X.ToString();
+        YBox.Text = selection.Y.ToString();
+        Status($"Fixed position set to X: {selection.X}, Y: {selection.Y}.", ThemeManager.Brush("SuccessBrush"));
+    }
+
     private void UpdatePositionInputEnabled()
     {
-        if (XBox is null || YBox is null || FixedPositionRadio is null || PositionCard is null) return;
+        if (XBox is null || YBox is null || PickPositionButton is null || FixedPositionRadio is null || PositionCard is null) return;
         var enabled = PositionCard.IsEnabled && FixedPositionRadio.IsChecked == true;
         XBox.IsEnabled = enabled;
         YBox.IsEnabled = enabled;
+        PickPositionButton.IsEnabled = PositionCard.IsEnabled;
     }
     private void SaveDefaultButton_Click(object sender, RoutedEventArgs e)
     {
