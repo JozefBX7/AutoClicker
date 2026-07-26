@@ -33,6 +33,7 @@ public sealed record KeyboardDevice(int Index, string Name)
 
 public static class OpenRgbHighlighter
 {
+    internal const int PulseFramesPerCycle = 12;
     // Never stop an OpenRGB instance we did not start.
     private static readonly object StartedProcessLock = new();
     private static Process? processStartedByAutoClicker;
@@ -162,7 +163,7 @@ public static class OpenRgbHighlighter
             .ToArray();
     }
 
-    public static RgbLightingSnapshot? EnableKeyIndicator(RgbSettings settings, string keyName, out string? error)
+    public static RgbLightingSnapshot? EnableKeyIndicator(RgbSettings settings, string keyName, out string? error, bool lightImmediately = true)
     {
         error = null;
         try
@@ -176,10 +177,13 @@ public static class OpenRgbHighlighter
 
             // Restore the original keyboard colours when finished.
             var snapshot = new RgbLightingSnapshot(keyboard.Index, keyboard.Colors.ToArray(), led.Index, IndicatorColor(settings));
-            var colors = snapshot.Colors.ToArray();
-            colors[snapshot.KeyIndex] = snapshot.IndicatorColor;
-            client.SetCustomMode(snapshot.DeviceIndex);
-            client.UpdateLeds(snapshot.DeviceIndex, colors);
+            if (lightImmediately)
+            {
+                var colors = snapshot.Colors.ToArray();
+                colors[snapshot.KeyIndex] = snapshot.IndicatorColor;
+                client.SetCustomMode(snapshot.DeviceIndex);
+                client.UpdateLeds(snapshot.DeviceIndex, colors);
+            }
             return snapshot;
         }
         catch (Exception exception)
@@ -246,17 +250,14 @@ public static class OpenRgbHighlighter
 
     public static async Task FadePulseIndicatorAsync(RgbLightingSnapshot snapshot, int cycleMilliseconds, CancellationToken cancellation)
     {
-        // Eight frames per cycle caps OpenRGB traffic at eight single-key updates
-        // per second (at the fastest setting). Task.Delay is timer-based, so this
-        // stays negligible beside a game or the input worker.
-        const int framesPerCycle = 8;
+        // Twelve steps keep the fade smooth while keeping OpenRGB traffic light.
         var cycle = Math.Clamp(cycleMilliseconds, 1000, 6000);
-        var frameDelay = TimeSpan.FromMilliseconds(cycle / framesPerCycle);
+        var frameDelay = TimeSpan.FromMilliseconds(cycle / PulseFramesPerCycle);
         try
         {
-            for (var frame = 0; ; frame = (frame + 1) % framesPerCycle)
+            for (var frame = 0; ; frame = (frame + 1) % PulseFramesPerCycle)
             {
-                var strength = 0.5d - 0.5d * Math.Cos(2d * Math.PI * frame / framesPerCycle);
+                var strength = 0.5d - 0.5d * Math.Cos(2d * Math.PI * frame / PulseFramesPerCycle);
                 SetIndicatorBlend(snapshot, strength);
                 await Task.Delay(frameDelay, cancellation);
             }

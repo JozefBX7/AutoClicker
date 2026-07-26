@@ -703,7 +703,8 @@ public partial class MainWindow : Window
                 }
                 settings.DeviceIndex = keyboard.Index;
                 settings.DeviceName = keyboard.Name;
-                var snapshot = OpenRgbHighlighter.EnableKeyIndicator(settings, keyName, out var error);
+                // Pulse starts from the existing LED colour; Constant and Blink light immediately.
+                var snapshot = OpenRgbHighlighter.EnableKeyIndicator(settings, keyName, out var error, lightImmediately: !settings.IsPulse);
                 if (snapshot is not null)
                 {
                     // Publish the snapshot only if this is still the current run.

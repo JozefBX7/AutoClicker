@@ -325,7 +325,7 @@ public partial class SettingsWindow : Window
         if (string.Equals(effect, "Fade", StringComparison.OrdinalIgnoreCase))
         {
             if (!int.TryParse(PulseSpeedBox.Text, out var speed) || speed < 1000) PulseSpeedBox.Text = "1200";
-            EffectSpeedHint.Text = "Pulse is a smooth fade cycle (1000–6000 ms), capped at 8 key updates per second.";
+            EffectSpeedHint.Text = "Pulse is a smooth fade cycle (1000–6000 ms), capped at 12 key updates per second.";
         }
         else if (string.Equals(effect, "Blink", StringComparison.OrdinalIgnoreCase))
             EffectSpeedHint.Text = "Blink is on/off; speed is the time per state (120–2000 ms).";

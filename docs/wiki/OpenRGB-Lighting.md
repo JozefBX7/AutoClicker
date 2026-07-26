@@ -34,7 +34,7 @@ Effects:
 
 - **Constant** — key stays lit while AutoClicker is active.
 - **Blink** — key alternates on/off. Adjust the state duration.
-- **Pulse** — smooth fade in/out. It is deliberately capped at eight LED updates per second, including at the fastest setting, to keep resource use negligible.
+- **Pulse** — smooth fade in/out. It uses 12 blend steps per cycle and is capped at 12 LED updates per second.
 
 ## Compatibility and limits
 

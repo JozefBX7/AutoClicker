@@ -55,6 +55,10 @@ public sealed class RgbSettingsTests
     }
 
     [TestMethod]
+    public void Pulse_UsesTwelveBlendStepsPerCycle() =>
+        Assert.AreEqual(12, OpenRgbHighlighter.PulseFramesPerCycle);
+
+    [TestMethod]
     public void KeyboardDevice_UsesItsNameForDisplay() =>
         Assert.AreEqual("Corsair K70 RGB", new KeyboardDevice(4, "Corsair K70 RGB").ToString());
 
