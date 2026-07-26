@@ -61,7 +61,7 @@
                                 </Grid>
                             </StackPanel>
                         </Border>
-                        <Border x:Name="PositionCard" Grid.Column="1" Style="{StaticResource Card}" Margin="6,0,0,0">
+                        <Border Grid.Column="1" Style="{StaticResource Card}" Margin="6,0,0,0">
                             <StackPanel>
                                 <TextBlock Text="Action" Style="{StaticResource SectionTitle}" />
                                 <TextBlock Text="Mouse or keyboard input" Style="{StaticResource SectionHint}" />
@@ -83,7 +83,7 @@
                                 <StackPanel Orientation="Horizontal"><RadioButton x:Name="CountRadio" GroupName="RepeatMode" Content="Repeat" Checked="RepeatMode_Changed" /><TextBox x:Name="CountBox" Text="10" Width="52" Margin="8,-4,6,0" IsEnabled="False" /><TextBlock Text="times" Foreground="{DynamicResource TextMutedBrush}" FontSize="12" /></StackPanel>
                             </StackPanel>
                         </Border>
-                        <Border Grid.Column="1" Style="{StaticResource Card}" Margin="6,0,0,0">
+                        <Border x:Name="PositionCard" Grid.Column="1" Style="{StaticResource Card}" Margin="6,0,0,0">
                             <StackPanel>
                                 <TextBlock Text="Position" Style="{StaticResource SectionTitle}" />
                                 <TextBlock Text="Use the cursor, or fixed coordinates" Style="{StaticResource SectionHint}" />
