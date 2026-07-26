@@ -90,7 +90,7 @@
                             <StackPanel>
                                 <Grid>
                                     <TextBlock Text="Action" Style="{StaticResource SectionTitle}" />
-                                    <Button x:Name="InputPulseButton" Content="Pulse" Click="InputPulseButton_Click" Style="{StaticResource GhostButton}" FontSize="10" Padding="7,3" HorizontalAlignment="Right" VerticalAlignment="Top" ToolTip="Configure click and key press duration" />
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top"><Button x:Name="InputJitterButton" Content="Jitter Off" Click="InputJitterButton_Click" Style="{StaticResource ActiveGhostButton}" FontSize="10" Padding="7,3" ToolTip="Configure random extra delay between actions" /><Button x:Name="InputPulseButton" Content="Pulse" Click="InputPulseButton_Click" Style="{StaticResource GhostButton}" FontSize="10" Padding="7,3" Margin="5,0,0,0" ToolTip="Configure click and key press duration" /></StackPanel>
                                 </Grid>
                                 <TextBlock Text="Mouse or keyboard input" Style="{StaticResource SectionHint}" />
                                 <Grid Margin="0,12,0,0">

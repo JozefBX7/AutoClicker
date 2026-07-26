@@ -37,6 +37,53 @@ public sealed class InputRulesTests
         Assert.AreEqual(3, InputRules.DefaultInputPulseMilliseconds);
 
     [TestMethod]
+    public void CreateJitterMaximum_UsesSecondsAndMillisecondsAndClampsToOneMinute()
+    {
+        Assert.AreEqual(12_345, InputRules.CreateJitterMaximum(12, 345));
+        Assert.AreEqual(InputRules.MaximumJitterMilliseconds, InputRules.CreateJitterMaximum(99, 9999));
+    }
+
+    [TestMethod]
+    public void DescribeJitter_RoundTripsMaximumDelay()
+    {
+        var parts = InputRules.DescribeJitter(12_345);
+
+        Assert.AreEqual(new InputRules.JitterParts(12, 345), parts);
+    }
+
+    [TestMethod]
+    public void NextJitterOffsetMilliseconds_ReturnsAValueWithinTheSymmetricConfiguredRange()
+    {
+        var random = new Random(42);
+
+        Assert.AreEqual(0, InputRules.NextJitterOffsetMilliseconds(0, random));
+        for (var index = 0; index < 100; index++)
+        {
+            var offset = InputRules.NextJitterOffsetMilliseconds(10, random);
+            Assert.IsTrue(offset >= -10);
+            Assert.IsTrue(offset <= 10);
+        }
+    }
+
+    [TestMethod]
+    public void Jitter_ZeroOrNegativeMaximumIsDisabled()
+    {
+        var random = new Random(42);
+
+        Assert.AreEqual(0, InputRules.CreateJitterMaximum(-1, -1));
+        Assert.AreEqual(0, InputRules.NextJitterOffsetMilliseconds(0, random));
+        Assert.AreEqual(0, InputRules.NextJitterOffsetMilliseconds(-1, random));
+    }
+
+    [TestMethod]
+    public void ApplyJitter_VariesBothSidesOfTheBaseIntervalAndKeepsOneMillisecondMinimum()
+    {
+        Assert.AreEqual(60, InputRules.ApplyJitter(100, -40));
+        Assert.AreEqual(140, InputRules.ApplyJitter(100, 40));
+        Assert.AreEqual(1, InputRules.ApplyJitter(10, -40));
+    }
+
+    [TestMethod]
     public void NormalizeInterval_CarriesOverflowIntoLargerUnits()
     {
         Assert.AreEqual(new InputRules.IntervalParts(0, 0, 1, 0), InputRules.NormalizeInterval(0, 0, 0, 1000));

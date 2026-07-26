@@ -58,6 +58,7 @@ public partial class MainWindow : Window
     private bool rgbLightingTipSeen;
     private string? targetWindowTitle;
     private int inputPulseMilliseconds = InputRules.DefaultInputPulseMilliseconds;
+    private long inputJitterMaximumMilliseconds;
     private bool customSequenceUsesGlobalInputPulse = true;
     private WorkerPriorityOption workerPriority = WorkerPriorityOption.Normal;
     private bool cadenceDiagnosticsEnabled;
@@ -69,6 +70,7 @@ public partial class MainWindow : Window
         RefreshSequencePresetActions();
         LoadDefaults();
         UpdateInputPulseButton();
+        UpdateInputJitterButton();
         LoadRgbSettings();
         LoadUiPreferences();
         UpdateHotkeyLabel();
@@ -110,10 +112,32 @@ public partial class MainWindow : Window
         UpdateInputPulseButton();
     }
 
+    private void InputJitterButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new InputJitterWindow(inputJitterMaximumMilliseconds) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+        inputJitterMaximumMilliseconds = dialog.MaximumJitterMilliseconds;
+        UpdateInputJitterButton();
+        Status(inputJitterMaximumMilliseconds == 0
+            ? "Input jitter disabled."
+            : "Input jitter enabled.", inputJitterMaximumMilliseconds == 0 ? ThemeManager.Brush("TextMutedBrush") : ThemeManager.Brush("SuccessBrush"));
+    }
+
     private void UpdateInputPulseButton()
     {
         if (InputPulseButton is null) return;
         InputPulseButton.Content = inputPulseMilliseconds == 0 ? "Pulse: Off" : $"Pulse: {inputPulseMilliseconds} ms";
+    }
+
+    private void UpdateInputJitterButton()
+    {
+        if (InputJitterButton is null) return;
+        InputJitterButton.Content = inputJitterMaximumMilliseconds == 0
+            ? "Jitter Off"
+            : inputJitterMaximumMilliseconds < 1_000
+                ? $"Jitter {inputJitterMaximumMilliseconds} ms"
+                : $"Jitter {inputJitterMaximumMilliseconds / 1_000d:0.###} s";
+        InputJitterButton.Tag = inputJitterMaximumMilliseconds == 0 ? null : "Active";
     }
 
     private void TargetExecutableBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -478,9 +502,9 @@ public partial class MainWindow : Window
             ? new TargetWindowRule(TargetExecutableBox.Text, targetWindowTitle)
             : new TargetWindowRule(string.Empty, null);
         var sequencePulseMilliseconds = customSequenceUsesGlobalInputPulse ? inputPulseMilliseconds : 0;
-        var settings = new ClickSettings(FixedPositionRadio.IsChecked == true, Read(XBox, -32768, 32767), Read(YBox, -32768, 32767), input, keyboardVirtualKey == 0 ? null : keyboardVirtualKey, Selected(TypeCombo) == "Double", hold, hold ? null : CountRadio.IsChecked == true ? Read(CountBox, 1, 999999) : null, input == "Sequence" ? BuildSequence(customSequence) : null, InputRules.NormalizeInputPulseMilliseconds(input == "Sequence" ? sequencePulseMilliseconds : inputPulseMilliseconds), workerPriority, cadenceDiagnosticsEnabled, target);
+        var settings = new ClickSettings(FixedPositionRadio.IsChecked == true, Read(XBox, -32768, 32767), Read(YBox, -32768, 32767), input, keyboardVirtualKey == 0 ? null : keyboardVirtualKey, Selected(TypeCombo) == "Double", hold, hold ? null : CountRadio.IsChecked == true ? Read(CountBox, 1, 999999) : null, input == "Sequence" ? BuildSequence(customSequence) : null, InputRules.NormalizeInputPulseMilliseconds(input == "Sequence" ? sequencePulseMilliseconds : inputPulseMilliseconds), inputJitterMaximumMilliseconds, workerPriority, cadenceDiagnosticsEnabled, target);
         // Reflect the running state before the worker can send its first input.
-        AppLog.Info($"Starting {ActivityVerb().ToLowerInvariant()} | Input={input} | IntervalMs={delay.TotalMilliseconds:0.###} | PulseMs={settings.InputPulseMilliseconds} | WorkerPriority={settings.WorkerPriority} | Repeat={(settings.MaximumClicks?.ToString() ?? "until stopped")}");
+        AppLog.Info($"Starting {ActivityVerb().ToLowerInvariant()} | Input={input} | IntervalMs={delay.TotalMilliseconds:0.###} | PulseMs={settings.InputPulseMilliseconds} | JitterMaxMs={settings.JitterMaximumMilliseconds} | WorkerPriority={settings.WorkerPriority} | Repeat={(settings.MaximumClicks?.ToString() ?? "until stopped")}");
         StartButton.IsEnabled = false; StopButton.IsEnabled = true;
         CollapseButton.IsEnabled = false;
         LiveArea.Background = ThemeManager.Brush("AccentBrush");
@@ -509,6 +533,7 @@ public partial class MainWindow : Window
             // Set up a fixed cadence rather than sleeping after each action.
             using var timer = new PrecisionTimer();
             var intervalTicks = delay.TotalSeconds * Stopwatch.Frequency;
+            Random? jitter = settings.JitterMaximumMilliseconds > 0 ? new Random() : null;
             var nextClickAt = (double)Stopwatch.GetTimestamp();
             if (settings.CadenceDiagnosticsEnabled) cadence = new CadenceDiagnostics(intervalTicks, settings.InputPulseMilliseconds);
             var actionInputs = settings.KeyboardVirtualKey is int virtualKey ? CreateKeyInputs(virtualKey) : CreateClickInputs(settings.Button);
@@ -564,9 +589,12 @@ public partial class MainWindow : Window
                         sent++;
                     }
                 }
+                var effectiveIntervalTicks = jitter is null
+                    ? intervalTicks
+                    : InputRules.ApplyJitter((long)delay.TotalMilliseconds, InputRules.NextJitterOffsetMilliseconds(settings.JitterMaximumMilliseconds, jitter)) * Stopwatch.Frequency / 1000d;
                 nextClickAt = settings.Sequence is { Length: > 0 }
-                    ? Stopwatch.GetTimestamp() + intervalTicks
-                    : nextClickAt + intervalTicks;
+                    ? Stopwatch.GetTimestamp() + effectiveIntervalTicks
+                    : nextClickAt + effectiveIntervalTicks;
             }
         }
         catch (OperationCanceledException) { }
@@ -1045,7 +1073,7 @@ public partial class MainWindow : Window
     private AppDefaults CreateCurrentDefaults()
     {
         var interval = NormalizeIntervalBoxes();
-        return new AppDefaults { Hours = interval.Hours, Minutes = interval.Minutes, Seconds = interval.Seconds, Milliseconds = interval.Milliseconds, MouseButton = Selected(ButtonCombo), Input = Selected(ButtonCombo), CustomKey = customSpamVirtualKey, CustomSequence = customSequence.Select(step => step.Clone()).ToList(), CustomSequenceUsesGlobalInputPulse = customSequenceUsesGlobalInputPulse, ClickType = Selected(TypeCombo), RepeatUntilStopped = UntilStoppedRadio.IsChecked == true, RepeatCount = Read(CountBox, 1, 999999), FixedPosition = FixedPositionRadio.IsChecked == true, X = Read(XBox, -32768, 32767), Y = Read(YBox, -32768, 32767), InputPulseMilliseconds = inputPulseMilliseconds, TargetExecutable = TargetExecutableBox.Text.Trim(), TargetWindowTitle = targetWindowTitle, TargetWindowEnabled = EnableTargetWindowCheckBox.IsChecked == true, Hotkey = hotkey, HotkeyModifiers = hotkeyModifiers, Rgb = rgbSettings };
+        return new AppDefaults { Hours = interval.Hours, Minutes = interval.Minutes, Seconds = interval.Seconds, Milliseconds = interval.Milliseconds, MouseButton = Selected(ButtonCombo), Input = Selected(ButtonCombo), CustomKey = customSpamVirtualKey, CustomSequence = customSequence.Select(step => step.Clone()).ToList(), CustomSequenceUsesGlobalInputPulse = customSequenceUsesGlobalInputPulse, ClickType = Selected(TypeCombo), RepeatUntilStopped = UntilStoppedRadio.IsChecked == true, RepeatCount = Read(CountBox, 1, 999999), FixedPosition = FixedPositionRadio.IsChecked == true, X = Read(XBox, -32768, 32767), Y = Read(YBox, -32768, 32767), InputPulseMilliseconds = inputPulseMilliseconds, InputJitterMaximumMilliseconds = inputJitterMaximumMilliseconds, TargetExecutable = TargetExecutableBox.Text.Trim(), TargetWindowTitle = targetWindowTitle, TargetWindowEnabled = EnableTargetWindowCheckBox.IsChecked == true, Hotkey = hotkey, HotkeyModifiers = hotkeyModifiers, Rgb = rgbSettings };
     }
 
     private string? ExportFullBackup(string path)
@@ -1119,7 +1147,9 @@ public partial class MainWindow : Window
         EnableTargetWindowCheckBox.IsChecked = s.TargetWindowEnabled;
         UpdateTargetWindowUi();
         inputPulseMilliseconds = InputRules.NormalizeInputPulseMilliseconds(s.InputPulseMilliseconds ?? InputRules.DefaultInputPulseMilliseconds);
+        inputJitterMaximumMilliseconds = InputRules.CreateJitterMaximum(0, s.InputJitterMaximumMilliseconds);
         UpdateInputPulseButton();
+        UpdateInputJitterButton();
         hotkey = s.Hotkey > 0 ? s.Hotkey : System.Windows.Input.KeyInterop.VirtualKeyFromKey(System.Windows.Input.Key.F6); hotkeyModifiers = s.HotkeyModifiers;
         rgbSettings = s.Rgb ?? new RgbSettings();
         RepeatMode_Changed(this, new RoutedEventArgs());
@@ -1370,7 +1400,7 @@ public partial class MainWindow : Window
         (WindowTargeting.IsForeground(settings.Target) &&
          (!settings.FixedPosition || !isMouse || WindowTargeting.IsPointInForegroundClientArea(settings.X, settings.Y)));
 
-    private sealed record ClickSettings(bool FixedPosition, int X, int Y, string Button, int? KeyboardVirtualKey, bool DoubleClick, bool Hold, int? MaximumClicks, SequenceAction[]? Sequence, int InputPulseMilliseconds, WorkerPriorityOption WorkerPriority, bool CadenceDiagnosticsEnabled, TargetWindowRule Target);
+    private sealed record ClickSettings(bool FixedPosition, int X, int Y, string Button, int? KeyboardVirtualKey, bool DoubleClick, bool Hold, int? MaximumClicks, SequenceAction[]? Sequence, int InputPulseMilliseconds, long JitterMaximumMilliseconds, WorkerPriorityOption WorkerPriority, bool CadenceDiagnosticsEnabled, TargetWindowRule Target);
     private sealed record SequenceAction(Input[] Inputs, bool IsMouse, bool IsDelay, int DelayAfterMilliseconds);
     private sealed class CadenceDiagnostics(double intervalTicks, int pulseMilliseconds)
     {
@@ -1454,7 +1484,7 @@ public partial class MainWindow : Window
         public void Dispose() => CloseHandle(handle);
     }
 
-    private sealed class AppDefaults { public int Hours { get; set; } public int Minutes { get; set; } public int Seconds { get; set; } public int Milliseconds { get; set; } = 100; public string MouseButton { get; set; } = "Left"; public string? Input { get; set; } public int CustomKey { get; set; } public List<SequenceStep>? CustomSequence { get; set; } public bool CustomSequenceUsesGlobalInputPulse { get; set; } = true; public string ClickType { get; set; } = "Single"; public bool RepeatUntilStopped { get; set; } = true; public int RepeatCount { get; set; } = 10; public bool FixedPosition { get; set; } public int X { get; set; } public int Y { get; set; } public int? InputPulseMilliseconds { get; set; } = InputRules.DefaultInputPulseMilliseconds; public string TargetExecutable { get; set; } = string.Empty; public string? TargetWindowTitle { get; set; } = null; public bool TargetWindowEnabled { get; set; } = true; public int Hotkey { get; set; } = 117; public uint HotkeyModifiers { get; set; } public RgbSettings? Rgb { get; set; } }
+    private sealed class AppDefaults { public int Hours { get; set; } public int Minutes { get; set; } public int Seconds { get; set; } public int Milliseconds { get; set; } = 100; public string MouseButton { get; set; } = "Left"; public string? Input { get; set; } public int CustomKey { get; set; } public List<SequenceStep>? CustomSequence { get; set; } public bool CustomSequenceUsesGlobalInputPulse { get; set; } = true; public string ClickType { get; set; } = "Single"; public bool RepeatUntilStopped { get; set; } = true; public int RepeatCount { get; set; } = 10; public bool FixedPosition { get; set; } public int X { get; set; } public int Y { get; set; } public int? InputPulseMilliseconds { get; set; } = InputRules.DefaultInputPulseMilliseconds; public long InputJitterMaximumMilliseconds { get; set; } public string TargetExecutable { get; set; } = string.Empty; public string? TargetWindowTitle { get; set; } = null; public bool TargetWindowEnabled { get; set; } = true; public int Hotkey { get; set; } = 117; public uint HotkeyModifiers { get; set; } public RgbSettings? Rgb { get; set; } }
     [Flags] private enum MouseFlags : uint { LeftDown = 2, LeftUp = 4, RightDown = 8, RightUp = 16, MiddleDown = 32, MiddleUp = 64 }
     [Flags] private enum KeyboardFlags : uint { None = 0, ExtendedKey = 1, KeyUp = 2 }
     [StructLayout(LayoutKind.Sequential)] private struct Input { public uint Type; public InputUnion Data; }

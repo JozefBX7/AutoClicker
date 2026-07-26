@@ -1,0 +1,38 @@
+using System.Windows;
+using System.Windows.Input;
+
+namespace AutoClicker;
+
+public partial class InputJitterWindow : Window
+{
+    public long MaximumJitterMilliseconds { get; private set; }
+
+    public InputJitterWindow(long maximumJitterMilliseconds)
+    {
+        InitializeComponent();
+        var parts = InputRules.DescribeJitter(maximumJitterMilliseconds);
+        SecondsBox.Text = parts.Seconds.ToString();
+        MillisecondsBox.Text = parts.Milliseconds.ToString();
+    }
+
+    private void Header_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.LeftButton == MouseButtonState.Pressed) DragMove();
+    }
+
+    private void CancelButton_Click(object sender, RoutedEventArgs e) => DialogResult = false;
+
+    private void ClearButton_Click(object sender, RoutedEventArgs e)
+    {
+        MaximumJitterMilliseconds = 0;
+        DialogResult = true;
+    }
+
+    private void SaveButton_Click(object sender, RoutedEventArgs e)
+    {
+        MaximumJitterMilliseconds = InputRules.CreateJitterMaximum(
+            InputRules.ParseClamped(SecondsBox.Text, 0, 59),
+            InputRules.ParseClamped(MillisecondsBox.Text, 0, 999));
+        DialogResult = true;
+    }
+}

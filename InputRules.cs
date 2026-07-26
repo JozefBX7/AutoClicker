@@ -3,7 +3,9 @@ namespace AutoClicker;
 internal static class InputRules
 {
     internal const int DefaultInputPulseMilliseconds = 3;
+    internal const int MaximumJitterMilliseconds = 59_999;
     internal readonly record struct IntervalParts(int Hours, int Minutes, int Seconds, int Milliseconds);
+    internal readonly record struct JitterParts(int Seconds, int Milliseconds);
 
     internal static int ParseClamped(string? value, int minimum, int maximum) => int.TryParse(value, out var parsed) ? Math.Clamp(parsed, minimum, maximum) : minimum;
 
@@ -31,6 +33,28 @@ internal static class InputRules
     }
 
     internal static int NormalizeInputPulseMilliseconds(int milliseconds) => Math.Clamp(milliseconds, 0, 5);
+
+    internal static long CreateJitterMaximum(long seconds, long milliseconds)
+    {
+        var total = Math.Max(0, seconds) * 1_000L
+            + Math.Max(0, milliseconds);
+        return Math.Clamp(total, 0, MaximumJitterMilliseconds);
+    }
+
+    internal static JitterParts DescribeJitter(long milliseconds)
+    {
+        var total = Math.Clamp(milliseconds, 0, MaximumJitterMilliseconds);
+        var seconds = (int)(total / 1_000L);
+        return new JitterParts(seconds, (int)(total % 1_000L));
+    }
+
+    internal static long NextJitterOffsetMilliseconds(long maximumMilliseconds, Random random)
+    {
+        var maximum = Math.Clamp(maximumMilliseconds, 0, MaximumJitterMilliseconds);
+        return maximum == 0 ? 0 : random.NextInt64(-maximum, maximum + 1);
+    }
+
+    internal static long ApplyJitter(long baseMilliseconds, long offsetMilliseconds) => Math.Max(1, baseMilliseconds + offsetMilliseconds);
 
     internal static bool IsKeyboardAction(string? action) => action is "Space" or "Enter" or "Custom";
 
