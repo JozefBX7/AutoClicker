@@ -7,6 +7,7 @@ AppId={{A4D1A5BA-24E0-4E0D-AD8F-0AD7AA7871B8}
 AppName=AutoClicker
 AppVersion={#MyAppVersion}
 AppPublisher=JBX7
+AppCopyright=Copyright © 2026 JBX7
 AppPublisherURL=https://github.com/JozefBX7/AutoClicker
 AppSupportURL=https://github.com/JozefBX7/AutoClicker/issues
 DefaultDirName={autopf}\AutoClicker
