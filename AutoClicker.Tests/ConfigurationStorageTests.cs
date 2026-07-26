@@ -12,11 +12,12 @@ public sealed class ConfigurationStorageTests
         var path = TemporaryPath("sequence-library.json");
         try
         {
-            SequenceLibraryStore.Save(path, [new SequencePreset { Name = "Combat", Steps = [new SequenceStep { Input = "Left" }, new SequenceStep { Input = "Space", DelayAfterMilliseconds = 80 }] }]);
+            SequenceLibraryStore.Save(path, [new SequencePreset { Name = "Combat", UseGlobalInputPulse = false, Steps = [new SequenceStep { Input = "Left" }, new SequenceStep { Input = "Space", DelayAfterMilliseconds = 80 }] }]);
             var library = SequenceLibraryStore.Load(path);
             Assert.AreEqual(1, library.Count);
             Assert.AreEqual("Combat", library[0].Name);
             Assert.AreEqual(2, library[0].Steps.Count);
+            Assert.IsFalse(library[0].UseGlobalInputPulse);
         }
         finally { DeleteTemporaryDirectory(path); }
     }
@@ -84,6 +85,7 @@ public sealed class ConfigurationStorageTests
         CollectionAssert.AreEqual(new[] { "Left", "Custom", "Delay" }, library[0].Steps.Select(step => step.Input).ToArray());
         Assert.AreEqual(65, library[0].Steps[1].CustomKey);
         Assert.AreEqual(125, library[0].Steps[2].DelayAfterMilliseconds);
+        Assert.IsTrue(library[0].UseGlobalInputPulse);
     }
 
     [TestMethod]

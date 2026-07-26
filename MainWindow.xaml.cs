@@ -58,7 +58,9 @@ public partial class MainWindow : Window
     private bool rgbLightingTipSeen;
     private string? targetWindowTitle;
     private int inputPulseMilliseconds = InputRules.DefaultInputPulseMilliseconds;
+    private bool customSequenceUsesGlobalInputPulse = true;
     private WorkerPriorityOption workerPriority = WorkerPriorityOption.Normal;
+    private bool cadenceDiagnosticsEnabled;
 
     public MainWindow()
     {
@@ -188,13 +190,14 @@ public partial class MainWindow : Window
         }
         if (settingsOpen) return;
         settingsOpen = true;
-        var dialog = new SettingsWindow(rgbSettings, workerPriority, FormatHotkey(), HotkeyKeyName(), ResetToFactoryDefaults, ExportFullBackup, ImportFullBackup) { Owner = this };
+        var dialog = new SettingsWindow(rgbSettings, workerPriority, cadenceDiagnosticsEnabled, FormatHotkey(), HotkeyKeyName(), ResetToFactoryDefaults, ExportFullBackup, ImportFullBackup) { Owner = this };
         try
         {
             if (dialog.ShowDialog() == true)
             {
                 rgbSettings = dialog.Settings;
                 workerPriority = dialog.WorkerPriority;
+                cadenceDiagnosticsEnabled = dialog.CadenceDiagnosticsEnabled;
                 SaveRgbSettings();
                 SaveUiPreferences();
                 CrashRecovery.UpdateEnabled(rgbSettings.CrashRecoveryEnabled);
@@ -341,9 +344,13 @@ public partial class MainWindow : Window
         if (selectedAction == "EditSequence")
         {
             var previous = e.RemovedItems.OfType<ComboBoxItem>().FirstOrDefault();
-            var editor = new SequenceEditorWindow(customSequence, sequenceLibrary) { Owner = this };
+            var editor = new SequenceEditorWindow(customSequence, customSequenceUsesGlobalInputPulse, sequenceLibrary) { Owner = this };
             var accepted = editor.ShowDialog() == true;
-            if (accepted) customSequence = editor.Steps.Select(step => step.Clone()).ToList();
+            if (accepted)
+            {
+                customSequence = editor.Steps.Select(step => step.Clone()).ToList();
+                customSequenceUsesGlobalInputPulse = editor.UseGlobalInputPulse;
+            }
             if (editor.LibraryChanged)
             {
                 sequenceLibrary = editor.Library.Select(preset => preset.Clone()).ToList();
@@ -446,7 +453,8 @@ public partial class MainWindow : Window
         Volatile.Write(ref lastGuiHeartbeat, Stopwatch.GetTimestamp());
         var hold = InputRules.IsHoldAction(Selected(TypeCombo));
         var target = new TargetWindowRule(TargetExecutableBox.Text, targetWindowTitle);
-        var settings = new ClickSettings(FixedPositionRadio.IsChecked == true, Read(XBox, -32768, 32767), Read(YBox, -32768, 32767), input, keyboardVirtualKey == 0 ? null : keyboardVirtualKey, Selected(TypeCombo) == "Double", hold, hold ? null : CountRadio.IsChecked == true ? Read(CountBox, 1, 999999) : null, input == "Sequence" ? BuildSequence(customSequence) : null, InputRules.NormalizeInputPulseMilliseconds(inputPulseMilliseconds), workerPriority, target);
+        var sequencePulseMilliseconds = customSequenceUsesGlobalInputPulse ? inputPulseMilliseconds : 0;
+        var settings = new ClickSettings(FixedPositionRadio.IsChecked == true, Read(XBox, -32768, 32767), Read(YBox, -32768, 32767), input, keyboardVirtualKey == 0 ? null : keyboardVirtualKey, Selected(TypeCombo) == "Double", hold, hold ? null : CountRadio.IsChecked == true ? Read(CountBox, 1, 999999) : null, input == "Sequence" ? BuildSequence(customSequence) : null, InputRules.NormalizeInputPulseMilliseconds(input == "Sequence" ? sequencePulseMilliseconds : inputPulseMilliseconds), workerPriority, cadenceDiagnosticsEnabled, target);
         // Reflect the running state before the worker can send its first input.
         AppLog.Info($"Starting {ActivityVerb().ToLowerInvariant()} | Input={input} | IntervalMs={delay.TotalMilliseconds:0.###} | PulseMs={settings.InputPulseMilliseconds} | WorkerPriority={settings.WorkerPriority} | Repeat={(settings.MaximumClicks?.ToString() ?? "until stopped")}");
         StartButton.IsEnabled = false; StopButton.IsEnabled = true;
@@ -478,7 +486,7 @@ public partial class MainWindow : Window
             using var timer = new PrecisionTimer();
             var intervalTicks = delay.TotalSeconds * Stopwatch.Frequency;
             var nextClickAt = (double)Stopwatch.GetTimestamp();
-            cadence = new CadenceDiagnostics(intervalTicks, settings.InputPulseMilliseconds);
+            if (settings.CadenceDiagnosticsEnabled) cadence = new CadenceDiagnostics(intervalTicks, settings.InputPulseMilliseconds);
             var actionInputs = settings.KeyboardVirtualKey is int virtualKey ? CreateKeyInputs(virtualKey) : CreateClickInputs(settings.Button);
             if (settings.Hold)
             {
@@ -525,7 +533,10 @@ public partial class MainWindow : Window
                     if (CanSendAction(settings, settings.KeyboardVirtualKey is null))
                     {
                         if (settings.FixedPosition && settings.KeyboardVirtualKey is null) SetCursorPos(settings.X, settings.Y);
-                        if (!SendAction(actionInputs, settings.DoubleClick, settings.InputPulseMilliseconds, timer, cancellation, ref watchdogExpired, cadence, nextClickAt)) break;
+                        var sentAction = cadence is null
+                            ? SendAction(actionInputs, settings.DoubleClick, settings.InputPulseMilliseconds, timer, cancellation, ref watchdogExpired)
+                            : SendActionWithDiagnostics(actionInputs, settings.DoubleClick, settings.InputPulseMilliseconds, timer, cancellation, ref watchdogExpired, cadence, nextClickAt);
+                        if (!sentAction) break;
                         sent++;
                     }
                 }
@@ -993,7 +1004,7 @@ public partial class MainWindow : Window
     private AppDefaults CreateCurrentDefaults()
     {
         var interval = NormalizeIntervalBoxes();
-        return new AppDefaults { Hours = interval.Hours, Minutes = interval.Minutes, Seconds = interval.Seconds, Milliseconds = interval.Milliseconds, MouseButton = Selected(ButtonCombo), Input = Selected(ButtonCombo), CustomKey = customSpamVirtualKey, CustomSequence = customSequence.Select(step => step.Clone()).ToList(), ClickType = Selected(TypeCombo), RepeatUntilStopped = UntilStoppedRadio.IsChecked == true, RepeatCount = Read(CountBox, 1, 999999), FixedPosition = FixedPositionRadio.IsChecked == true, X = Read(XBox, -32768, 32767), Y = Read(YBox, -32768, 32767), InputPulseMilliseconds = inputPulseMilliseconds, TargetExecutable = TargetExecutableBox.Text.Trim(), TargetWindowTitle = targetWindowTitle, Hotkey = hotkey, HotkeyModifiers = hotkeyModifiers, Rgb = rgbSettings };
+        return new AppDefaults { Hours = interval.Hours, Minutes = interval.Minutes, Seconds = interval.Seconds, Milliseconds = interval.Milliseconds, MouseButton = Selected(ButtonCombo), Input = Selected(ButtonCombo), CustomKey = customSpamVirtualKey, CustomSequence = customSequence.Select(step => step.Clone()).ToList(), CustomSequenceUsesGlobalInputPulse = customSequenceUsesGlobalInputPulse, ClickType = Selected(TypeCombo), RepeatUntilStopped = UntilStoppedRadio.IsChecked == true, RepeatCount = Read(CountBox, 1, 999999), FixedPosition = FixedPositionRadio.IsChecked == true, X = Read(XBox, -32768, 32767), Y = Read(YBox, -32768, 32767), InputPulseMilliseconds = inputPulseMilliseconds, TargetExecutable = TargetExecutableBox.Text.Trim(), TargetWindowTitle = targetWindowTitle, Hotkey = hotkey, HotkeyModifiers = hotkeyModifiers, Rgb = rgbSettings };
     }
 
     private string? ExportFullBackup(string path)
@@ -1005,7 +1016,7 @@ public partial class MainWindow : Window
             {
                 DefaultsJson = JsonSerializer.Serialize(CreateCurrentDefaults()),
                 RgbJson = JsonSerializer.Serialize(rgbSettings),
-                UiPreferencesJson = JsonSerializer.Serialize(new UiPreferences { Pinned = Topmost, CompactMode = compactMode, RgbLightingTipSeen = rgbLightingTipSeen, WorkerPriority = workerPriority.ToString() }),
+                UiPreferencesJson = JsonSerializer.Serialize(new UiPreferences { Pinned = Topmost, CompactMode = compactMode, RgbLightingTipSeen = rgbLightingTipSeen, WorkerPriority = workerPriority.ToString(), CadenceDiagnosticsEnabled = cadenceDiagnosticsEnabled }),
                 AppearanceJson = ThemeManager.ExportConfiguration(),
                 SequenceLibraryJson = JsonSerializer.Serialize(new SequenceLibraryDocument { Presets = sequenceLibrary.Select(preset => preset.Clone()).ToList() })
             });
@@ -1032,7 +1043,7 @@ public partial class MainWindow : Window
             ApplyDefaults(defaults);
             rgbSettings = rgb; SaveRgbSettings(); CrashRecovery.UpdateEnabled(rgb.CrashRecoveryEnabled);
             sequenceLibrary = library; SaveSequenceLibrary(); RefreshSequencePresetActions();
-            Topmost = ui.Pinned; compactMode = ui.CompactMode; rgbLightingTipSeen = ui.RgbLightingTipSeen; workerPriority = WorkerPriorityRules.Normalize(ui.WorkerPriority); UpdatePinUi(); ApplyCompactMode(); SaveUiPreferences();
+            Topmost = ui.Pinned; compactMode = ui.CompactMode; rgbLightingTipSeen = ui.RgbLightingTipSeen; workerPriority = WorkerPriorityRules.Normalize(ui.WorkerPriority); cadenceDiagnosticsEnabled = ui.CadenceDiagnosticsEnabled; UpdatePinUi(); ApplyCompactMode(); SaveUiPreferences();
             UpdateThemeButton(); RestoreLiveArea(); RegisterConfiguredHotkey();
             SaveDefaults();
             return null;
@@ -1057,6 +1068,7 @@ public partial class MainWindow : Window
         HoursBox.Text = s.Hours.ToString(); MinutesBox.Text = s.Minutes.ToString(); SecondsBox.Text = s.Seconds.ToString(); MillisBox.Text = s.Milliseconds.ToString();
         customSpamVirtualKey = s.CustomKey;
         customSequence = s.CustomSequence?.Select(step => step.Clone()).ToList() ?? [];
+        customSequenceUsesGlobalInputPulse = s.CustomSequenceUsesGlobalInputPulse;
         SequenceItem.Content = "Custom sequence";
         CustomKeyItem.Content = customSpamVirtualKey != 0 ? $"Key: {FormatInputKey(customSpamVirtualKey)}" : "Custom key";
         Select(ButtonCombo, string.IsNullOrWhiteSpace(s.Input) ? s.MouseButton : s.Input); Select(TypeCombo, s.ClickType); UntilStoppedRadio.IsChecked = s.RepeatUntilStopped; CountRadio.IsChecked = !s.RepeatUntilStopped; CountBox.Text = s.RepeatCount.ToString();
@@ -1110,6 +1122,7 @@ public partial class MainWindow : Window
     private void ApplySequencePreset(SequencePreset preset)
     {
         customSequence = preset.Steps.Select(step => step.Clone()).ToList();
+        customSequenceUsesGlobalInputPulse = preset.UseGlobalInputPulse;
         SequenceItem.Content = "Custom sequence";
         updatingActionSelection = true; ButtonCombo.SelectedItem = SequenceItem; updatingActionSelection = false;
         UpdateLiveInputMode();
@@ -1132,13 +1145,14 @@ public partial class MainWindow : Window
         compactMode = preferences.CompactMode;
         rgbLightingTipSeen = preferences.RgbLightingTipSeen;
         workerPriority = WorkerPriorityRules.Normalize(preferences.WorkerPriority);
+        cadenceDiagnosticsEnabled = preferences.CadenceDiagnosticsEnabled;
         UpdatePinUi();
         ApplyCompactMode();
     }
 
     private void SaveUiPreferences()
     {
-        try { UiPreferencesStore.Save(UiPreferencesPath, new UiPreferences { Pinned = Topmost, CompactMode = compactMode, RgbLightingTipSeen = rgbLightingTipSeen, WorkerPriority = workerPriority.ToString() }); }
+        try { UiPreferencesStore.Save(UiPreferencesPath, new UiPreferences { Pinned = Topmost, CompactMode = compactMode, RgbLightingTipSeen = rgbLightingTipSeen, WorkerPriority = workerPriority.ToString(), CadenceDiagnosticsEnabled = cadenceDiagnosticsEnabled }); }
         catch { }
     }
 
@@ -1250,15 +1264,13 @@ public partial class MainWindow : Window
         return new SequenceAction(key == 0 ? CreateClickInputs(step.Input) : CreateKeyInputs(key), key == 0, false, Math.Clamp(step.DelayAfterMilliseconds, 0, 600000));
     }).ToArray();
     private static bool IsExtendedKey(int virtualKey) => virtualKey is 0x21 or 0x22 or 0x23 or 0x24 or 0x25 or 0x26 or 0x27 or 0x28 or 0x2D or 0x2E or 0x5B or 0x5C or 0x5D or 0xA3 or 0xA5 or 0x6F;
-    private bool SendAction(Input[] inputs, bool doubleClick, int pulseMilliseconds, PrecisionTimer timer, CancellationTokenSource cancellation, ref bool watchdogExpired, CadenceDiagnostics? cadence = null, double scheduledTimestamp = 0)
+    private bool SendAction(Input[] inputs, bool doubleClick, int pulseMilliseconds, PrecisionTimer timer, CancellationTokenSource cancellation, ref bool watchdogExpired)
     {
         if (InputRules.NormalizeInputPulseMilliseconds(pulseMilliseconds) == 0)
         {
-            cadence?.RecordDown(scheduledTimestamp);
             SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<Input>());
             if (doubleClick)
             {
-                cadence?.RecordDown(scheduledTimestamp);
                 SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<Input>());
             }
             return true;
@@ -1268,7 +1280,6 @@ public partial class MainWindow : Window
         var pulseTicks = InputRules.NormalizeInputPulseMilliseconds(pulseMilliseconds) * Stopwatch.Frequency / 1000d;
         for (var press = 0; press < pressCount; press++)
         {
-            cadence?.RecordDown(scheduledTimestamp);
             SendInput(1, [inputs[0]], Marshal.SizeOf<Input>());
             try
             {
@@ -1276,7 +1287,39 @@ public partial class MainWindow : Window
             }
             finally
             {
-                cadence?.RecordUp();
+                SendInput(1, [inputs[1]], Marshal.SizeOf<Input>());
+            }
+        }
+        return true;
+    }
+
+    private bool SendActionWithDiagnostics(Input[] inputs, bool doubleClick, int pulseMilliseconds, PrecisionTimer timer, CancellationTokenSource cancellation, ref bool watchdogExpired, CadenceDiagnostics cadence, double scheduledTimestamp)
+    {
+        if (InputRules.NormalizeInputPulseMilliseconds(pulseMilliseconds) == 0)
+        {
+            cadence.RecordDown(scheduledTimestamp);
+            SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<Input>());
+            if (doubleClick)
+            {
+                cadence.RecordDown(scheduledTimestamp);
+                SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<Input>());
+            }
+            return true;
+        }
+
+        var pressCount = doubleClick ? 2 : 1;
+        var pulseTicks = InputRules.NormalizeInputPulseMilliseconds(pulseMilliseconds) * Stopwatch.Frequency / 1000d;
+        for (var press = 0; press < pressCount; press++)
+        {
+            cadence.RecordDown(scheduledTimestamp);
+            SendInput(1, [inputs[0]], Marshal.SizeOf<Input>());
+            try
+            {
+                if (!WaitUntilGuiIsHealthy(timer, Stopwatch.GetTimestamp() + pulseTicks, cancellation, ref watchdogExpired)) return false;
+            }
+            finally
+            {
+                cadence.RecordUp();
                 SendInput(1, [inputs[1]], Marshal.SizeOf<Input>());
             }
         }
@@ -1288,7 +1331,7 @@ public partial class MainWindow : Window
         (WindowTargeting.IsForeground(settings.Target) &&
          (!settings.FixedPosition || !isMouse || WindowTargeting.IsPointInForegroundClientArea(settings.X, settings.Y)));
 
-    private sealed record ClickSettings(bool FixedPosition, int X, int Y, string Button, int? KeyboardVirtualKey, bool DoubleClick, bool Hold, int? MaximumClicks, SequenceAction[]? Sequence, int InputPulseMilliseconds, WorkerPriorityOption WorkerPriority, TargetWindowRule Target);
+    private sealed record ClickSettings(bool FixedPosition, int X, int Y, string Button, int? KeyboardVirtualKey, bool DoubleClick, bool Hold, int? MaximumClicks, SequenceAction[]? Sequence, int InputPulseMilliseconds, WorkerPriorityOption WorkerPriority, bool CadenceDiagnosticsEnabled, TargetWindowRule Target);
     private sealed record SequenceAction(Input[] Inputs, bool IsMouse, bool IsDelay, int DelayAfterMilliseconds);
     private sealed class CadenceDiagnostics(double intervalTicks, int pulseMilliseconds)
     {
@@ -1372,7 +1415,7 @@ public partial class MainWindow : Window
         public void Dispose() => CloseHandle(handle);
     }
 
-    private sealed class AppDefaults { public int Hours { get; set; } public int Minutes { get; set; } public int Seconds { get; set; } public int Milliseconds { get; set; } = 100; public string MouseButton { get; set; } = "Left"; public string? Input { get; set; } public int CustomKey { get; set; } public List<SequenceStep>? CustomSequence { get; set; } public string ClickType { get; set; } = "Single"; public bool RepeatUntilStopped { get; set; } = true; public int RepeatCount { get; set; } = 10; public bool FixedPosition { get; set; } public int X { get; set; } public int Y { get; set; } public int? InputPulseMilliseconds { get; set; } = InputRules.DefaultInputPulseMilliseconds; public string TargetExecutable { get; set; } = string.Empty; public string? TargetWindowTitle { get; set; } = null; public int Hotkey { get; set; } = 117; public uint HotkeyModifiers { get; set; } public RgbSettings? Rgb { get; set; } }
+    private sealed class AppDefaults { public int Hours { get; set; } public int Minutes { get; set; } public int Seconds { get; set; } public int Milliseconds { get; set; } = 100; public string MouseButton { get; set; } = "Left"; public string? Input { get; set; } public int CustomKey { get; set; } public List<SequenceStep>? CustomSequence { get; set; } public bool CustomSequenceUsesGlobalInputPulse { get; set; } = true; public string ClickType { get; set; } = "Single"; public bool RepeatUntilStopped { get; set; } = true; public int RepeatCount { get; set; } = 10; public bool FixedPosition { get; set; } public int X { get; set; } public int Y { get; set; } public int? InputPulseMilliseconds { get; set; } = InputRules.DefaultInputPulseMilliseconds; public string TargetExecutable { get; set; } = string.Empty; public string? TargetWindowTitle { get; set; } = null; public int Hotkey { get; set; } = 117; public uint HotkeyModifiers { get; set; } public RgbSettings? Rgb { get; set; } }
     [Flags] private enum MouseFlags : uint { LeftDown = 2, LeftUp = 4, RightDown = 8, RightUp = 16, MiddleDown = 32, MiddleUp = 64 }
     [Flags] private enum KeyboardFlags : uint { None = 0, ExtendedKey = 1, KeyUp = 2 }
     [StructLayout(LayoutKind.Sequential)] private struct Input { public uint Type; public InputUnion Data; }

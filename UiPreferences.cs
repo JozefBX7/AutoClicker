@@ -9,6 +9,7 @@ internal sealed class UiPreferences
     public bool CompactMode { get; set; }
     public bool RgbLightingTipSeen { get; set; }
     public string WorkerPriority { get; set; } = WorkerPriorityOption.Normal.ToString();
+    public bool CadenceDiagnosticsEnabled { get; set; }
 }
 
 public enum WorkerPriorityOption { Normal, AboveNormal }

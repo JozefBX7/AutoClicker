@@ -8,7 +8,8 @@ public sealed class SequencePreset
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = "Untitled sequence";
     public List<SequenceStep> Steps { get; set; } = [];
-    public SequencePreset Clone() => new() { Id = Id, Name = Name, Steps = Steps.Select(step => step.Clone()).ToList() };
+    public bool UseGlobalInputPulse { get; set; } = true;
+    public SequencePreset Clone() => new() { Id = Id, Name = Name, Steps = Steps.Select(step => step.Clone()).ToList(), UseGlobalInputPulse = UseGlobalInputPulse };
     public override string ToString() => Name;
 }
 
@@ -52,7 +53,7 @@ internal static class SequenceLibraryStore
             }
 
             if (isValid && steps.Count >= 2)
-                presets.Add(new SequencePreset { Id = preset.Id, Name = preset.Name.Trim(), Steps = steps });
+                presets.Add(new SequencePreset { Id = preset.Id, Name = preset.Name.Trim(), Steps = steps, UseGlobalInputPulse = preset.UseGlobalInputPulse });
         }
 
         return presets;

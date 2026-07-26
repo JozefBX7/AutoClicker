@@ -28,6 +28,15 @@ public sealed class SequenceStepTests
     }
 
     [TestMethod]
+    public void PresetClone_PreservesGlobalPulseOverride()
+    {
+        var original = new SequencePreset { Name = "Instant", UseGlobalInputPulse = false, Steps = [new SequenceStep { Input = "Left" }, new SequenceStep { Input = "Right" }] };
+        var clone = original.Clone();
+
+        Assert.IsFalse(clone.UseGlobalInputPulse);
+    }
+
+    [TestMethod]
     public void ToString_DescribesTheActionAndDelay()
     {
         var text = new SequenceStep { Input = "Left", DelayAfterMilliseconds = 125 }.ToString();

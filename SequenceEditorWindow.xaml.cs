@@ -13,13 +13,15 @@ public partial class SequenceEditorWindow : Window
     private readonly List<SequencePreset> library;
     public bool LibraryChanged { get; private set; }
     public IReadOnlyList<SequenceStep> Steps => steps.Select(step => step.Clone()).ToList();
+    public bool UseGlobalInputPulse => UseGlobalInputPulseCheckBox.IsChecked == true;
     public IReadOnlyList<SequencePreset> Library => library.Select(preset => preset.Clone()).ToList();
 
-    public SequenceEditorWindow(IEnumerable<SequenceStep> current, IEnumerable<SequencePreset> library)
+    public SequenceEditorWindow(IEnumerable<SequenceStep> current, bool useGlobalInputPulse, IEnumerable<SequencePreset> library)
     {
         InitializeComponent();
         steps = new ObservableCollection<SequenceStep>(current.Select(step => step.Clone()));
         this.library = library.Select(preset => preset.Clone()).ToList();
+        UseGlobalInputPulseCheckBox.IsChecked = useGlobalInputPulse;
         StepsList.ItemsSource = steps;
         PresetCombo.ItemsSource = this.library;
         steps.CollectionChanged += (_, _) => UpdateEmptyStates();
@@ -116,6 +118,7 @@ public partial class SequenceEditorWindow : Window
         if (PresetCombo.SelectedItem is not SequencePreset preset) { HintLabel.Text = "Choose a saved sequence to load."; return; }
         steps.Clear();
         foreach (var step in preset.Steps) steps.Add(step.Clone());
+        UseGlobalInputPulseCheckBox.IsChecked = preset.UseGlobalInputPulse;
         HintLabel.Text = $"Loaded {preset.Name}.";
     }
 
@@ -132,6 +135,7 @@ public partial class SequenceEditorWindow : Window
         StepsList.SelectedItem = null;
         PresetCombo.SelectedItem = null;
         PresetNameBox.Clear();
+        UseGlobalInputPulseCheckBox.IsChecked = true;
         HintLabel.Text = "New empty sequence.";
     }
 
@@ -148,6 +152,7 @@ public partial class SequenceEditorWindow : Window
         }
         preset.Name = name;
         preset.Steps = steps.Select(step => step.Clone()).ToList();
+        preset.UseGlobalInputPulse = UseGlobalInputPulse;
         LibraryChanged = true;
         PresetCombo.Items.Refresh();
         PresetCombo.SelectedItem = preset;
