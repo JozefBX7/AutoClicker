@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Diagnostics;
 
@@ -7,6 +8,7 @@ namespace AutoClicker;
 public partial class SettingsWindow : Window
 {
     public RgbSettings Settings { get; }
+    public WorkerPriorityOption WorkerPriority { get; private set; }
     private readonly string hotkeyName;
     private readonly string hotkeyKeyName;
     private readonly Func<bool> resetToDefaults;
@@ -17,7 +19,7 @@ public partial class SettingsWindow : Window
     private bool restartEffectPreview;
     private bool isClosing;
 
-    public SettingsWindow(RgbSettings current, string hotkeyName, string hotkeyKeyName, Func<bool> resetToDefaults, Func<string, string?> exportBackup, Func<string, string?> importBackup)
+    public SettingsWindow(RgbSettings current, WorkerPriorityOption workerPriority, string hotkeyName, string hotkeyKeyName, Func<bool> resetToDefaults, Func<string, string?> exportBackup, Func<string, string?> importBackup)
     {
         InitializeComponent();
         this.hotkeyName = hotkeyName;
@@ -28,6 +30,8 @@ public partial class SettingsWindow : Window
         effectPreviewRestartTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
         effectPreviewRestartTimer.Tick += EffectPreviewRestartTimer_Tick;
         Settings = new RgbSettings { Enabled = current.Enabled, DeviceIndex = current.DeviceIndex, DeviceName = current.DeviceName, AutoStart = current.AutoStart, StopAutoStartedOnExit = current.StopAutoStartedOnExit, CrashRecoveryEnabled = current.CrashRecoveryEnabled, IndicatorColor = current.IndicatorColor, LightingEffect = current.LightingEffect, PulseSpeedMilliseconds = current.PulseSpeedMilliseconds };
+        WorkerPriority = workerPriority;
+        WorkerPriorityCombo.SelectedItem = WorkerPriorityCombo.Items.OfType<ComboBoxItem>().First(item => string.Equals(item.Tag?.ToString(), WorkerPriority.ToString(), StringComparison.OrdinalIgnoreCase));
         EnableOpenRgb.IsChecked = Settings.Enabled;
         AutoStartOpenRgb.IsChecked = Settings.AutoStart;
         StopAutoStartedOpenRgb.IsChecked = Settings.StopAutoStartedOnExit;
@@ -460,6 +464,7 @@ public partial class SettingsWindow : Window
         Settings.PulseSpeedMilliseconds = ReadPulseSpeed();
         Settings.DeviceIndex = keyboard?.Index ?? -1;
         Settings.DeviceName = keyboard?.Name ?? string.Empty;
+        WorkerPriority = WorkerPriorityRules.Normalize((WorkerPriorityCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString());
         DialogResult = true;
     }
 

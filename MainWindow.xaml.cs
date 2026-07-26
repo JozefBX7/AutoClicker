@@ -58,6 +58,7 @@ public partial class MainWindow : Window
     private bool rgbLightingTipSeen;
     private string? targetWindowTitle;
     private int inputPulseMilliseconds = InputRules.DefaultInputPulseMilliseconds;
+    private WorkerPriorityOption workerPriority = WorkerPriorityOption.Normal;
 
     public MainWindow()
     {
@@ -187,13 +188,15 @@ public partial class MainWindow : Window
         }
         if (settingsOpen) return;
         settingsOpen = true;
-        var dialog = new SettingsWindow(rgbSettings, FormatHotkey(), HotkeyKeyName(), ResetToFactoryDefaults, ExportFullBackup, ImportFullBackup) { Owner = this };
+        var dialog = new SettingsWindow(rgbSettings, workerPriority, FormatHotkey(), HotkeyKeyName(), ResetToFactoryDefaults, ExportFullBackup, ImportFullBackup) { Owner = this };
         try
         {
             if (dialog.ShowDialog() == true)
             {
                 rgbSettings = dialog.Settings;
+                workerPriority = dialog.WorkerPriority;
                 SaveRgbSettings();
+                SaveUiPreferences();
                 CrashRecovery.UpdateEnabled(rgbSettings.CrashRecoveryEnabled);
                 Status(rgbSettings.Enabled ? "OpenRGB hotkey lighting enabled." : "OpenRGB hotkey lighting disabled.", rgbSettings.Enabled ? ThemeManager.Brush("SuccessBrush") : ThemeManager.Brush("TextMutedBrush"));
             }
@@ -443,9 +446,9 @@ public partial class MainWindow : Window
         Volatile.Write(ref lastGuiHeartbeat, Stopwatch.GetTimestamp());
         var hold = InputRules.IsHoldAction(Selected(TypeCombo));
         var target = new TargetWindowRule(TargetExecutableBox.Text, targetWindowTitle);
-        var settings = new ClickSettings(FixedPositionRadio.IsChecked == true, Read(XBox, -32768, 32767), Read(YBox, -32768, 32767), input, keyboardVirtualKey == 0 ? null : keyboardVirtualKey, Selected(TypeCombo) == "Double", hold, hold ? null : CountRadio.IsChecked == true ? Read(CountBox, 1, 999999) : null, input == "Sequence" ? BuildSequence(customSequence) : null, InputRules.NormalizeInputPulseMilliseconds(inputPulseMilliseconds), target);
+        var settings = new ClickSettings(FixedPositionRadio.IsChecked == true, Read(XBox, -32768, 32767), Read(YBox, -32768, 32767), input, keyboardVirtualKey == 0 ? null : keyboardVirtualKey, Selected(TypeCombo) == "Double", hold, hold ? null : CountRadio.IsChecked == true ? Read(CountBox, 1, 999999) : null, input == "Sequence" ? BuildSequence(customSequence) : null, InputRules.NormalizeInputPulseMilliseconds(inputPulseMilliseconds), workerPriority, target);
         // Reflect the running state before the worker can send its first input.
-        AppLog.Info($"Starting {ActivityVerb().ToLowerInvariant()} | Input={input} | IntervalMs={delay.TotalMilliseconds:0.###} | PulseMs={settings.InputPulseMilliseconds} | Repeat={(settings.MaximumClicks?.ToString() ?? "until stopped")}");
+        AppLog.Info($"Starting {ActivityVerb().ToLowerInvariant()} | Input={input} | IntervalMs={delay.TotalMilliseconds:0.###} | PulseMs={settings.InputPulseMilliseconds} | WorkerPriority={settings.WorkerPriority} | Repeat={(settings.MaximumClicks?.ToString() ?? "until stopped")}");
         StartButton.IsEnabled = false; StopButton.IsEnabled = true;
         CollapseButton.IsEnabled = false;
         LiveArea.Background = ThemeManager.Brush("AccentBrush");
@@ -468,8 +471,9 @@ public partial class MainWindow : Window
         CadenceDiagnostics? cadence = null;
         try
         {
-            // Keep the worker at normal priority so it does not preempt the foreground app.
-            Thread.CurrentThread.Priority = ThreadPriority.Normal;
+            Thread.CurrentThread.Priority = settings.WorkerPriority == WorkerPriorityOption.AboveNormal
+                ? ThreadPriority.AboveNormal
+                : ThreadPriority.Normal;
             // Set up a fixed cadence rather than sleeping after each action.
             using var timer = new PrecisionTimer();
             var intervalTicks = delay.TotalSeconds * Stopwatch.Frequency;
@@ -1001,7 +1005,7 @@ public partial class MainWindow : Window
             {
                 DefaultsJson = JsonSerializer.Serialize(CreateCurrentDefaults()),
                 RgbJson = JsonSerializer.Serialize(rgbSettings),
-                UiPreferencesJson = JsonSerializer.Serialize(new UiPreferences { Pinned = Topmost, CompactMode = compactMode, RgbLightingTipSeen = rgbLightingTipSeen }),
+                UiPreferencesJson = JsonSerializer.Serialize(new UiPreferences { Pinned = Topmost, CompactMode = compactMode, RgbLightingTipSeen = rgbLightingTipSeen, WorkerPriority = workerPriority.ToString() }),
                 AppearanceJson = ThemeManager.ExportConfiguration(),
                 SequenceLibraryJson = JsonSerializer.Serialize(new SequenceLibraryDocument { Presets = sequenceLibrary.Select(preset => preset.Clone()).ToList() })
             });
@@ -1028,7 +1032,7 @@ public partial class MainWindow : Window
             ApplyDefaults(defaults);
             rgbSettings = rgb; SaveRgbSettings(); CrashRecovery.UpdateEnabled(rgb.CrashRecoveryEnabled);
             sequenceLibrary = library; SaveSequenceLibrary(); RefreshSequencePresetActions();
-            Topmost = ui.Pinned; compactMode = ui.CompactMode; rgbLightingTipSeen = ui.RgbLightingTipSeen; UpdatePinUi(); ApplyCompactMode(); SaveUiPreferences();
+            Topmost = ui.Pinned; compactMode = ui.CompactMode; rgbLightingTipSeen = ui.RgbLightingTipSeen; workerPriority = WorkerPriorityRules.Normalize(ui.WorkerPriority); UpdatePinUi(); ApplyCompactMode(); SaveUiPreferences();
             UpdateThemeButton(); RestoreLiveArea(); RegisterConfiguredHotkey();
             SaveDefaults();
             return null;
@@ -1127,13 +1131,14 @@ public partial class MainWindow : Window
         Topmost = preferences.Pinned;
         compactMode = preferences.CompactMode;
         rgbLightingTipSeen = preferences.RgbLightingTipSeen;
+        workerPriority = WorkerPriorityRules.Normalize(preferences.WorkerPriority);
         UpdatePinUi();
         ApplyCompactMode();
     }
 
     private void SaveUiPreferences()
     {
-        try { UiPreferencesStore.Save(UiPreferencesPath, new UiPreferences { Pinned = Topmost, CompactMode = compactMode, RgbLightingTipSeen = rgbLightingTipSeen }); }
+        try { UiPreferencesStore.Save(UiPreferencesPath, new UiPreferences { Pinned = Topmost, CompactMode = compactMode, RgbLightingTipSeen = rgbLightingTipSeen, WorkerPriority = workerPriority.ToString() }); }
         catch { }
     }
 
@@ -1283,7 +1288,7 @@ public partial class MainWindow : Window
         (WindowTargeting.IsForeground(settings.Target) &&
          (!settings.FixedPosition || !isMouse || WindowTargeting.IsPointInForegroundClientArea(settings.X, settings.Y)));
 
-    private sealed record ClickSettings(bool FixedPosition, int X, int Y, string Button, int? KeyboardVirtualKey, bool DoubleClick, bool Hold, int? MaximumClicks, SequenceAction[]? Sequence, int InputPulseMilliseconds, TargetWindowRule Target);
+    private sealed record ClickSettings(bool FixedPosition, int X, int Y, string Button, int? KeyboardVirtualKey, bool DoubleClick, bool Hold, int? MaximumClicks, SequenceAction[]? Sequence, int InputPulseMilliseconds, WorkerPriorityOption WorkerPriority, TargetWindowRule Target);
     private sealed record SequenceAction(Input[] Inputs, bool IsMouse, bool IsDelay, int DelayAfterMilliseconds);
     private sealed class CadenceDiagnostics(double intervalTicks, int pulseMilliseconds)
     {

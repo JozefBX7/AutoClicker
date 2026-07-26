@@ -15,6 +15,7 @@ public sealed class UiPreferencesStoreTests
             var preferences = UiPreferencesStore.Load(path);
             Assert.IsFalse(preferences.Pinned);
             Assert.IsFalse(preferences.CompactMode);
+            Assert.AreEqual("Normal", preferences.WorkerPriority);
         }
         finally { DeleteTemporaryDirectory(path); }
     }
@@ -25,14 +26,24 @@ public sealed class UiPreferencesStoreTests
         var path = TemporaryPath();
         try
         {
-            UiPreferencesStore.Save(path, new UiPreferences { Pinned = true, CompactMode = true, RgbLightingTipSeen = true });
+            UiPreferencesStore.Save(path, new UiPreferences { Pinned = true, CompactMode = true, RgbLightingTipSeen = true, WorkerPriority = "AboveNormal" });
             var preferences = UiPreferencesStore.Load(path);
             Assert.IsTrue(preferences.Pinned);
             Assert.IsTrue(preferences.CompactMode);
             Assert.IsTrue(preferences.RgbLightingTipSeen);
+            Assert.AreEqual("AboveNormal", preferences.WorkerPriority);
         }
         finally { DeleteTemporaryDirectory(path); }
     }
+
+    [DataTestMethod]
+    [DataRow("Normal", WorkerPriorityOption.Normal)]
+    [DataRow("AboveNormal", WorkerPriorityOption.AboveNormal)]
+    [DataRow("abovenormal", WorkerPriorityOption.AboveNormal)]
+    [DataRow("invalid", WorkerPriorityOption.Normal)]
+    [DataRow(null, WorkerPriorityOption.Normal)]
+    public void NormalizeWorkerPriority_UsesSupportedValuesAndDefaults(string? value, WorkerPriorityOption expected) =>
+        Assert.AreEqual(expected, WorkerPriorityRules.Normalize(value));
 
     [TestMethod]
     public void Load_InvalidFileFallsBackToDefaults()

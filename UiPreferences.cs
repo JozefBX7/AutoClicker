@@ -8,6 +8,16 @@ internal sealed class UiPreferences
     public bool Pinned { get; set; }
     public bool CompactMode { get; set; }
     public bool RgbLightingTipSeen { get; set; }
+    public string WorkerPriority { get; set; } = WorkerPriorityOption.Normal.ToString();
+}
+
+public enum WorkerPriorityOption { Normal, AboveNormal }
+
+internal static class WorkerPriorityRules
+{
+    internal static WorkerPriorityOption Normalize(string? value) => Enum.TryParse<WorkerPriorityOption>(value, ignoreCase: true, out var priority)
+        ? priority
+        : WorkerPriorityOption.Normal;
 }
 
 internal static class UiPreferencesStore

@@ -1,7 +1,7 @@
 <Window x:Class="AutoClicker.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Settings" Icon="Assets/AutoClickerIcon.ico" Width="440" Height="716" ResizeMode="NoResize" WindowStyle="None" AllowsTransparency="True" Background="Transparent" FontFamily="Segoe UI" WindowStartupLocation="CenterOwner">
+        Title="Settings" Icon="Assets/AutoClickerIcon.ico" Width="440" Height="796" ResizeMode="NoResize" WindowStyle="None" AllowsTransparency="True" Background="Transparent" FontFamily="Segoe UI" WindowStartupLocation="CenterOwner">
     <Border Background="{DynamicResource AppBackgroundBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="14">
         <Grid Margin="1">
             <Grid.RowDefinitions><RowDefinition Height="62" /><RowDefinition Height="*" /><RowDefinition Height="58" /></Grid.RowDefinitions>
@@ -36,6 +36,16 @@
                     </Border>
                     <CheckBox x:Name="EnableCrashRecovery" Content="Restart after an unexpected crash" FontWeight="SemiBold" />
                     <TextBlock Text="Intentional closures and forced terminations never restart the app. Repeated crashes are paused automatically." Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,12" />
+                    <Border Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1" CornerRadius="7" Padding="10,8" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="Click worker priority" Style="{StaticResource SectionTitle}" />
+                            <TextBlock Text="Normal is recommended. Above Normal can help on busy systems but may compete with the foreground game or app." Foreground="{DynamicResource TextMutedBrush}" FontSize="10" TextWrapping="Wrap" Margin="0,3,0,7" />
+                            <ComboBox x:Name="WorkerPriorityCombo" SelectedValuePath="Tag">
+                                <ComboBoxItem Content="Normal (recommended)" Tag="Normal" />
+                                <ComboBoxItem Content="Above Normal (compatibility)" Tag="AboveNormal" />
+                            </ComboBox>
+                        </StackPanel>
+                    </Border>
                     <Border Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1" CornerRadius="7" Padding="10,8"><StackPanel><TextBlock Text="Configuration backup" Style="{StaticResource SectionTitle}"/><TextBlock Text="Full backup includes defaults, RGB, appearance, window preferences, and every saved sequence." Foreground="{DynamicResource TextMutedBrush}" FontSize="10" TextWrapping="Wrap" Margin="0,3,0,7"/><StackPanel Orientation="Horizontal"><Button Content="Export full backup" Click="ExportBackup_Click" Style="{StaticResource GhostButton}"/><Button Content="Import full backup" Click="ImportBackup_Click" Style="{StaticResource GhostButton}" Margin="7,0,0,0"/></StackPanel></StackPanel></Border>
                     <Border Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1" CornerRadius="7" Padding="10,8" Margin="0,12,0,0">
                         <StackPanel>
