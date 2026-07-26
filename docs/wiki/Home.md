@@ -27,6 +27,12 @@ Use automated input only where it is permitted.
 - Optional local OpenRGB key lighting while active.
 - One running instance, a global stop hotkey, and optional crash recovery.
 
+## Screenshots
+
+> **Screenshot placeholder — Main window**
+>
+> Add one clean screenshot of the expanded main window in dark mode. It should show the interval, action, repeat, position, and live area without a modal or active run.
+
 ## Support and feedback
 
 For bugs or feature requests, use the repository’s Issues page. When reporting a fault, include `AutoClicker.log` if possible; it contains timestamps and exception context but does not record user input.

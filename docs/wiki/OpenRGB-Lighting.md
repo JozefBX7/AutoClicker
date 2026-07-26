@@ -12,6 +12,10 @@ AutoClicker can optionally light the configured global hotkey on a compatible RG
 6. Use **Test hotkey lighting** to flash the selected hotkey three times. Its previous colour is restored afterwards.
 7. Save settings.
 
+> **Screenshot placeholder — Keyboard lighting settings**
+>
+> Add one screenshot of the Keyboard lighting section with a selected keyboard, colour, and effect. Do not include device serial numbers or unrelated desktop content.
+
 AutoClicker recognises keyboards reported as keyboards and also attempts sensible matches for common vendor/model names such as Corsair devices. It remembers a selected keyboard by name and gracefully uses a single detected keyboard if the exact device index changes.
 
 ## Automatic OpenRGB startup

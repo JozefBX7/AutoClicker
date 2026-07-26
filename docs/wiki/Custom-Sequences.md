@@ -14,6 +14,10 @@ Open **Open custom sequence editor** from the Input menu.
 
 Events are displayed in execution order. A delay is independent of the key or click before it, which makes a routine easier to inspect and rearrange.
 
+> **Screenshot placeholder — Sequence editor**
+>
+> Add one screenshot with a short mixed sequence selected, showing the action buttons, a delay event, and the saved-sequences area.
+
 ## Use and save a sequence
 
 Click **Use sequence** to put the edited sequence into the main window. Then select **Custom sequence** as the action.
