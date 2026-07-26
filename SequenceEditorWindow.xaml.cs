@@ -106,6 +106,7 @@ public partial class SequenceEditorWindow : Window
     private void PresetCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (PresetCombo.SelectedItem is SequencePreset preset) PresetNameBox.Text = preset.Name;
+        if (DeletePresetButton is not null) DeletePresetButton.IsEnabled = PresetCombo.SelectedItem is SequencePreset;
     }
 
     private void LoadPreset_Click(object sender, RoutedEventArgs e)
@@ -134,6 +135,22 @@ public partial class SequenceEditorWindow : Window
         PresetCombo.SelectedItem = preset;
         UpdateEmptyStates();
         HintLabel.Text = $"Saved {name} to your sequence library.";
+    }
+
+    private void DeletePreset_Click(object sender, RoutedEventArgs e)
+    {
+        if (PresetCombo.SelectedItem is not SequencePreset preset) return;
+        var confirmation = new ConfirmationWindow("Delete saved sequence", $"Delete \"{preset.Name}\" from your saved sequences?", "Delete", destructive: true) { Owner = this };
+        if (confirmation.ShowDialog() != true) return;
+
+        library.Remove(preset);
+        PresetCombo.Items.Refresh();
+        PresetCombo.SelectedItem = null;
+        PresetNameBox.Clear();
+        DeletePresetButton.IsEnabled = false;
+        LibraryChanged = true;
+        UpdateEmptyStates();
+        HintLabel.Text = $"Deleted {preset.Name}.";
     }
 
     private void UpdateEmptyStates()
