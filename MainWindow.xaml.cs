@@ -991,15 +991,11 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private void ButtonCombo_DropDownClosed(object sender, EventArgs e)
+    private void ButtonCombo_DropDownOpened(object sender, EventArgs e)
     {
-        // Clicking a flyout item also closes the ComboBox. Let that click reach
-        // the Popup before deciding whether this was an outside close.
-        _ = Dispatcher.BeginInvoke(() =>
-        {
-            if (SequencePresetPopup is not null && (SequencePresetFlyoutSurface is null || !SequencePresetFlyoutSurface.IsMouseOver))
-                SequencePresetPopup.IsOpen = false;
-        }, DispatcherPriority.ApplicationIdle);
+        // A prior outside close may leave the separate Popup open. Reset it
+        // before showing the action list, never while a flyout item is clicked.
+        if (SequencePresetPopup is not null) SequencePresetPopup.IsOpen = false;
     }
 
     private void SequencePresetList_SelectionChanged(object sender, SelectionChangedEventArgs e)
