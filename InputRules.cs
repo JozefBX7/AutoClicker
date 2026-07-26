@@ -2,6 +2,7 @@ namespace AutoClicker;
 
 internal static class InputRules
 {
+    internal const int DefaultInputPulseMilliseconds = 3;
     internal readonly record struct IntervalParts(int Hours, int Minutes, int Seconds, int Milliseconds);
 
     internal static int ParseClamped(string? value, int minimum, int maximum) => int.TryParse(value, out var parsed) ? Math.Clamp(parsed, minimum, maximum) : minimum;
@@ -28,6 +29,8 @@ internal static class InputRules
         var parts = NormalizeInterval(hours, minutes, seconds, milliseconds);
         return TimeSpan.FromHours(parts.Hours) + TimeSpan.FromMinutes(parts.Minutes) + TimeSpan.FromSeconds(parts.Seconds) + TimeSpan.FromMilliseconds(parts.Milliseconds);
     }
+
+    internal static int NormalizeInputPulseMilliseconds(int milliseconds) => Math.Clamp(milliseconds, 0, 5);
 
     internal static bool IsKeyboardAction(string? action) => action is "Space" or "Enter" or "Custom";
 

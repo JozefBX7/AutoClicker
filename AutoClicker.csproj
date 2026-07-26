@@ -9,12 +9,15 @@
     <ApplicationIcon>Assets\AutoClickerIcon.ico</ApplicationIcon>
     <Authors>JBX7</Authors>
     <Copyright>Copyright © 2026 JBX7</Copyright>
+    <Version>0.0.0</Version>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="MainForm.cs" />
     <Compile Remove="AutoClicker.Tests\**\*.cs" />
+    <Compile Remove="BenchmarkSuite1\**\*.cs" />
+    <Compile Remove="AutoClicker.Benchmarks\**\*.cs" />
   </ItemGroup>
   <ItemGroup>
     <Using Remove="System.Drawing" />

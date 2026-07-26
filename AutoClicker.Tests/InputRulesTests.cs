@@ -24,6 +24,18 @@ public sealed class InputRulesTests
         Assert.AreEqual(TimeSpan.FromMilliseconds(1), InputRules.CreateInterval(-1, -1, -1, 0));
     }
 
+    [DataTestMethod]
+    [DataRow(-1, 0)]
+    [DataRow(0, 0)]
+    [DataRow(2, 2)]
+    [DataRow(100, 5)]
+    public void NormalizeInputPulseMilliseconds_BoundsSyntheticPressDuration(int value, int expected) =>
+        Assert.AreEqual(expected, InputRules.NormalizeInputPulseMilliseconds(value));
+
+    [TestMethod]
+    public void DefaultInputPulseMilliseconds_IsFastAndWithinTheSupportedRange() =>
+        Assert.AreEqual(3, InputRules.DefaultInputPulseMilliseconds);
+
     [TestMethod]
     public void NormalizeInterval_CarriesOverflowIntoLargerUnits()
     {

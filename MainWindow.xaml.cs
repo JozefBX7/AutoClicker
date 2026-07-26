@@ -19,7 +19,7 @@ public partial class MainWindow : Window
     private static readonly string RgbSettingsPath = AppPaths.ConfigFile("rgb-settings.json");
     private static readonly string UiPreferencesPath = AppPaths.ConfigFile("ui-preferences.json");
     private static readonly string SequenceLibraryPath = AppPaths.ConfigFile("sequence-library.json");
-    private const double ExpandedWindowHeight = 558;
+    private const double ExpandedWindowHeight = 580;
     private const double CompactWindowHeight = 166;
     private readonly DispatcherTimer resetTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
     private readonly DispatcherTimer flashTimer = new() { Interval = TimeSpan.FromMilliseconds(85) };
@@ -56,6 +56,8 @@ public partial class MainWindow : Window
     private int statusRevision;
     private bool compactMode;
     private bool rgbLightingTipSeen;
+    private string? targetWindowTitle;
+    private int inputPulseMilliseconds = InputRules.DefaultInputPulseMilliseconds;
 
     public MainWindow()
     {
@@ -63,6 +65,7 @@ public partial class MainWindow : Window
         LoadSequenceLibrary();
         RefreshSequencePresetActions();
         LoadDefaults();
+        UpdateInputPulseButton();
         LoadRgbSettings();
         LoadUiPreferences();
         UpdateHotkeyLabel();
@@ -75,6 +78,39 @@ public partial class MainWindow : Window
         resetTimer.Start();
         guiHeartbeatTimer.Start();
         Loaded += (_, _) => _ = Dispatcher.BeginInvoke(ShowRgbLightingTip, DispatcherPriority.ContextIdle);
+    }
+    private void FindWindowsButton_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new TargetWindowPickerWindow(WindowTargeting.GetVisibleWindows()) { Owner = this };
+        if (picker.ShowDialog() != true || picker.SelectedWindow is not { } window) return;
+        TargetExecutableBox.Text = window.ExecutableName;
+        targetWindowTitle = window.Title;
+        TargetWindowHint.Text = "Window target selected.";
+        TargetWindowHint.ToolTip = window.DisplayName;
+    }
+
+    private void InputPulseButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new InputPulseWindow(inputPulseMilliseconds) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+        inputPulseMilliseconds = dialog.PulseMilliseconds;
+        UpdateInputPulseButton();
+    }
+
+    private void UpdateInputPulseButton()
+    {
+        if (InputPulseButton is null) return;
+        InputPulseButton.Content = inputPulseMilliseconds == 0 ? "Pulse: Off" : $"Pulse: {inputPulseMilliseconds} ms";
+    }
+
+    private void TargetExecutableBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (TargetExecutableBox is null || TargetWindowHint is null) return;
+        targetWindowTitle = null;
+        TargetWindowHint.Text = string.IsNullOrWhiteSpace(TargetExecutableBox.Text) ? "Global input enabled." : "Executable target selected.";
+        TargetWindowHint.ToolTip = string.IsNullOrWhiteSpace(TargetExecutableBox.Text)
+            ? "Input is sent to whichever window is active."
+            : "Input runs only while any active window from this executable is focused.";
     }
 
     private void Window_SourceInitialized(object? sender, EventArgs e)
@@ -386,6 +422,11 @@ public partial class MainWindow : Window
             Status("Add at least two actions to the custom sequence first.", ThemeManager.Brush("WarningBrush"));
             return;
         }
+        if (InputRules.IsHoldAction(Selected(TypeCombo)) && !string.IsNullOrWhiteSpace(TargetExecutableBox.Text))
+        {
+            Status("Target-window mode does not support held input.", ThemeManager.Brush("WarningBrush"));
+            return;
+        }
         // Resolve keyboard shortcuts before handing work to the background thread.
         var keyboardVirtualKey = input switch { "Space" => 0x20, "Enter" => 0x0D, "Custom" => customSpamVirtualKey, _ => 0 };
         if (keyboardVirtualKey == hotkey && hotkeyModifiers == 0)
@@ -401,9 +442,10 @@ public partial class MainWindow : Window
         clickCancellation = cancellation;
         Volatile.Write(ref lastGuiHeartbeat, Stopwatch.GetTimestamp());
         var hold = InputRules.IsHoldAction(Selected(TypeCombo));
-        var settings = new ClickSettings(FixedPositionRadio.IsChecked == true, Read(XBox, -32768, 32767), Read(YBox, -32768, 32767), input, keyboardVirtualKey == 0 ? null : keyboardVirtualKey, Selected(TypeCombo) == "Double", hold, hold ? null : CountRadio.IsChecked == true ? Read(CountBox, 1, 999999) : null, input == "Sequence" ? BuildSequence(customSequence) : null);
+        var target = new TargetWindowRule(TargetExecutableBox.Text, targetWindowTitle);
+        var settings = new ClickSettings(FixedPositionRadio.IsChecked == true, Read(XBox, -32768, 32767), Read(YBox, -32768, 32767), input, keyboardVirtualKey == 0 ? null : keyboardVirtualKey, Selected(TypeCombo) == "Double", hold, hold ? null : CountRadio.IsChecked == true ? Read(CountBox, 1, 999999) : null, input == "Sequence" ? BuildSequence(customSequence) : null, InputRules.NormalizeInputPulseMilliseconds(inputPulseMilliseconds), target);
         // Reflect the running state before the worker can send its first input.
-        AppLog.Info($"Starting {ActivityVerb().ToLowerInvariant()} | Input={input} | IntervalMs={delay.TotalMilliseconds:0.###} | Repeat={(settings.MaximumClicks?.ToString() ?? "until stopped")}");
+        AppLog.Info($"Starting {ActivityVerb().ToLowerInvariant()} | Input={input} | IntervalMs={delay.TotalMilliseconds:0.###} | PulseMs={settings.InputPulseMilliseconds} | Repeat={(settings.MaximumClicks?.ToString() ?? "until stopped")}");
         StartButton.IsEnabled = false; StopButton.IsEnabled = true;
         CollapseButton.IsEnabled = false;
         LiveArea.Background = ThemeManager.Brush("AccentBrush");
@@ -423,14 +465,16 @@ public partial class MainWindow : Window
         Exception? failure = null;
         var originalPriority = Thread.CurrentThread.Priority;
         Input[]? heldRelease = null;
+        CadenceDiagnostics? cadence = null;
         try
         {
-            // Avoid Highest/Realtime so foreground apps retain priority.
-            Thread.CurrentThread.Priority = ThreadPriority.AboveNormal;
+            // Keep the worker at normal priority so it does not preempt the foreground app.
+            Thread.CurrentThread.Priority = ThreadPriority.Normal;
             // Set up a fixed cadence rather than sleeping after each action.
             using var timer = new PrecisionTimer();
             var intervalTicks = delay.TotalSeconds * Stopwatch.Frequency;
             var nextClickAt = (double)Stopwatch.GetTimestamp();
+            cadence = new CadenceDiagnostics(intervalTicks, settings.InputPulseMilliseconds);
             var actionInputs = settings.KeyboardVirtualKey is int virtualKey ? CreateKeyInputs(virtualKey) : CreateClickInputs(settings.Button);
             if (settings.Hold)
             {
@@ -451,6 +495,7 @@ public partial class MainWindow : Window
                 if (settings.Sequence is { Length: > 0 })
                 {
                     // A sequence has its own ordered actions and optional waits.
+                    var sentSequenceAction = false;
                     foreach (var step in settings.Sequence)
                     {
                         if (step.IsDelay)
@@ -458,19 +503,28 @@ public partial class MainWindow : Window
                             if (!WaitUntilGuiIsHealthy(timer, Stopwatch.GetTimestamp() + step.DelayAfterMilliseconds * Stopwatch.Frequency / 1000d, cancellation, ref watchdogExpired)) break;
                             continue;
                         }
-                        SendAction(step.Inputs, false);
+                        if (CanSendAction(settings, step.IsMouse))
+                        {
+                            if (settings.FixedPosition && step.IsMouse) SetCursorPos(settings.X, settings.Y);
+                            if (!SendAction(step.Inputs, false, settings.InputPulseMilliseconds, timer, cancellation, ref watchdogExpired)) break;
+                            sentSequenceAction = true;
+                        }
                         if (step.DelayAfterMilliseconds > 0)
                             if (!WaitUntilGuiIsHealthy(timer, Stopwatch.GetTimestamp() + step.DelayAfterMilliseconds * Stopwatch.Frequency / 1000d, cancellation, ref watchdogExpired)) break;
                     }
                     if (watchdogExpired || cancellation.IsCancellationRequested) break;
+                    if (sentSequenceAction) sent++;
                 }
                 else
                 {
                     // Single mouse/key actions share the main interval.
-                    if (settings.FixedPosition && settings.KeyboardVirtualKey is null) SetCursorPos(settings.X, settings.Y);
-                    SendAction(actionInputs, settings.DoubleClick);
+                    if (CanSendAction(settings, settings.KeyboardVirtualKey is null))
+                    {
+                        if (settings.FixedPosition && settings.KeyboardVirtualKey is null) SetCursorPos(settings.X, settings.Y);
+                        if (!SendAction(actionInputs, settings.DoubleClick, settings.InputPulseMilliseconds, timer, cancellation, ref watchdogExpired, cadence, nextClickAt)) break;
+                        sent++;
+                    }
                 }
-                sent++;
                 nextClickAt = settings.Sequence is { Length: > 0 }
                     ? Stopwatch.GetTimestamp() + intervalTicks
                     : nextClickAt + intervalTicks;
@@ -490,6 +544,7 @@ public partial class MainWindow : Window
                 catch (Exception exception) { AppLog.Error("Could not release held input", exception); }
             }
             try { Thread.CurrentThread.Priority = originalPriority; } catch { }
+            cadence?.LogSummary();
             // Return state changes to the UI thread after the worker has finished.
             if (!isClosing && !Dispatcher.HasShutdownStarted)
                 Dispatcher.BeginInvoke(() =>
@@ -934,7 +989,7 @@ public partial class MainWindow : Window
     private AppDefaults CreateCurrentDefaults()
     {
         var interval = NormalizeIntervalBoxes();
-        return new AppDefaults { Hours = interval.Hours, Minutes = interval.Minutes, Seconds = interval.Seconds, Milliseconds = interval.Milliseconds, MouseButton = Selected(ButtonCombo), Input = Selected(ButtonCombo), CustomKey = customSpamVirtualKey, CustomSequence = customSequence.Select(step => step.Clone()).ToList(), ClickType = Selected(TypeCombo), RepeatUntilStopped = UntilStoppedRadio.IsChecked == true, RepeatCount = Read(CountBox, 1, 999999), FixedPosition = FixedPositionRadio.IsChecked == true, X = Read(XBox, -32768, 32767), Y = Read(YBox, -32768, 32767), Hotkey = hotkey, HotkeyModifiers = hotkeyModifiers, Rgb = rgbSettings };
+        return new AppDefaults { Hours = interval.Hours, Minutes = interval.Minutes, Seconds = interval.Seconds, Milliseconds = interval.Milliseconds, MouseButton = Selected(ButtonCombo), Input = Selected(ButtonCombo), CustomKey = customSpamVirtualKey, CustomSequence = customSequence.Select(step => step.Clone()).ToList(), ClickType = Selected(TypeCombo), RepeatUntilStopped = UntilStoppedRadio.IsChecked == true, RepeatCount = Read(CountBox, 1, 999999), FixedPosition = FixedPositionRadio.IsChecked == true, X = Read(XBox, -32768, 32767), Y = Read(YBox, -32768, 32767), InputPulseMilliseconds = inputPulseMilliseconds, TargetExecutable = TargetExecutableBox.Text.Trim(), TargetWindowTitle = targetWindowTitle, Hotkey = hotkey, HotkeyModifiers = hotkeyModifiers, Rgb = rgbSettings };
     }
 
     private string? ExportFullBackup(string path)
@@ -965,14 +1020,14 @@ public partial class MainWindow : Window
             var defaults = JsonSerializer.Deserialize<AppDefaults>(backup.DefaultsJson) ?? throw new InvalidDataException("Backup settings are invalid.");
             var rgb = string.IsNullOrWhiteSpace(backup.RgbJson) ? defaults.Rgb ?? new RgbSettings() : JsonSerializer.Deserialize<RgbSettings>(backup.RgbJson) ?? new RgbSettings();
             var ui = string.IsNullOrWhiteSpace(backup.UiPreferencesJson) ? new UiPreferences() : JsonSerializer.Deserialize<UiPreferences>(backup.UiPreferencesJson) ?? new UiPreferences();
-            var library = string.IsNullOrWhiteSpace(backup.SequenceLibraryJson) ? new SequenceLibraryDocument() : JsonSerializer.Deserialize<SequenceLibraryDocument>(backup.SequenceLibraryJson) ?? new SequenceLibraryDocument();
+            var library = string.IsNullOrWhiteSpace(backup.SequenceLibraryJson) ? [] : SequenceLibraryStore.Deserialize(backup.SequenceLibraryJson);
             if (!string.IsNullOrWhiteSpace(backup.AppearanceJson) && !ThemeManager.TryImportConfiguration(backup.AppearanceJson)) throw new InvalidDataException("Backup appearance settings are invalid.");
 
             // Apply all persisted state as one UI operation, then restore the hotkey registration.
             if (hotkeyRegistered) { UnregisterHotKey(hwnd, HotkeyId); hotkeyRegistered = false; }
             ApplyDefaults(defaults);
             rgbSettings = rgb; SaveRgbSettings(); CrashRecovery.UpdateEnabled(rgb.CrashRecoveryEnabled);
-            sequenceLibrary = library.Presets.Where(preset => preset.Steps.Count >= 2).Select(preset => preset.Clone()).ToList(); SaveSequenceLibrary(); RefreshSequencePresetActions();
+            sequenceLibrary = library; SaveSequenceLibrary(); RefreshSequencePresetActions();
             Topmost = ui.Pinned; compactMode = ui.CompactMode; rgbLightingTipSeen = ui.RgbLightingTipSeen; UpdatePinUi(); ApplyCompactMode(); SaveUiPreferences();
             UpdateThemeButton(); RestoreLiveArea(); RegisterConfiguredHotkey();
             SaveDefaults();
@@ -1002,6 +1057,14 @@ public partial class MainWindow : Window
         CustomKeyItem.Content = customSpamVirtualKey != 0 ? $"Key: {FormatInputKey(customSpamVirtualKey)}" : "Custom key";
         Select(ButtonCombo, string.IsNullOrWhiteSpace(s.Input) ? s.MouseButton : s.Input); Select(TypeCombo, s.ClickType); UntilStoppedRadio.IsChecked = s.RepeatUntilStopped; CountRadio.IsChecked = !s.RepeatUntilStopped; CountBox.Text = s.RepeatCount.ToString();
         CurrentPositionRadio.IsChecked = !s.FixedPosition; FixedPositionRadio.IsChecked = s.FixedPosition; XBox.Text = s.X.ToString(); YBox.Text = s.Y.ToString();
+        TargetExecutableBox.Text = s.TargetExecutable ?? string.Empty;
+        targetWindowTitle = string.IsNullOrWhiteSpace(s.TargetWindowTitle) ? null : s.TargetWindowTitle;
+        TargetWindowHint.Text = targetWindowTitle is null
+            ? string.IsNullOrWhiteSpace(TargetExecutableBox.Text) ? "Global input enabled." : "Executable target selected."
+            : "Window target selected.";
+        TargetWindowHint.ToolTip = targetWindowTitle is null ? TargetWindowHint.Text : $"{targetWindowTitle} — {TargetExecutableBox.Text}";
+        inputPulseMilliseconds = InputRules.NormalizeInputPulseMilliseconds(s.InputPulseMilliseconds ?? InputRules.DefaultInputPulseMilliseconds);
+        UpdateInputPulseButton();
         hotkey = s.Hotkey > 0 ? s.Hotkey : System.Windows.Input.KeyInterop.VirtualKeyFromKey(System.Windows.Input.Key.F6); hotkeyModifiers = s.HotkeyModifiers;
         rgbSettings = s.Rgb ?? new RgbSettings();
         RepeatMode_Changed(this, new RoutedEventArgs());
@@ -1182,14 +1245,99 @@ public partial class MainWindow : Window
         return new SequenceAction(key == 0 ? CreateClickInputs(step.Input) : CreateKeyInputs(key), key == 0, false, Math.Clamp(step.DelayAfterMilliseconds, 0, 600000));
     }).ToArray();
     private static bool IsExtendedKey(int virtualKey) => virtualKey is 0x21 or 0x22 or 0x23 or 0x24 or 0x25 or 0x26 or 0x27 or 0x28 or 0x2D or 0x2E or 0x5B or 0x5C or 0x5D or 0xA3 or 0xA5 or 0x6F;
-    private static void SendAction(Input[] inputs, bool doubleClick)
+    private bool SendAction(Input[] inputs, bool doubleClick, int pulseMilliseconds, PrecisionTimer timer, CancellationTokenSource cancellation, ref bool watchdogExpired, CadenceDiagnostics? cadence = null, double scheduledTimestamp = 0)
     {
-        SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<Input>());
-        if (doubleClick) SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<Input>());
+        if (InputRules.NormalizeInputPulseMilliseconds(pulseMilliseconds) == 0)
+        {
+            cadence?.RecordDown(scheduledTimestamp);
+            SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<Input>());
+            if (doubleClick)
+            {
+                cadence?.RecordDown(scheduledTimestamp);
+                SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<Input>());
+            }
+            return true;
+        }
+
+        var pressCount = doubleClick ? 2 : 1;
+        var pulseTicks = InputRules.NormalizeInputPulseMilliseconds(pulseMilliseconds) * Stopwatch.Frequency / 1000d;
+        for (var press = 0; press < pressCount; press++)
+        {
+            cadence?.RecordDown(scheduledTimestamp);
+            SendInput(1, [inputs[0]], Marshal.SizeOf<Input>());
+            try
+            {
+                if (!WaitUntilGuiIsHealthy(timer, Stopwatch.GetTimestamp() + pulseTicks, cancellation, ref watchdogExpired)) return false;
+            }
+            finally
+            {
+                cadence?.RecordUp();
+                SendInput(1, [inputs[1]], Marshal.SizeOf<Input>());
+            }
+        }
+        return true;
     }
 
-    private sealed record ClickSettings(bool FixedPosition, int X, int Y, string Button, int? KeyboardVirtualKey, bool DoubleClick, bool Hold, int? MaximumClicks, SequenceAction[]? Sequence);
+    private static bool CanSendAction(ClickSettings settings, bool isMouse) =>
+        !settings.Target.IsEnabled ||
+        (WindowTargeting.IsForeground(settings.Target) &&
+         (!settings.FixedPosition || !isMouse || WindowTargeting.IsPointInForegroundClientArea(settings.X, settings.Y)));
+
+    private sealed record ClickSettings(bool FixedPosition, int X, int Y, string Button, int? KeyboardVirtualKey, bool DoubleClick, bool Hold, int? MaximumClicks, SequenceAction[]? Sequence, int InputPulseMilliseconds, TargetWindowRule Target);
     private sealed record SequenceAction(Input[] Inputs, bool IsMouse, bool IsDelay, int DelayAfterMilliseconds);
+    private sealed class CadenceDiagnostics(double intervalTicks, int pulseMilliseconds)
+    {
+        private readonly double intervalMilliseconds = intervalTicks * 1000d / Stopwatch.Frequency;
+        private readonly double pulseMilliseconds = InputRules.NormalizeInputPulseMilliseconds(pulseMilliseconds);
+        private long dispatchCount;
+        private double previousDownTimestamp;
+        private double lastDownTimestamp;
+        private double totalIntervalDeviationMilliseconds;
+        private double maximumIntervalDeviationMilliseconds;
+        private double totalLatenessMilliseconds;
+        private double maximumLatenessMilliseconds;
+        private double totalPulseDeviationMilliseconds;
+        private double maximumPulseDeviationMilliseconds;
+        private long pulseCount;
+
+        public void RecordDown(double scheduledTimestamp)
+        {
+            var now = (double)Stopwatch.GetTimestamp();
+            if (dispatchCount > 0)
+            {
+                var intervalDeviation = Math.Abs((now - previousDownTimestamp) * 1000d / Stopwatch.Frequency - intervalMilliseconds);
+                totalIntervalDeviationMilliseconds += intervalDeviation;
+                maximumIntervalDeviationMilliseconds = Math.Max(maximumIntervalDeviationMilliseconds, intervalDeviation);
+            }
+
+            var lateness = Math.Max(0, (now - scheduledTimestamp) * 1000d / Stopwatch.Frequency);
+            totalLatenessMilliseconds += lateness;
+            maximumLatenessMilliseconds = Math.Max(maximumLatenessMilliseconds, lateness);
+            previousDownTimestamp = now;
+            lastDownTimestamp = now;
+            dispatchCount++;
+        }
+
+        public void RecordUp()
+        {
+            if (lastDownTimestamp == 0 || pulseMilliseconds == 0) return;
+            var actualPulseMilliseconds = ((double)Stopwatch.GetTimestamp() - lastDownTimestamp) * 1000d / Stopwatch.Frequency;
+            var pulseDeviation = Math.Abs(actualPulseMilliseconds - pulseMilliseconds);
+            totalPulseDeviationMilliseconds += pulseDeviation;
+            maximumPulseDeviationMilliseconds = Math.Max(maximumPulseDeviationMilliseconds, pulseDeviation);
+            pulseCount++;
+        }
+
+        public void LogSummary()
+        {
+            if (dispatchCount == 0) return;
+            var intervals = Math.Max(1, dispatchCount - 1);
+            var pulseSummary = pulseCount == 0
+                ? "Pulse=Off"
+                : $"PulseTargetMs={pulseMilliseconds:0.###} | PulseAvgDeviationMs={totalPulseDeviationMilliseconds / pulseCount:0.###} | PulseMaxDeviationMs={maximumPulseDeviationMilliseconds:0.###}";
+            AppLog.Info($"Cadence diagnostics | Dispatches={dispatchCount} | IntervalTargetMs={intervalMilliseconds:0.###} | IntervalAvgDeviationMs={totalIntervalDeviationMilliseconds / intervals:0.###} | IntervalMaxDeviationMs={maximumIntervalDeviationMilliseconds:0.###} | WakeAvgLateMs={totalLatenessMilliseconds / dispatchCount:0.###} | WakeMaxLateMs={maximumLatenessMilliseconds:0.###} | {pulseSummary}");
+        }
+    }
     // Cancellable native timer for the worker loop.
     private sealed class PrecisionTimer : IDisposable
     {
@@ -1219,7 +1367,7 @@ public partial class MainWindow : Window
         public void Dispose() => CloseHandle(handle);
     }
 
-    private sealed class AppDefaults { public int Hours { get; set; } public int Minutes { get; set; } public int Seconds { get; set; } public int Milliseconds { get; set; } = 100; public string MouseButton { get; set; } = "Left"; public string? Input { get; set; } public int CustomKey { get; set; } public List<SequenceStep>? CustomSequence { get; set; } public string ClickType { get; set; } = "Single"; public bool RepeatUntilStopped { get; set; } = true; public int RepeatCount { get; set; } = 10; public bool FixedPosition { get; set; } public int X { get; set; } public int Y { get; set; } public int Hotkey { get; set; } = 117; public uint HotkeyModifiers { get; set; } public RgbSettings? Rgb { get; set; } }
+    private sealed class AppDefaults { public int Hours { get; set; } public int Minutes { get; set; } public int Seconds { get; set; } public int Milliseconds { get; set; } = 100; public string MouseButton { get; set; } = "Left"; public string? Input { get; set; } public int CustomKey { get; set; } public List<SequenceStep>? CustomSequence { get; set; } public string ClickType { get; set; } = "Single"; public bool RepeatUntilStopped { get; set; } = true; public int RepeatCount { get; set; } = 10; public bool FixedPosition { get; set; } public int X { get; set; } public int Y { get; set; } public int? InputPulseMilliseconds { get; set; } = InputRules.DefaultInputPulseMilliseconds; public string TargetExecutable { get; set; } = string.Empty; public string? TargetWindowTitle { get; set; } = null; public int Hotkey { get; set; } = 117; public uint HotkeyModifiers { get; set; } public RgbSettings? Rgb { get; set; } }
     [Flags] private enum MouseFlags : uint { LeftDown = 2, LeftUp = 4, RightDown = 8, RightUp = 16, MiddleDown = 32, MiddleUp = 64 }
     [Flags] private enum KeyboardFlags : uint { None = 0, ExtendedKey = 1, KeyUp = 2 }
     [StructLayout(LayoutKind.Sequential)] private struct Input { public uint Type; public InputUnion Data; }
