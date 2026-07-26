@@ -42,6 +42,14 @@ public sealed class InputRulesTests
         Assert.AreEqual(expected, InputRules.IsKeyboardAction(action));
 
     [DataTestMethod]
+    [DataRow("Hold", true)]
+    [DataRow("Single", false)]
+    [DataRow("Double", false)]
+    [DataRow(null, false)]
+    public void IsHoldAction_IdentifiesHoldMode(string? actionType, bool expected) =>
+        Assert.AreEqual(expected, InputRules.IsHoldAction(actionType));
+
+    [DataTestMethod]
     [DataRow("Left", 0, "Left click")]
     [DataRow("Right", 0, "Right click")]
     [DataRow("Middle", 0, "Middle click")]

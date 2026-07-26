@@ -31,6 +31,8 @@ internal static class InputRules
 
     internal static bool IsKeyboardAction(string? action) => action is "Space" or "Enter" or "Custom";
 
+    internal static bool IsHoldAction(string? actionType) => string.Equals(actionType, "Hold", StringComparison.Ordinal);
+
     internal static string DescribeAction(string? action, int customVirtualKey) => action switch
     {
         "Left" => "Left click",

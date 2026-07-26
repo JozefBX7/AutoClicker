@@ -400,7 +400,8 @@ public partial class MainWindow : Window
         var cancellation = new CancellationTokenSource();
         clickCancellation = cancellation;
         Volatile.Write(ref lastGuiHeartbeat, Stopwatch.GetTimestamp());
-        var settings = new ClickSettings(FixedPositionRadio.IsChecked == true, Read(XBox, -32768, 32767), Read(YBox, -32768, 32767), input, keyboardVirtualKey == 0 ? null : keyboardVirtualKey, Selected(TypeCombo) == "Double", CountRadio.IsChecked == true ? Read(CountBox, 1, 999999) : null, input == "Sequence" ? BuildSequence(customSequence) : null);
+        var hold = InputRules.IsHoldAction(Selected(TypeCombo));
+        var settings = new ClickSettings(FixedPositionRadio.IsChecked == true, Read(XBox, -32768, 32767), Read(YBox, -32768, 32767), input, keyboardVirtualKey == 0 ? null : keyboardVirtualKey, Selected(TypeCombo) == "Double", hold, hold ? null : CountRadio.IsChecked == true ? Read(CountBox, 1, 999999) : null, input == "Sequence" ? BuildSequence(customSequence) : null);
         // Reflect the running state before the worker can send its first input.
         AppLog.Info($"Starting {ActivityVerb().ToLowerInvariant()} | Input={input} | IntervalMs={delay.TotalMilliseconds:0.###} | Repeat={(settings.MaximumClicks?.ToString() ?? "until stopped")}");
         StartButton.IsEnabled = false; StopButton.IsEnabled = true;
@@ -421,6 +422,7 @@ public partial class MainWindow : Window
         var watchdogExpired = false;
         Exception? failure = null;
         var originalPriority = Thread.CurrentThread.Priority;
+        Input[]? heldRelease = null;
         try
         {
             // Avoid Highest/Realtime so foreground apps retain priority.
@@ -430,6 +432,16 @@ public partial class MainWindow : Window
             var intervalTicks = delay.TotalSeconds * Stopwatch.Frequency;
             var nextClickAt = (double)Stopwatch.GetTimestamp();
             var actionInputs = settings.KeyboardVirtualKey is int virtualKey ? CreateKeyInputs(virtualKey) : CreateClickInputs(settings.Button);
+            if (settings.Hold)
+            {
+                if (settings.FixedPosition && settings.KeyboardVirtualKey is null) SetCursorPos(settings.X, settings.Y);
+                // Send the down packet once; finally always sends the matching up packet.
+                heldRelease = [actionInputs[1]];
+                SendInput(1, [actionInputs[0]], Marshal.SizeOf<Input>());
+                while (!cancellation.IsCancellationRequested)
+                    if (!WaitUntilGuiIsHealthy(timer, Stopwatch.GetTimestamp() + Stopwatch.Frequency, cancellation, ref watchdogExpired)) break;
+                return;
+            }
             while (!cancellation.IsCancellationRequested && (!settings.MaximumClicks.HasValue || sent < settings.MaximumClicks.Value))
             {
                 if (!WaitUntilGuiIsHealthy(timer, nextClickAt, cancellation, ref watchdogExpired)) break;
@@ -473,6 +485,11 @@ public partial class MainWindow : Window
         }
         finally
         {
+            if (heldRelease is not null)
+            {
+                try { SendInput((uint)heldRelease.Length, heldRelease, Marshal.SizeOf<Input>()); }
+                catch (Exception exception) { AppLog.Error("Could not release held input", exception); }
+            }
             try { Thread.CurrentThread.Priority = originalPriority; } catch { }
             // Return state changes to the UI thread after the worker has finished.
             if (!isClosing && !Dispatcher.HasShutdownStarted)
@@ -635,6 +652,7 @@ public partial class MainWindow : Window
             || IntervalHint is null || LiveCountLabel is null || LiveIntervalLabel is null || TypeCombo is null) return;
         var sequenceInput = Selected(ButtonCombo) == "Sequence";
         var keyboardInput = IsKeyboardInputSelected();
+        var hold = InputRules.IsHoldAction(Selected(TypeCombo));
         TypeCombo.IsEnabled = !sequenceInput;
         LiveArea.IsHitTestVisible = !sequenceInput;
         LiveArea.Opacity = sequenceInput ? 0.7 : 1;
@@ -654,7 +672,7 @@ public partial class MainWindow : Window
         LiveMouseHint.Visibility = keyboardInput ? Visibility.Collapsed : Visibility.Visible;
         LiveKeyFocusBox.Visibility = keyboardInput ? Visibility.Visible : Visibility.Collapsed;
         LiveTitleLabel.Text = keyboardInput ? "LIVE SPAM AREA" : "LIVE CLICK AREA";
-        IntervalHint.Text = keyboardInput ? "Time between key presses" : "Time between clicks";
+        IntervalHint.Text = hold ? "Hold stays active until stopped" : keyboardInput ? "Time between key presses" : "Time between clicks";
         if (keyboardInput)
         {
             LiveCountLabel.Text = clickCancellation is null ? "Start to test" : KeyTestBox.IsKeyboardFocusWithin ? FormatKeyPressCount(liveKeyPressCount) : "Focus the field to test";
@@ -682,7 +700,9 @@ public partial class MainWindow : Window
 
     private string ActivityVerb() => Selected(ButtonCombo) == "Sequence"
         ? "Running sequence"
-        : IsKeyboardInputSelected() ? "Spamming" : "Clicking";
+        : InputRules.IsHoldAction(Selected(TypeCombo))
+            ? IsKeyboardInputSelected() ? "Holding key" : "Holding mouse button"
+            : IsKeyboardInputSelected() ? "Spamming" : "Clicking";
 
     private void UpdateLiveAreaTextContrast()
     {
@@ -831,7 +851,18 @@ public partial class MainWindow : Window
 
     private void RepeatMode_Changed(object sender, RoutedEventArgs e)
     {
-        if (CountBox is not null && CountRadio is not null) CountBox.IsEnabled = CountRadio.IsChecked == true;
+        if (CountBox is null || CountRadio is null || UntilStoppedRadio is null) return;
+        var hold = InputRules.IsHoldAction(Selected(TypeCombo));
+        if (hold) UntilStoppedRadio.IsChecked = true;
+        CountRadio.IsEnabled = !hold;
+        CountBox.IsEnabled = !hold && CountRadio.IsChecked == true;
+    }
+
+    private void TypeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (UntilStoppedRadio is null || CountRadio is null) return;
+        RepeatMode_Changed(sender, e);
+        UpdateLiveInputMode();
     }
     private void PositionMode_Changed(object sender, RoutedEventArgs e)
     {
@@ -1149,7 +1180,7 @@ public partial class MainWindow : Window
         if (doubleClick) SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<Input>());
     }
 
-    private sealed record ClickSettings(bool FixedPosition, int X, int Y, string Button, int? KeyboardVirtualKey, bool DoubleClick, int? MaximumClicks, SequenceAction[]? Sequence);
+    private sealed record ClickSettings(bool FixedPosition, int X, int Y, string Button, int? KeyboardVirtualKey, bool DoubleClick, bool Hold, int? MaximumClicks, SequenceAction[]? Sequence);
     private sealed record SequenceAction(Input[] Inputs, bool IsMouse, bool IsDelay, int DelayAfterMilliseconds);
     // Cancellable native timer for the worker loop.
     private sealed class PrecisionTimer : IDisposable

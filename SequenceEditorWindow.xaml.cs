@@ -61,9 +61,11 @@ public partial class SequenceEditorWindow : Window
 
     private void AddEvent(string input, int key = 0)
     {
-        steps.Add(new SequenceStep { Input = input, CustomKey = key });
-        StepsList.SelectedIndex = steps.Count - 1;
-        HintLabel.Text = $"{steps[^1].Describe()} added.";
+        var insertAt = StepsList.SelectedIndex is var selectedIndex && selectedIndex >= 0 ? selectedIndex + 1 : steps.Count;
+        var step = new SequenceStep { Input = input, CustomKey = key };
+        steps.Insert(insertAt, step);
+        StepsList.SelectedIndex = insertAt;
+        HintLabel.Text = $"{step.Describe()} added.";
     }
 
     private void StepsList_PreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e) => dragStart = e.GetPosition(StepsList);
