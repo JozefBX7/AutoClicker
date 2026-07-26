@@ -25,10 +25,11 @@ public sealed class UiPreferencesStoreTests
         var path = TemporaryPath();
         try
         {
-            UiPreferencesStore.Save(path, new UiPreferences { Pinned = true, CompactMode = true });
+            UiPreferencesStore.Save(path, new UiPreferences { Pinned = true, CompactMode = true, RgbLightingTipSeen = true });
             var preferences = UiPreferencesStore.Load(path);
             Assert.IsTrue(preferences.Pinned);
             Assert.IsTrue(preferences.CompactMode);
+            Assert.IsTrue(preferences.RgbLightingTipSeen);
         }
         finally { DeleteTemporaryDirectory(path); }
     }

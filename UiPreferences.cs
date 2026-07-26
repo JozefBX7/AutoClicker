@@ -7,6 +7,7 @@ internal sealed class UiPreferences
 {
     public bool Pinned { get; set; }
     public bool CompactMode { get; set; }
+    public bool RgbLightingTipSeen { get; set; }
 }
 
 internal static class UiPreferencesStore

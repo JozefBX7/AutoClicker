@@ -54,6 +54,7 @@ public partial class MainWindow : Window
     private long lastGuiHeartbeat;
     private int statusRevision;
     private bool compactMode;
+    private bool rgbLightingTipSeen;
 
     public MainWindow()
     {
@@ -72,6 +73,7 @@ public partial class MainWindow : Window
         Volatile.Write(ref lastGuiHeartbeat, Stopwatch.GetTimestamp());
         resetTimer.Start();
         guiHeartbeatTimer.Start();
+        Loaded += (_, _) => _ = Dispatcher.BeginInvoke(ShowRgbLightingTip, DispatcherPriority.ContextIdle);
     }
 
     private void Window_SourceInitialized(object? sender, EventArgs e)
@@ -125,6 +127,19 @@ public partial class MainWindow : Window
     {
         PinButton.Tag = Topmost ? "Pinned" : null;
         PinButton.ToolTip = Topmost ? "Always on top — click to unpin" : "Keep on top";
+    }
+
+    private void ShowRgbLightingTip()
+    {
+        if (rgbLightingTipSeen || isClosing) return;
+        var dialog = new ConfirmationWindow(
+            "RGB keyboard lighting",
+            "AutoClicker can light your active hotkey on compatible RGB keyboards with OpenRGB. Enable it in Settings → Keyboard lighting.",
+            "Got it",
+            showCancel: false) { Owner = this };
+        dialog.ShowDialog();
+        rgbLightingTipSeen = true;
+        SaveUiPreferences();
     }
     private void SettingsButton_Click(object sender, RoutedEventArgs e)
     {
@@ -834,6 +849,7 @@ public partial class MainWindow : Window
         CrashRecovery.UpdateEnabled(rgbSettings.CrashRecoveryEnabled);
         Topmost = false;
         compactMode = false;
+        rgbLightingTipSeen = false;
         UpdatePinUi();
         ApplyCompactMode();
         SaveUiPreferences();
@@ -864,7 +880,7 @@ public partial class MainWindow : Window
             {
                 DefaultsJson = JsonSerializer.Serialize(CreateCurrentDefaults()),
                 RgbJson = JsonSerializer.Serialize(rgbSettings),
-                UiPreferencesJson = JsonSerializer.Serialize(new UiPreferences { Pinned = Topmost, CompactMode = compactMode }),
+                UiPreferencesJson = JsonSerializer.Serialize(new UiPreferences { Pinned = Topmost, CompactMode = compactMode, RgbLightingTipSeen = rgbLightingTipSeen }),
                 AppearanceJson = ThemeManager.ExportConfiguration(),
                 SequenceLibraryJson = JsonSerializer.Serialize(new SequenceLibraryDocument { Presets = sequenceLibrary.Select(preset => preset.Clone()).ToList() })
             });
@@ -891,7 +907,7 @@ public partial class MainWindow : Window
             ApplyDefaults(defaults);
             rgbSettings = rgb; SaveRgbSettings(); CrashRecovery.UpdateEnabled(rgb.CrashRecoveryEnabled);
             sequenceLibrary = library.Presets.Where(preset => preset.Steps.Count >= 2).Select(preset => preset.Clone()).ToList(); SaveSequenceLibrary(); RefreshSequencePresetActions();
-            Topmost = ui.Pinned; compactMode = ui.CompactMode; UpdatePinUi(); ApplyCompactMode(); SaveUiPreferences();
+            Topmost = ui.Pinned; compactMode = ui.CompactMode; rgbLightingTipSeen = ui.RgbLightingTipSeen; UpdatePinUi(); ApplyCompactMode(); SaveUiPreferences();
             UpdateThemeButton(); RestoreLiveArea(); RegisterConfiguredHotkey();
             SaveDefaults();
             return null;
@@ -1000,13 +1016,14 @@ public partial class MainWindow : Window
         var preferences = UiPreferencesStore.Load(UiPreferencesPath);
         Topmost = preferences.Pinned;
         compactMode = preferences.CompactMode;
+        rgbLightingTipSeen = preferences.RgbLightingTipSeen;
         UpdatePinUi();
         ApplyCompactMode();
     }
 
     private void SaveUiPreferences()
     {
-        try { UiPreferencesStore.Save(UiPreferencesPath, new UiPreferences { Pinned = Topmost, CompactMode = compactMode }); }
+        try { UiPreferencesStore.Save(UiPreferencesPath, new UiPreferences { Pinned = Topmost, CompactMode = compactMode, RgbLightingTipSeen = rgbLightingTipSeen }); }
         catch { }
     }
 
