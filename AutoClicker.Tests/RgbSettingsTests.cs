@@ -62,7 +62,7 @@ public sealed class RgbSettingsTests
     public void Pulse_UsesAResponsiveCycleRange()
     {
         Assert.AreEqual(600, OpenRgbHighlighter.MinimumPulseCycleMilliseconds);
-        Assert.AreEqual(2600, OpenRgbHighlighter.MaximumPulseCycleMilliseconds);
+        Assert.AreEqual(1500, OpenRgbHighlighter.MaximumPulseCycleMilliseconds);
     }
 
     [TestMethod]

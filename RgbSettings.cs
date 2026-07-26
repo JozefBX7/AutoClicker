@@ -35,7 +35,7 @@ public static class OpenRgbHighlighter
 {
     internal const int PulseFramesPerCycle = 12;
     internal const int MinimumPulseCycleMilliseconds = 600;
-    internal const int MaximumPulseCycleMilliseconds = 2600;
+    internal const int MaximumPulseCycleMilliseconds = 1500;
     // Never stop an OpenRGB instance we did not start.
     private static readonly object StartedProcessLock = new();
     private static Process? processStartedByAutoClicker;
