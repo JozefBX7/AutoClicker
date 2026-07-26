@@ -1,7 +1,7 @@
 <Window x:Class="AutoClicker.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="AutoClicker" Icon="Assets/AutoClickerIcon.ico" Width="522" Height="558" ResizeMode="NoResize" WindowStartupLocation="CenterScreen"
+        Title="AutoClicker" Icon="Assets/AutoClickerIcon.ico" Width="522" Height="580" ResizeMode="NoResize" WindowStartupLocation="CenterScreen"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         FontFamily="Segoe UI" PreviewKeyDown="Window_PreviewKeyDown" PreviewMouseLeftButtonDown="Window_PreviewMouseLeftButtonDown" SourceInitialized="Window_SourceInitialized" Closing="Window_Closing">
     <Border Background="{DynamicResource AppBackgroundBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="16" SnapsToDevicePixels="True">
@@ -44,7 +44,7 @@
                 </Grid>
             </Border>
 
-            <ScrollViewer x:Name="SettingsContent" Grid.Row="1" VerticalScrollBarVisibility="Disabled">
+            <ScrollViewer x:Name="SettingsContent" Grid.Row="1" VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="22,16,22,8">
                     <Grid Margin="0,0,0,12">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
@@ -63,7 +63,7 @@
                         </Border>
                         <Border Grid.Column="1" Style="{StaticResource Card}" Margin="6,0,0,0">
                             <StackPanel>
-                                <TextBlock Text="Action" Style="{StaticResource SectionTitle}" />
+                                <Grid><TextBlock Text="Action" Style="{StaticResource SectionTitle}" /><Button x:Name="InputPulseButton" Content="Pulse" Click="InputPulseButton_Click" Style="{StaticResource GhostButton}" FontSize="10" Padding="7,3" HorizontalAlignment="Right" VerticalAlignment="Top" ToolTip="Configure click and key press duration" /></Grid>
                                 <TextBlock Text="Mouse or keyboard input" Style="{StaticResource SectionHint}" />
                                 <Grid Margin="0,12,0,0"><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
                                     <StackPanel><TextBlock Text="Input" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="ButtonCombo" SelectedIndex="0" SelectionChanged="ActionCombo_SelectionChanged"><ComboBoxItem Content="Left click" Tag="Left" /><ComboBoxItem Content="Right click" Tag="Right" /><ComboBoxItem Content="Middle click" Tag="Middle" /><ComboBoxItem Content="Space" Tag="Space" /><ComboBoxItem Content="Enter" Tag="Enter" /><ComboBoxItem x:Name="CustomKeyItem" Content="Custom key" Tag="Custom" /><ComboBoxItem x:Name="PickKeyItem" Content="Pick a key…" Tag="Pick" /><ComboBoxItem x:Name="SequenceItem" Content="Custom sequence" Tag="Sequence" IsEnabled="False" /><ComboBoxItem x:Name="EmptySequencePresetsItem" Content="  No saved sequences have been added yet." IsEnabled="False" /><ComboBoxItem x:Name="EditSequenceItem" Content="Open custom sequence editor" Tag="EditSequence" /></ComboBox></StackPanel>
@@ -93,18 +93,33 @@
                         </Border>
                     </Grid>
 
-                    <Border x:Name="LiveArea" Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource LiveBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="13,10" PreviewMouseDown="LiveArea_PreviewMouseDown">
-                        <Grid>
-                            <StackPanel><TextBlock x:Name="LiveTitleLabel" Text="LIVE CLICK AREA" FontSize="9" FontWeight="Bold" Foreground="{DynamicResource TextMutedBrush}" /><TextBlock x:Name="LiveCountLabel" Text="Start to test" FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,0" /><TextBlock x:Name="LiveIntervalLabel" Text="Waiting for clicks" FontSize="10" Foreground="{DynamicResource TextMutedBrush}" Margin="0,2,0,0" /></StackPanel>
-                            <StackPanel HorizontalAlignment="Right" VerticalAlignment="Center" Orientation="Horizontal">
-                                <TextBlock x:Name="LiveMouseHint" Text="Hover here while running" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource TextMutedBrush}" />
-                                <Grid x:Name="LiveKeyFocusBox" Width="158" Visibility="Collapsed">
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <Border Grid.Column="1" Style="{StaticResource Card}" Margin="6,0,0,0">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal"><TextBlock Text="Target window" Style="{StaticResource SectionTitle}" /><Border Width="18" Height="18" CornerRadius="9" Background="Transparent" BorderBrush="{DynamicResource TextAccentBrush}" BorderThickness="1" Margin="6,-1,0,0" VerticalAlignment="Top" ToolTipService.ShowDuration="30000"><Border.ToolTip><TextBlock Text="Optional: leave this blank for global input to the active window. Enter an executable name to run only while that app is active, or use the search icon to select one visible window." TextWrapping="Wrap" MaxWidth="275" /></Border.ToolTip><TextBlock Text="i" Foreground="{DynamicResource TextAccentBrush}" FontSize="11" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border></StackPanel>
+                                <Grid Margin="0,6,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <TextBox x:Name="TargetExecutableBox" TextChanged="TargetExecutableBox_TextChanged" ToolTip="Executable name, for example notepad.exe" />
+                                    <Button Grid.Column="1" Click="FindWindowsButton_Click" Style="{StaticResource GhostButton}" ToolTip="Choose a visible window" Width="30" Height="30" Padding="0" Margin="6,0,0,0">
+                                        <Grid Width="14" Height="14"><Ellipse Width="9" Height="9" Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.5" HorizontalAlignment="Left" VerticalAlignment="Top" /><Line X1="9" Y1="9" X2="14" Y2="14" Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" /></Grid>
+                                    </Button>
+                                </Grid>
+                                <TextBlock x:Name="TargetWindowHint" Text="Global input enabled." Foreground="{DynamicResource TextMutedBrush}" FontSize="10" ToolTip="Input is sent to whichever window is active." Margin="0,5,0,0" />
+                            </StackPanel>
+                        </Border>
+                        <Border x:Name="LiveArea" Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource LiveBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="13,10" Margin="0,0,6,0" PreviewMouseDown="LiveArea_PreviewMouseDown">
+                            <StackPanel>
+                                <TextBlock x:Name="LiveTitleLabel" Text="LIVE CLICK AREA" FontSize="9" FontWeight="Bold" Foreground="{DynamicResource TextMutedBrush}" />
+                                <TextBlock x:Name="LiveCountLabel" Text="Start to test" FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,0" />
+                                <TextBlock x:Name="LiveIntervalLabel" Text="Waiting for clicks" FontSize="10" Foreground="{DynamicResource TextMutedBrush}" Margin="0,2,0,0" />
+                                <TextBlock x:Name="LiveMouseHint" Text="Hover here while running" FontSize="11" Foreground="{DynamicResource TextMutedBrush}" Margin="0,7,0,0" />
+                                <Grid x:Name="LiveKeyFocusBox" Visibility="Collapsed" Margin="0,7,0,0">
                                     <TextBox x:Name="KeyTestBox" IsReadOnly="True" FontSize="10" Padding="8,5" PreviewKeyDown="KeyTestBox_PreviewKeyDown" GotKeyboardFocus="KeyTestBox_GotKeyboardFocus" />
                                     <TextBlock x:Name="KeyTestPlaceholder" Text="Focus here while running" IsHitTestVisible="False" Margin="9,0" VerticalAlignment="Center" FontSize="10" Foreground="{DynamicResource TextMutedBrush}" />
                                 </Grid>
                             </StackPanel>
-                        </Grid>
-                    </Border>
+                        </Border>
+                    </Grid>
                 </StackPanel>
             </ScrollViewer>
 

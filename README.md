@@ -1,10 +1,14 @@
 # AutoClicker
 
-A compact Windows auto clicker and keyboard spammer, with memory, custom sequences, global hotkeys, backups, and optional OpenRGB lighting.
+A compact Windows auto clicker and keyboard spammer, with memory, custom sequences, global hotkeys, configurable input pulses, backups, optional OpenRGB lighting, and foreground-window targeting that keeps input in the app you choose.
 
 Detailed guides are available in the [AutoClicker Wiki](https://github.com/JozefBX7/AutoClicker/wiki).
 
 <img width="522" height="558" alt="image" src="https://github.com/user-attachments/assets/25f152cf-0899-41e2-9f9a-0997649fc8aa" />
+
+## Target-window input
+
+Leave the target blank for normal global input, enter an executable name to run only while that app is active, or choose a specific visible window. AutoClicker pauses its clicks and keys whenever the selected target is not in the foreground.
 
 ## Download
 

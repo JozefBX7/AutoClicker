@@ -34,8 +34,11 @@ public sealed record KeyboardDevice(int Index, string Name)
 public static class OpenRgbHighlighter
 {
     internal const int PulseFramesPerCycle = 12;
+    internal const int MaximumPulseFramesPerCycle = 36;
+    internal const int PulseTargetFrameDurationMilliseconds = 100;
     internal const int MinimumPulseCycleMilliseconds = 600;
-    internal const int MaximumPulseCycleMilliseconds = 1500;
+    internal const int MaximumPulseCycleMilliseconds = 3500;
+    internal const int SolidPreviewDurationMilliseconds = 5000;
     // Never stop an OpenRGB instance we did not start.
     private static readonly object StartedProcessLock = new();
     private static Process? processStartedByAutoClicker;
@@ -252,20 +255,26 @@ public static class OpenRgbHighlighter
 
     public static async Task FadePulseIndicatorAsync(RgbLightingSnapshot snapshot, int cycleMilliseconds, CancellationToken cancellation)
     {
-        // Twelve steps keep the fade smooth while keeping OpenRGB traffic light.
         var cycle = Math.Clamp(cycleMilliseconds, MinimumPulseCycleMilliseconds, MaximumPulseCycleMilliseconds);
-        var frameDelay = TimeSpan.FromMilliseconds(cycle / PulseFramesPerCycle);
+        var framesPerCycle = GetPulseFramesPerCycle(cycle);
+        var frameDelay = TimeSpan.FromMilliseconds(cycle / framesPerCycle);
         try
         {
-            for (var frame = 0; ; frame = (frame + 1) % PulseFramesPerCycle)
+            for (var frame = 0; ; frame = (frame + 1) % framesPerCycle)
             {
-                var strength = 0.5d - 0.5d * Math.Cos(2d * Math.PI * frame / PulseFramesPerCycle);
+                var strength = 0.5d - 0.5d * Math.Cos(2d * Math.PI * frame / framesPerCycle);
                 SetIndicatorBlend(snapshot, strength);
                 await Task.Delay(frameDelay, cancellation);
             }
         }
         catch (OperationCanceledException) { }
         catch (Exception exception) { AppLog.Error("OpenRGB fade pulse effect failed", exception); }
+    }
+
+    internal static int GetPulseFramesPerCycle(int cycleMilliseconds)
+    {
+        var targetFrames = (int)Math.Ceiling(cycleMilliseconds / (double)PulseTargetFrameDurationMilliseconds);
+        return Math.Clamp(targetFrames, PulseFramesPerCycle, MaximumPulseFramesPerCycle);
     }
 
     public static async Task<string?> FlashKeyAsync(RgbSettings settings, string keyName)
@@ -283,6 +292,33 @@ public static class OpenRgbHighlighter
                 if (flash < 2) await Task.Delay(110);
             }
             return null;
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error("OpenRGB lighting test failed", exception);
+            return $"OpenRGB test failed: {exception.Message}";
+        }
+        finally
+        {
+            // Every exit path restores the pre-test LED state.
+            RestoreIndicator(snapshot);
+        }
+    }
+
+    public static async Task<string?> ShowKeySolidAsync(RgbSettings settings, string keyName, CancellationToken cancellation = default)
+    {
+        var snapshot = EnableKeyIndicator(settings, keyName, out var error, lightImmediately: false);
+        if (snapshot is null) return error ?? "OpenRGB could not start the lighting test.";
+
+        try
+        {
+            LightIndicator(snapshot);
+            await Task.Delay(SolidPreviewDurationMilliseconds, cancellation);
+            return null;
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception exception)
         {

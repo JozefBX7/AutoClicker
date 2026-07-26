@@ -62,8 +62,24 @@ public sealed class RgbSettingsTests
     public void Pulse_UsesAResponsiveCycleRange()
     {
         Assert.AreEqual(600, OpenRgbHighlighter.MinimumPulseCycleMilliseconds);
-        Assert.AreEqual(1500, OpenRgbHighlighter.MaximumPulseCycleMilliseconds);
+        Assert.AreEqual(3500, OpenRgbHighlighter.MaximumPulseCycleMilliseconds);
     }
+
+    [DataTestMethod]
+    [DataRow(600, 12)]
+    [DataRow(1200, 12)]
+    [DataRow(1300, 13)]
+    [DataRow(2500, 25)]
+    [DataRow(3500, 35)]
+    [DataRow(10000, 36)]
+    public void Pulse_FrameCountScalesSmoothlyAndIsCapped(int cycleMilliseconds, int expectedFrames)
+    {
+        Assert.AreEqual(expectedFrames, OpenRgbHighlighter.GetPulseFramesPerCycle(cycleMilliseconds));
+    }
+
+    [TestMethod]
+    public void SolidPreview_StaysLitForFiveSeconds() =>
+        Assert.AreEqual(5000, OpenRgbHighlighter.SolidPreviewDurationMilliseconds);
 
     [TestMethod]
     public void KeyboardDevice_UsesItsNameForDisplay() =>

@@ -5,12 +5,21 @@ using System.IO;
 
 namespace AutoClicker;
 
-internal sealed record UpdateCheckResult(bool IsUpdateAvailable, string? LatestTag, Uri? DownloadUri, string Message);
+internal sealed record ReleaseHistoryEntry(string Tag, string Notes, Uri? DetailsUrl);
+
+internal sealed record UpdateCheckResult(
+    bool IsUpdateAvailable,
+    string? LatestTag,
+    Uri? DownloadUri,
+    string Message,
+    string? ReleaseNotes = null,
+    Uri? ReleaseNotesUrl = null,
+    IReadOnlyList<ReleaseHistoryEntry>? RecentReleases = null);
 
 internal static class UpdateService
 {
     internal const string Repository = "JozefBX7/AutoClicker";
-    private static readonly Uri LatestReleaseApi = new($"https://api.github.com/repos/{Repository}/releases/latest");
+    private static readonly Uri RecentReleasesApi = new($"https://api.github.com/repos/{Repository}/releases?per_page=3");
     private static readonly Uri ReleasesPage = new($"https://github.com/{Repository}/releases/latest");
 
     internal static Uri ReleasesUrl => ReleasesPage;
@@ -21,23 +30,41 @@ internal static class UpdateService
         {
             using var client = new HttpClient();
             client.DefaultRequestHeaders.UserAgent.ParseAdd("AutoClicker-update-check");
-            using var response = await client.GetAsync(LatestReleaseApi, cancellationToken);
+            using var response = await client.GetAsync(RecentReleasesApi, cancellationToken);
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 return new(false, null, null, "No published GitHub Release is available yet.");
             if (!response.IsSuccessStatusCode)
                 return new(false, null, null, "Could not check GitHub Releases. Open Releases to download an update manually.");
 
             using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(cancellationToken));
-            if (!document.RootElement.TryGetProperty("tag_name", out var tagElement))
-                return new(false, null, null, "The latest GitHub release did not include a version tag.");
+            if (document.RootElement.ValueKind != JsonValueKind.Array)
+                return new(false, null, null, "GitHub Releases returned an unexpected response.");
 
-            var tag = tagElement.GetString();
-            if (string.IsNullOrWhiteSpace(tag) || !TryParseVersion(tag, out var latest))
-                return new(false, tag, null, "The latest GitHub release uses an unsupported version tag.");
+            var releases = new List<ReleaseHistoryEntry>();
+            foreach (var release in document.RootElement.EnumerateArray())
+            {
+                if (release.TryGetProperty("draft", out var draftElement) && draftElement.GetBoolean()
+                    || release.TryGetProperty("prerelease", out var prereleaseElement) && prereleaseElement.GetBoolean()
+                    || !release.TryGetProperty("tag_name", out var tagElement)) continue;
 
+                var tag = tagElement.GetString();
+                if (string.IsNullOrWhiteSpace(tag) || !TryParseVersion(tag, out _)) continue;
+
+                var releaseNotes = release.TryGetProperty("body", out var bodyElement) ? bodyElement.GetString() : null;
+                var releaseNotesUrl = TryGetReleaseNotesUrl(releaseNotes);
+                releases.Add(new ReleaseHistoryEntry(tag, FormatReleaseNotes(releaseNotes, releaseNotesUrl) ?? "No release notes were provided.", releaseNotesUrl));
+            }
+
+            if (releases.Count == 0)
+                return new(false, null, null, "No published GitHub Release is available yet.");
+
+            var latestRelease = releases[0];
+            _ = TryParseVersion(latestRelease.Tag, out var latest);
             var current = CurrentVersion();
-            if (latest <= current) return new(false, tag, null, $"You are up to date (v{current}).");
-            return new(true, tag, DownloadUrl(tag, portable), $"Version {tag} is available (you have v{current}).");
+            if (latest <= current)
+                return new(false, latestRelease.Tag, null, $"You are up to date (v{current}).", RecentReleases: releases);
+
+            return new(true, latestRelease.Tag, DownloadUrl(latestRelease.Tag, portable), $"Version {latestRelease.Tag} is available (you have v{current}).", latestRelease.Notes, latestRelease.DetailsUrl, releases);
         }
         catch (OperationCanceledException) { throw; }
         catch
@@ -56,6 +83,27 @@ internal static class UpdateService
 
     internal static bool TryParseVersion(string tag, out Version version) =>
         Version.TryParse(tag.Trim().TrimStart('v', 'V'), out version!);
+
+    internal static string? FormatReleaseNotes(string? releaseNotes, Uri? releaseNotesUrl)
+    {
+        if (string.IsNullOrWhiteSpace(releaseNotes)) return null;
+
+        var formattedNotes = releaseNotes.Replace("**", string.Empty).Trim();
+        return releaseNotesUrl is not null && formattedNotes.Equals($"Full Changelog: {releaseNotesUrl}", StringComparison.OrdinalIgnoreCase)
+            ? "This release provides a full changelog."
+            : formattedNotes;
+    }
+
+    internal static Uri? TryGetReleaseNotesUrl(string? releaseNotes)
+    {
+        if (string.IsNullOrWhiteSpace(releaseNotes)) return null;
+
+        var urlStart = releaseNotes.IndexOf("https://", StringComparison.OrdinalIgnoreCase);
+        if (urlStart < 0) return null;
+
+        var urlText = releaseNotes[urlStart..].Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)[0];
+        return Uri.TryCreate(urlText, UriKind.Absolute, out var url) && url.Scheme == Uri.UriSchemeHttps ? url : null;
+    }
 
     // Only install assets from this repository's release path.
     internal static bool IsOfficialDownloadUrl(Uri uri) =>

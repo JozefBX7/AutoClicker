@@ -37,4 +37,33 @@ public sealed class UpdateServiceTests
         Assert.IsFalse(UpdateService.IsOfficialDownloadUrl(new Uri("https://example.com/AutoClicker-Setup-x64.exe")));
         Assert.IsFalse(UpdateService.IsOfficialDownloadUrl(new Uri("https://github.com/other/AutoClicker/releases/download/v1.2.3/AutoClicker-Setup-x64.exe")));
     }
+
+    [TestMethod]
+    public void UpdateCheckResult_StoresReleaseNotes()
+    {
+        var result = new UpdateCheckResult(true, "v1.2.3", UpdateService.DownloadUrl("v1.2.3", portable: false), "Update available.", "- Added release notes");
+
+        Assert.AreEqual("- Added release notes", result.ReleaseNotes);
+    }
+
+    [TestMethod]
+    public void FullChangelogReleaseNotes_ProvideFriendlyTextAndLink()
+    {
+        const string releaseNotes = "**Full Changelog**: https://github.com/JozefBX7/AutoClicker/commits/v1.0.0";
+        var url = UpdateService.TryGetReleaseNotesUrl(releaseNotes);
+
+        Assert.IsNotNull(url);
+        Assert.AreEqual("https://github.com/JozefBX7/AutoClicker/commits/v1.0.0", url.AbsoluteUri);
+        Assert.AreEqual("This release provides a full changelog.", UpdateService.FormatReleaseNotes(releaseNotes, url));
+    }
+
+    [TestMethod]
+    public void ReleaseHistoryEntry_StoresConciseReleaseDetails()
+    {
+        var entry = new ReleaseHistoryEntry("v1.2.3", "- Improved update history", null);
+
+        Assert.AreEqual("v1.2.3", entry.Tag);
+        Assert.AreEqual("- Improved update history", entry.Notes);
+        Assert.IsNull(entry.DetailsUrl);
+    }
 }

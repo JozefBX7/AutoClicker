@@ -1,0 +1,13 @@
+<Window x:Class="AutoClicker.InputPulseWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Input pulse" Icon="Assets/AutoClickerIcon.ico" Width="330" Height="260" ResizeMode="NoResize" WindowStyle="None" AllowsTransparency="True" Background="Transparent" FontFamily="Segoe UI" WindowStartupLocation="CenterOwner">
+    <Border Background="{DynamicResource AppBackgroundBrush}" BorderBrush="{DynamicResource ControlBorderBrush}" BorderThickness="1" CornerRadius="14">
+        <Grid Margin="1">
+            <Grid.RowDefinitions><RowDefinition Height="58" /><RowDefinition Height="*" /><RowDefinition Height="58" /></Grid.RowDefinitions>
+            <Border Background="{DynamicResource PanelBrush}" CornerRadius="13,13,0,0" MouseLeftButtonDown="Header_MouseLeftButtonDown"><TextBlock Text="Input pulse" Margin="20,0" VerticalAlignment="Center" FontSize="17" FontWeight="SemiBold" Foreground="{DynamicResource TextStrongBrush}" /></Border>
+            <StackPanel Grid.Row="1" Margin="20,16"><TextBlock Text="How long each click or key press stays down." Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" /><ComboBox x:Name="PulseCombo" Margin="0,12,0,0"><ComboBoxItem Content="Off (instant)" Tag="0" /><ComboBoxItem Content="1 ms" Tag="1" /><ComboBoxItem Content="2 ms" Tag="2" /><ComboBoxItem Content="3 ms" Tag="3" /><ComboBoxItem Content="4 ms" Tag="4" /><ComboBoxItem Content="5 ms" Tag="5" /></ComboBox><TextBlock Text="A short pulse can help games detect synthetic input." Foreground="{DynamicResource TextMutedBrush}" FontSize="10" TextWrapping="Wrap" Margin="0,8,0,0" /></StackPanel>
+            <Border Grid.Row="2" Background="{DynamicResource PanelBrush}" CornerRadius="0,0,13,13" Padding="20,10"><StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><Button Content="Cancel" Click="CancelButton_Click" Style="{StaticResource GhostButton}" /><Button Content="Save" Click="SaveButton_Click" Style="{StaticResource PrimaryButton}" Margin="8,0,0,0" /></StackPanel></Border>
+        </Grid>
+    </Border>
+</Window>

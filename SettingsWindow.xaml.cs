@@ -13,6 +13,8 @@ public partial class SettingsWindow : Window
     private readonly Func<string, string?> exportBackup;
     private readonly Func<string, string?> importBackup;
     private CancellationTokenSource? effectTestCancellation;
+    private readonly System.Windows.Threading.DispatcherTimer effectPreviewRestartTimer;
+    private bool restartEffectPreview;
     private bool isClosing;
 
     public SettingsWindow(RgbSettings current, string hotkeyName, string hotkeyKeyName, Func<bool> resetToDefaults, Func<string, string?> exportBackup, Func<string, string?> importBackup)
@@ -23,6 +25,8 @@ public partial class SettingsWindow : Window
         this.resetToDefaults = resetToDefaults;
         this.exportBackup = exportBackup;
         this.importBackup = importBackup;
+        effectPreviewRestartTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+        effectPreviewRestartTimer.Tick += EffectPreviewRestartTimer_Tick;
         Settings = new RgbSettings { Enabled = current.Enabled, DeviceIndex = current.DeviceIndex, DeviceName = current.DeviceName, AutoStart = current.AutoStart, StopAutoStartedOnExit = current.StopAutoStartedOnExit, CrashRecoveryEnabled = current.CrashRecoveryEnabled, IndicatorColor = current.IndicatorColor, LightingEffect = current.LightingEffect, PulseSpeedMilliseconds = current.PulseSpeedMilliseconds };
         EnableOpenRgb.IsChecked = Settings.Enabled;
         AutoStartOpenRgb.IsChecked = Settings.AutoStart;
@@ -41,6 +45,8 @@ public partial class SettingsWindow : Window
     {
         // A preview owns a temporary LED snapshot, so always cancel it before the dialog goes away.
         isClosing = true;
+        effectPreviewRestartTimer.Stop();
+        effectPreviewRestartTimer.Tick -= EffectPreviewRestartTimer_Tick;
         effectTestCancellation?.Cancel();
         base.OnClosed(e);
     }
@@ -65,6 +71,8 @@ public partial class SettingsWindow : Window
         // Update checks are manual; this only runs from the Settings button.
         CheckUpdatesButton.IsEnabled = false;
         DownloadUpdateButton.Visibility = Visibility.Collapsed;
+        ReleaseHistoryPanel.Visibility = Visibility.Collapsed;
+        ReleaseHistoryList.ItemsSource = null;
         UpdateStatus.Text = "Checking GitHub Releases…";
         UpdateStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
         try
@@ -72,10 +80,15 @@ public partial class SettingsWindow : Window
             var update = await UpdateService.CheckForUpdateAsync(AppPaths.IsPortable, CancellationToken.None);
             UpdateStatus.Text = update.Message;
             UpdateStatus.Foreground = ThemeManager.Brush(update.IsUpdateAvailable ? "SuccessBrush" : "TextMutedBrush");
+            if (update.RecentReleases is { Count: > 0 })
+            {
+                ReleaseHistoryList.ItemsSource = update.RecentReleases;
+                ReleaseHistoryPanel.Visibility = Visibility.Visible;
+            }
             if (update.IsUpdateAvailable && update.DownloadUri is not null)
             {
                 DownloadUpdateButton.Tag = update;
-                DownloadUpdateButton.Content = AppPaths.IsPortable ? "Download portable update" : "Download && install";
+                DownloadUpdateButton.Content = AppPaths.IsPortable ? "Download portable update" : "Download & install";
                 DownloadUpdateButton.Visibility = Visibility.Visible;
             }
         }
@@ -146,18 +159,38 @@ public partial class SettingsWindow : Window
     }
 
     private void LightingEffect_Changed(object sender, RoutedEventArgs e) => UpdatePulseSpeedEnabled();
-    private void EffectSpeedSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) => UpdatePulseSpeedEnabled();
+    private void EffectSpeedSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        UpdatePulseSpeedEnabled();
+        if (effectTestCancellation is null) return;
+
+        effectPreviewRestartTimer.Stop();
+        effectPreviewRestartTimer.Start();
+    }
+
+    private void EffectPreviewRestartTimer_Tick(object? sender, EventArgs e)
+    {
+        effectPreviewRestartTimer.Stop();
+        if (effectTestCancellation is null || isClosing) return;
+
+        restartEffectPreview = true;
+        TestEffectButton.IsEnabled = false;
+        ConnectionStatus.Text = "Applying effect speed…";
+        ConnectionStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+        effectTestCancellation.Cancel();
+    }
 
     private void IndicatorColorBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e) => UpdateColorPreview();
 
     private void PickIndicatorColor_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new ColorPickerWindow(IndicatorColorBox.Text, FlashPickedColourAsync) { Owner = this };
+        var dialog = new ColorPickerWindow(IndicatorColorBox.Text, PreviewPickedColourAsync) { Owner = this };
         if (dialog.ShowDialog() == true) IndicatorColorBox.Text = dialog.SelectedColor;
     }
 
-    private async Task<string?> FlashPickedColourAsync(string color)
+    private async Task<string?> PreviewPickedColourAsync(string color, CancellationToken cancellation)
     {
+        cancellation.ThrowIfCancellationRequested();
         if (EnableOpenRgb.IsChecked != true || KeyboardCombo.SelectedItem is not KeyboardDevice keyboard)
             return "Enable OpenRGB lighting and select a keyboard to preview this colour.";
 
@@ -171,8 +204,9 @@ public partial class SettingsWindow : Window
             IndicatorColor = color
         };
         var availability = await OpenRgbHighlighter.EnsureSdkAsync(settings);
+        cancellation.ThrowIfCancellationRequested();
         if (!availability.IsAvailable) return availability.Message ?? "OpenRGB's SDK server is unavailable.";
-        return await OpenRgbHighlighter.FlashKeyAsync(settings, hotkeyKeyName);
+        return await OpenRgbHighlighter.ShowKeySolidAsync(settings, hotkeyKeyName, cancellation);
     }
 
     private void RestoreDefaults_Click(object sender, RoutedEventArgs e)
@@ -241,6 +275,8 @@ public partial class SettingsWindow : Window
     {
         if (effectTestCancellation is not null)
         {
+            effectPreviewRestartTimer.Stop();
+            restartEffectPreview = false;
             effectTestCancellation.Cancel();
             TestEffectButton.IsEnabled = false;
             ConnectionStatus.Text = "Stopping hotkey effect test…";
@@ -337,6 +373,8 @@ public partial class SettingsWindow : Window
         finally
         {
             if (snapshot is not null) OpenRgbHighlighter.RestoreIndicator(snapshot);
+            var restart = restartEffectPreview && !isClosing;
+            restartEffectPreview = false;
             effectTestCancellation?.Dispose();
             effectTestCancellation = null;
             if (!isClosing)
@@ -346,6 +384,7 @@ public partial class SettingsWindow : Window
                 TestEffectButton.Content = "Test hotkey effect";
                 TestEffectButton.ToolTip = "Shows the selected lighting effect for three cycles, then restores the key. Click again to stop it early.";
             }
+            if (restart) TestEffectButton_Click(this, new RoutedEventArgs());
         }
     }
 
