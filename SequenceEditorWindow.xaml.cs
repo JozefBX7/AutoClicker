@@ -8,8 +8,6 @@ public partial class SequenceEditorWindow : Window
 {
     private readonly ObservableCollection<SequenceStep> steps;
     private bool pickingKey;
-    private int customKey;
-    private string selectedAction = "Left";
     private Point dragStart;
     private SequenceStep? draggingStep;
     private readonly List<SequencePreset> library;
@@ -25,7 +23,6 @@ public partial class SequenceEditorWindow : Window
         StepsList.ItemsSource = steps;
         PresetCombo.ItemsSource = this.library;
         steps.CollectionChanged += (_, _) => UpdateEmptyStates();
-        UpdateActionButtons();
         UpdateEmptyStates();
     }
 
@@ -48,9 +45,8 @@ public partial class SequenceEditorWindow : Window
         e.Handled = true;
         var key = e.Key == System.Windows.Input.Key.System ? e.SystemKey : e.Key;
         if (key == System.Windows.Input.Key.Escape) { pickingKey = false; HintLabel.Text = "Keyboard selection cancelled."; return; }
-        customKey = System.Windows.Input.KeyInterop.VirtualKeyFromKey(key);
+        var customKey = System.Windows.Input.KeyInterop.VirtualKeyFromKey(key);
         if (customKey == 0) return;
-        selectedAction = "Custom";
         pickingKey = false;
         AddEvent("Custom", customKey);
     }
@@ -105,17 +101,6 @@ public partial class SequenceEditorWindow : Window
         e.Handled = true;
     }
     private SequenceStep? StepAt(DependencyObject? element) => element is null ? null : (ItemsControl.ContainerFromElement(StepsList, element) as FrameworkElement)?.DataContext as SequenceStep;
-
-    private void UpdateActionButtons()
-    {
-        LeftActionButton.Tag = selectedAction == "Left" ? "Pinned" : null;
-        MiddleActionButton.Tag = selectedAction == "Middle" ? "Pinned" : null;
-        RightActionButton.Tag = selectedAction == "Right" ? "Pinned" : null;
-        KeyboardActionButton.Tag = selectedAction == "Custom" ? "Pinned" : null;
-        KeyboardActionButton.ToolTip = selectedAction == "Custom" && customKey != 0
-            ? $"Keyboard key: {System.Windows.Input.KeyInterop.KeyFromVirtualKey(customKey)} — click to change"
-            : "Add a keyboard key";
-    }
 
     private void PresetCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
