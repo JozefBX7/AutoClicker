@@ -1,8 +1,10 @@
 # AutoClicker
 
-A small Windows tool for repeating mouse clicks, key presses, and custom sequences.
+A compact Windows auto clicker and keyboard spammer, with memory, custom sequences, global hotkeys, backups, and optional OpenRGB lighting.
 
 Detailed guides are available in the [AutoClicker Wiki](https://github.com/JozefBX7/AutoClicker/wiki).
+
+<img width="522" height="558" alt="image" src="https://github.com/user-attachments/assets/25f152cf-0899-41e2-9f9a-0997649fc8aa" />
 
 ## Download
 
