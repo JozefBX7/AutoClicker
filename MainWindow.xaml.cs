@@ -984,6 +984,19 @@ public partial class MainWindow : Window
 
     private void SequenceItem_MouseMove(object sender, System.Windows.Input.MouseEventArgs e) => OpenSequencePresetMenu();
 
+    private void SequenceItem_PreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        OpenSequencePresetMenu();
+        // The parent is only a submenu launcher; a saved preset chooses the action.
+        e.Handled = true;
+    }
+
+    private void ButtonCombo_DropDownClosed(object sender, EventArgs e)
+    {
+        // Reset the Popup state so the flyout can open again next time.
+        if (SequencePresetPopup is not null) SequencePresetPopup.IsOpen = false;
+    }
+
     private void SequencePresetList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (SequencePresetList.SelectedItem is not SequencePreset preset) return;
