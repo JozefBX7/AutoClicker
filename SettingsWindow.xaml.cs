@@ -12,6 +12,8 @@ public partial class SettingsWindow : Window
     private readonly Func<bool> resetToDefaults;
     private readonly Func<string, string?> exportBackup;
     private readonly Func<string, string?> importBackup;
+    private CancellationTokenSource? effectTestCancellation;
+    private bool isClosing;
 
     public SettingsWindow(RgbSettings current, string hotkeyName, string hotkeyKeyName, Func<bool> resetToDefaults, Func<string, string?> exportBackup, Func<string, string?> importBackup)
     {
@@ -33,6 +35,14 @@ public partial class SettingsWindow : Window
         UpdatePulseSpeedEnabled();
         HotkeyLightingHint.Text = $"When AutoClicker is active, OpenRGB will light {hotkeyName}.";
         Loaded += (_, _) => RefreshKeyboards();
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        // A preview owns a temporary LED snapshot, so always cancel it before the dialog goes away.
+        isClosing = true;
+        effectTestCancellation?.Cancel();
+        base.OnClosed(e);
     }
 
     private void Header_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -196,6 +206,7 @@ public partial class SettingsWindow : Window
         }
 
         TestRgbButton.IsEnabled = false;
+        TestEffectButton.IsEnabled = false;
         ConnectionStatus.Text = $"Flashing {hotkeyName} three times…";
         ConnectionStatus.Foreground = ThemeManager.Brush("SuccessBrush");
         try
@@ -221,7 +232,138 @@ public partial class SettingsWindow : Window
         finally
         {
             TestRgbButton.IsEnabled = true;
+            TestEffectButton.IsEnabled = true;
         }
+    }
+
+    private async void TestEffectButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (effectTestCancellation is not null)
+        {
+            effectTestCancellation.Cancel();
+            TestEffectButton.IsEnabled = false;
+            ConnectionStatus.Text = "Stopping hotkey effect test…";
+            ConnectionStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+            return;
+        }
+
+        if (Owner is MainWindow { IsClicking: true })
+        {
+            ConnectionStatus.Text = "Stop AutoClicker before testing RGB lighting.";
+            ConnectionStatus.Foreground = ThemeManager.Brush("WarningBrush");
+            return;
+        }
+        if (!TryCreateLightingSettings(out var settings, out var validationError))
+        {
+            ConnectionStatus.Text = validationError;
+            ConnectionStatus.Foreground = ThemeManager.Brush("WarningBrush");
+            return;
+        }
+
+        TestRgbButton.IsEnabled = false;
+        effectTestCancellation = new CancellationTokenSource();
+        TestEffectButton.Content = "Stop effect test";
+        TestEffectButton.ToolTip = "Stop the current hotkey effect test and restore the key.";
+        ConnectionStatus.Text = $"Testing {SelectedEffect().ToLowerInvariant()} on {hotkeyName}…";
+        ConnectionStatus.Foreground = ThemeManager.Brush("SuccessBrush");
+
+        RgbLightingSnapshot? snapshot = null;
+        try
+        {
+            var availability = await OpenRgbHighlighter.EnsureSdkAsync(settings);
+            if (!availability.IsAvailable)
+            {
+                ConnectionStatus.Text = availability.Message ?? "OpenRGB's SDK server is unavailable.";
+                ConnectionStatus.Foreground = ThemeManager.Brush("ErrorBrush");
+                return;
+            }
+
+            snapshot = OpenRgbHighlighter.EnableKeyIndicator(settings, hotkeyKeyName, out var error, lightImmediately: !settings.IsPulse);
+            if (snapshot is null)
+            {
+                ConnectionStatus.Text = error ?? "OpenRGB could not start the effect test.";
+                ConnectionStatus.Foreground = ThemeManager.Brush("ErrorBrush");
+                return;
+            }
+
+            using var duration = CancellationTokenSource.CreateLinkedTokenSource(effectTestCancellation.Token);
+            if (settings.IsBlink)
+            {
+                duration.CancelAfter(TimeSpan.FromMilliseconds(Math.Clamp(settings.PulseSpeedMilliseconds, 120, 2000) * 6));
+                await OpenRgbHighlighter.BlinkIndicatorAsync(snapshot, settings.PulseSpeedMilliseconds, duration.Token);
+            }
+            else if (settings.IsPulse)
+            {
+                duration.CancelAfter(TimeSpan.FromMilliseconds(Math.Clamp(settings.PulseSpeedMilliseconds, 1000, 6000) * 3));
+                await OpenRgbHighlighter.FadePulseIndicatorAsync(snapshot, settings.PulseSpeedMilliseconds, duration.Token);
+            }
+            else
+            {
+                await Task.Delay(TimeSpan.FromSeconds(3), duration.Token);
+            }
+
+            if (effectTestCancellation.IsCancellationRequested)
+            {
+                if (!isClosing)
+                {
+                    ConnectionStatus.Text = "Hotkey effect test stopped; the previous key colour was restored.";
+                    ConnectionStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+                }
+            }
+            else
+            {
+                ConnectionStatus.Text = $"Finished testing {SelectedEffect().ToLowerInvariant()}; the previous key colour was restored.";
+                ConnectionStatus.Foreground = ThemeManager.Brush("SuccessBrush");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            if (!isClosing)
+            {
+                ConnectionStatus.Text = "Hotkey effect test stopped; the previous key colour was restored.";
+                ConnectionStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+            }
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error("OpenRGB effect test failed", exception);
+            if (!isClosing)
+            {
+                ConnectionStatus.Text = $"Hotkey effect test failed: {exception.Message}";
+                ConnectionStatus.Foreground = ThemeManager.Brush("ErrorBrush");
+            }
+        }
+        finally
+        {
+            if (snapshot is not null) OpenRgbHighlighter.RestoreIndicator(snapshot);
+            effectTestCancellation?.Dispose();
+            effectTestCancellation = null;
+            if (!isClosing)
+            {
+                TestRgbButton.IsEnabled = true;
+                TestEffectButton.IsEnabled = true;
+                TestEffectButton.Content = "Test hotkey effect";
+                TestEffectButton.ToolTip = "Shows the selected lighting effect for three cycles, then restores the key. Click again to stop it early.";
+            }
+        }
+    }
+
+    private bool TryCreateLightingSettings(out RgbSettings settings, out string error)
+    {
+        settings = new RgbSettings();
+        error = string.Empty;
+        if (EnableOpenRgb.IsChecked != true || KeyboardCombo.SelectedItem is not KeyboardDevice keyboard)
+        {
+            error = "Enable OpenRGB lighting and select a keyboard before testing.";
+            return false;
+        }
+        if (!OpenRgbHighlighter.TryNormalizeIndicatorColor(IndicatorColorBox.Text, out var color))
+        {
+            error = "Enter a colour as a hex value, for example #22D3EE.";
+            return false;
+        }
+        settings = new RgbSettings { Enabled = true, DeviceIndex = keyboard.Index, DeviceName = keyboard.Name, AutoStart = AutoStartOpenRgb.IsChecked == true, StopAutoStartedOnExit = StopAutoStartedOpenRgb.IsChecked == true, IndicatorColor = color, LightingEffect = SelectedEffect(), PulseSpeedMilliseconds = ReadPulseSpeed() };
+        return true;
     }
 
     private async void RefreshKeyboards()

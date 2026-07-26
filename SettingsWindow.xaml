@@ -30,7 +30,7 @@
                             </Grid>
                             <TextBlock x:Name="EffectSpeedHint" Foreground="{DynamicResource TextMutedBrush}" FontSize="10" Margin="0,4,0,0" />
                             <TextBlock x:Name="HotkeyLightingHint" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,9,0,0" />
-                            <Button x:Name="TestRgbButton" Content="Test hotkey lighting" ToolTip="Flashes the assigned hotkey three times, then restores its previous colour." Click="TestRgbButton_Click" Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Margin="0,8,0,0" />
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0"><Button x:Name="TestRgbButton" Content="Test hotkey lighting" ToolTip="Flashes the assigned hotkey three times, then restores its previous colour." Click="TestRgbButton_Click" Style="{StaticResource GhostButton}"/><Button x:Name="TestEffectButton" Content="Test hotkey effect" ToolTip="Shows the selected lighting effect for three cycles, then restores the key. Click again to stop it early." Click="TestEffectButton_Click" Style="{StaticResource GhostButton}" Margin="7,0,0,0"/></StackPanel>
                             <TextBlock x:Name="ConnectionStatus" Text="OpenRGB must be running with its SDK server enabled." Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,10,0,0" />
                         </StackPanel>
                     </Border>
