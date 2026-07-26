@@ -271,7 +271,7 @@ public partial class MainWindow : Window
     {
         if (updatingActionSelection || ButtonCombo is null || PickKeyItem is null) return;
         var selectedAction = Selected(ButtonCombo);
-        if (selectedAction != "Sequence") SequencePresetPopup.IsOpen = false;
+        if (selectedAction != "Sequence" && SequencePresetPopup is not null) SequencePresetPopup.IsOpen = false;
         if (selectedAction == "Sequence")
         {
             SequenceItem.Content = "Custom sequence  ›";
