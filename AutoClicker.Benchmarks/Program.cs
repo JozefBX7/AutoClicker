@@ -4,7 +4,7 @@
 
 using BenchmarkDotNet.Running;
 
-namespace BenchmarkSuite1
+namespace AutoClicker.Benchmarks
 {
     internal class Program
     {

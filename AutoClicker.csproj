@@ -16,7 +16,6 @@
   <ItemGroup>
     <Compile Remove="MainForm.cs" />
     <Compile Remove="AutoClicker.Tests\**\*.cs" />
-    <Compile Remove="BenchmarkSuite1\**\*.cs" />
     <Compile Remove="AutoClicker.Benchmarks\**\*.cs" />
   </ItemGroup>
   <ItemGroup>
