@@ -24,6 +24,13 @@ public sealed class InputRulesTests
         Assert.AreEqual(TimeSpan.FromMilliseconds(1), InputRules.CreateInterval(-1, -1, -1, 0));
     }
 
+    [TestMethod]
+    public void NormalizeInterval_CarriesOverflowIntoLargerUnits()
+    {
+        Assert.AreEqual(new InputRules.IntervalParts(0, 0, 1, 0), InputRules.NormalizeInterval(0, 0, 0, 1000));
+        Assert.AreEqual(new InputRules.IntervalParts(1, 1, 1, 1), InputRules.NormalizeInterval(0, 60, 60, 1001));
+    }
+
     [DataTestMethod]
     [DataRow("Space", true)]
     [DataRow("Enter", true)]

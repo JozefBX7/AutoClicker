@@ -242,6 +242,20 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    private void IntervalBox_LostKeyboardFocus(object sender, System.Windows.Input.KeyboardFocusChangedEventArgs e) => NormalizeIntervalBoxes();
+
+    private InputRules.IntervalParts NormalizeIntervalBoxes()
+    {
+        var parts = InputRules.NormalizeInterval(ParseIntervalPart(HoursBox.Text), ParseIntervalPart(MinutesBox.Text), ParseIntervalPart(SecondsBox.Text), ParseIntervalPart(MillisBox.Text));
+        HoursBox.Text = parts.Hours.ToString();
+        MinutesBox.Text = parts.Minutes.ToString();
+        SecondsBox.Text = parts.Seconds.ToString();
+        MillisBox.Text = parts.Milliseconds.ToString();
+        return parts;
+    }
+
+    private static long ParseIntervalPart(string? value) => long.TryParse(value, out var parsed) ? Math.Max(0, parsed) : 0;
+
     private static T? FindParent<T>(DependencyObject? source) where T : DependencyObject
     {
         while (source is not null)
@@ -376,7 +390,8 @@ public partial class MainWindow : Window
             return;
         }
         // Take a snapshot of the UI; the worker must not read WPF controls.
-        var delay = InputRules.CreateInterval(Read(HoursBox, 0, 999), Read(MinutesBox, 0, 59), Read(SecondsBox, 0, 59), Read(MillisBox, 1, 999));
+        var interval = NormalizeIntervalBoxes();
+        var delay = InputRules.CreateInterval(interval.Hours, interval.Minutes, interval.Seconds, interval.Milliseconds);
         // Owns cancellation for this run.
         var cancellation = new CancellationTokenSource();
         clickCancellation = cancellation;
@@ -873,7 +888,11 @@ public partial class MainWindow : Window
         catch { Status("Could not save the default settings.", ThemeManager.Brush("ErrorBrush")); }
     }
 
-    private AppDefaults CreateCurrentDefaults() => new() { Hours = Read(HoursBox, 0, 999), Minutes = Read(MinutesBox, 0, 59), Seconds = Read(SecondsBox, 0, 59), Milliseconds = Read(MillisBox, 1, 999), MouseButton = Selected(ButtonCombo), Input = Selected(ButtonCombo), CustomKey = customSpamVirtualKey, CustomSequence = customSequence.Select(step => step.Clone()).ToList(), ClickType = Selected(TypeCombo), RepeatUntilStopped = UntilStoppedRadio.IsChecked == true, RepeatCount = Read(CountBox, 1, 999999), FixedPosition = FixedPositionRadio.IsChecked == true, X = Read(XBox, -32768, 32767), Y = Read(YBox, -32768, 32767), Hotkey = hotkey, HotkeyModifiers = hotkeyModifiers, Rgb = rgbSettings };
+    private AppDefaults CreateCurrentDefaults()
+    {
+        var interval = NormalizeIntervalBoxes();
+        return new AppDefaults { Hours = interval.Hours, Minutes = interval.Minutes, Seconds = interval.Seconds, Milliseconds = interval.Milliseconds, MouseButton = Selected(ButtonCombo), Input = Selected(ButtonCombo), CustomKey = customSpamVirtualKey, CustomSequence = customSequence.Select(step => step.Clone()).ToList(), ClickType = Selected(TypeCombo), RepeatUntilStopped = UntilStoppedRadio.IsChecked == true, RepeatCount = Read(CountBox, 1, 999999), FixedPosition = FixedPositionRadio.IsChecked == true, X = Read(XBox, -32768, 32767), Y = Read(YBox, -32768, 32767), Hotkey = hotkey, HotkeyModifiers = hotkeyModifiers, Rgb = rgbSettings };
+    }
 
     private string? ExportFullBackup(string path)
     {

@@ -2,13 +2,32 @@ namespace AutoClicker;
 
 internal static class InputRules
 {
+    internal readonly record struct IntervalParts(int Hours, int Minutes, int Seconds, int Milliseconds);
+
     internal static int ParseClamped(string? value, int minimum, int maximum) => int.TryParse(value, out var parsed) ? Math.Clamp(parsed, minimum, maximum) : minimum;
 
-    internal static TimeSpan CreateInterval(int hours, int minutes, int seconds, int milliseconds) =>
-        TimeSpan.FromHours(Math.Clamp(hours, 0, 999))
-        + TimeSpan.FromMinutes(Math.Clamp(minutes, 0, 59))
-        + TimeSpan.FromSeconds(Math.Clamp(seconds, 0, 59))
-        + TimeSpan.FromMilliseconds(Math.Clamp(milliseconds, 1, 999));
+    internal static IntervalParts NormalizeInterval(long hours, long minutes, long seconds, long milliseconds)
+    {
+        const long maximumMilliseconds = (((999L * 60) + 59) * 60 + 59) * 1000 + 999;
+        var totalMilliseconds = Math.Max(0, hours) * 3_600_000L
+            + Math.Max(0, minutes) * 60_000L
+            + Math.Max(0, seconds) * 1_000L
+            + Math.Max(0, milliseconds);
+        totalMilliseconds = Math.Clamp(totalMilliseconds, 1, maximumMilliseconds);
+
+        var normalizedHours = (int)(totalMilliseconds / 3_600_000L);
+        totalMilliseconds %= 3_600_000L;
+        var normalizedMinutes = (int)(totalMilliseconds / 60_000L);
+        totalMilliseconds %= 60_000L;
+        var normalizedSeconds = (int)(totalMilliseconds / 1_000L);
+        return new IntervalParts(normalizedHours, normalizedMinutes, normalizedSeconds, (int)(totalMilliseconds % 1_000L));
+    }
+
+    internal static TimeSpan CreateInterval(int hours, int minutes, int seconds, int milliseconds)
+    {
+        var parts = NormalizeInterval(hours, minutes, seconds, milliseconds);
+        return TimeSpan.FromHours(parts.Hours) + TimeSpan.FromMinutes(parts.Minutes) + TimeSpan.FromSeconds(parts.Seconds) + TimeSpan.FromMilliseconds(parts.Milliseconds);
+    }
 
     internal static bool IsKeyboardAction(string? action) => action is "Space" or "Enter" or "Custom";
 

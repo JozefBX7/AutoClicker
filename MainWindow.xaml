@@ -54,10 +54,10 @@
                                 <TextBlock x:Name="IntervalHint" Text="Time between clicks" Style="{StaticResource SectionHint}" />
                                 <Grid Margin="0,12,0,0">
                                     <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
-                                    <StackPanel><TextBlock Text="Hours" Style="{StaticResource FieldLabel}" /><TextBox x:Name="HoursBox" Text="0" /></StackPanel>
-                                    <StackPanel Grid.Column="1" Margin="6,0,0,0"><TextBlock Text="Minutes" Style="{StaticResource FieldLabel}" /><TextBox x:Name="MinutesBox" Text="0" /></StackPanel>
-                                    <StackPanel Grid.Column="2" Margin="6,0,0,0"><TextBlock Text="Seconds" Style="{StaticResource FieldLabel}" /><TextBox x:Name="SecondsBox" Text="0" /></StackPanel>
-                                    <StackPanel Grid.Column="3" Margin="6,0,0,0"><TextBlock Text="Millis" Style="{StaticResource FieldLabel}" /><TextBox x:Name="MillisBox" Text="100" /></StackPanel>
+                                    <StackPanel><TextBlock Text="Hours" Style="{StaticResource FieldLabel}" /><TextBox x:Name="HoursBox" Text="0" LostKeyboardFocus="IntervalBox_LostKeyboardFocus" /></StackPanel>
+                                    <StackPanel Grid.Column="1" Margin="6,0,0,0"><TextBlock Text="Minutes" Style="{StaticResource FieldLabel}" /><TextBox x:Name="MinutesBox" Text="0" LostKeyboardFocus="IntervalBox_LostKeyboardFocus" /></StackPanel>
+                                    <StackPanel Grid.Column="2" Margin="6,0,0,0"><TextBlock Text="Seconds" Style="{StaticResource FieldLabel}" /><TextBox x:Name="SecondsBox" Text="0" LostKeyboardFocus="IntervalBox_LostKeyboardFocus" /></StackPanel>
+                                    <StackPanel Grid.Column="3" Margin="6,0,0,0"><TextBlock Text="Millis" Style="{StaticResource FieldLabel}" /><TextBox x:Name="MillisBox" Text="100" LostKeyboardFocus="IntervalBox_LostKeyboardFocus" /></StackPanel>
                                 </Grid>
                             </StackPanel>
                         </Border>
