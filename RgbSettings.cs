@@ -34,6 +34,8 @@ public sealed record KeyboardDevice(int Index, string Name)
 public static class OpenRgbHighlighter
 {
     internal const int PulseFramesPerCycle = 12;
+    internal const int MinimumPulseCycleMilliseconds = 600;
+    internal const int MaximumPulseCycleMilliseconds = 2600;
     // Never stop an OpenRGB instance we did not start.
     private static readonly object StartedProcessLock = new();
     private static Process? processStartedByAutoClicker;
@@ -251,7 +253,7 @@ public static class OpenRgbHighlighter
     public static async Task FadePulseIndicatorAsync(RgbLightingSnapshot snapshot, int cycleMilliseconds, CancellationToken cancellation)
     {
         // Twelve steps keep the fade smooth while keeping OpenRGB traffic light.
-        var cycle = Math.Clamp(cycleMilliseconds, 1000, 6000);
+        var cycle = Math.Clamp(cycleMilliseconds, MinimumPulseCycleMilliseconds, MaximumPulseCycleMilliseconds);
         var frameDelay = TimeSpan.FromMilliseconds(cycle / PulseFramesPerCycle);
         try
         {

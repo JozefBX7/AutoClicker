@@ -295,7 +295,7 @@ public partial class SettingsWindow : Window
             }
             else if (settings.IsPulse)
             {
-                duration.CancelAfter(TimeSpan.FromMilliseconds(Math.Clamp(settings.PulseSpeedMilliseconds, 1000, 6000) * 3));
+                duration.CancelAfter(TimeSpan.FromMilliseconds(Math.Clamp(settings.PulseSpeedMilliseconds, OpenRgbHighlighter.MinimumPulseCycleMilliseconds, OpenRgbHighlighter.MaximumPulseCycleMilliseconds) * 3));
                 await OpenRgbHighlighter.FadePulseIndicatorAsync(snapshot, settings.PulseSpeedMilliseconds, duration.Token);
             }
             else
@@ -428,14 +428,14 @@ public partial class SettingsWindow : Window
     {
         var progress = Math.Clamp(EffectSpeedSlider?.Value ?? 50d, 0d, 100d) / 100d;
         return string.Equals(SelectedEffect(), "Fade", StringComparison.OrdinalIgnoreCase)
-            ? (int)Math.Round(6000d - (5000d * progress))
+            ? (int)Math.Round(OpenRgbHighlighter.MaximumPulseCycleMilliseconds - ((OpenRgbHighlighter.MaximumPulseCycleMilliseconds - OpenRgbHighlighter.MinimumPulseCycleMilliseconds) * progress))
             : (int)Math.Round(2000d - (1880d * progress));
     }
 
     private static double SpeedToSlider(int milliseconds, string effect)
     {
         if (string.Equals(effect, "Fade", StringComparison.OrdinalIgnoreCase))
-            return (6000d - Math.Clamp(milliseconds, 1000, 6000)) * 100d / 5000d;
+            return (OpenRgbHighlighter.MaximumPulseCycleMilliseconds - Math.Clamp(milliseconds, OpenRgbHighlighter.MinimumPulseCycleMilliseconds, OpenRgbHighlighter.MaximumPulseCycleMilliseconds)) * 100d / (OpenRgbHighlighter.MaximumPulseCycleMilliseconds - OpenRgbHighlighter.MinimumPulseCycleMilliseconds);
         return (2000d - Math.Clamp(milliseconds, 120, 2000)) * 100d / 1880d;
     }
 
