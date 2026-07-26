@@ -6,10 +6,6 @@ Detailed guides are available in the [AutoClicker Wiki](https://github.com/Jozef
 
 <img width="522" height="580" alt="image" src="https://github.com/user-attachments/assets/6cd3c0e9-2fa0-41a4-be2a-406b61d1d15f" />
 
-## Target-window input
-
-Leave the target blank for normal global input, enter an executable name to run only while that app is active, or choose a specific visible window. AutoClicker pauses its clicks and keys whenever the selected target is not in the foreground.
-
 ## Download
 
 Get AutoClicker from the [latest release](../../releases/latest).
