@@ -31,7 +31,7 @@ public partial class SettingsWindow : Window
         IndicatorColorBox.Text = Settings.IndicatorColor;
         UpdateColorPreview();
         SelectEffect(Settings.LightingEffect);
-        PulseSpeedBox.Text = Settings.PulseSpeedMilliseconds.ToString();
+        EffectSpeedSlider.Value = SpeedToSlider(Settings.PulseSpeedMilliseconds, SelectedEffect());
         UpdatePulseSpeedEnabled();
         HotkeyLightingHint.Text = $"When AutoClicker is active, OpenRGB will light {hotkeyName}.";
         Loaded += (_, _) => RefreshKeyboards();
@@ -146,6 +146,7 @@ public partial class SettingsWindow : Window
     }
 
     private void LightingEffect_Changed(object sender, RoutedEventArgs e) => UpdatePulseSpeedEnabled();
+    private void EffectSpeedSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) => UpdatePulseSpeedEnabled();
 
     private void IndicatorColorBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e) => UpdateColorPreview();
 
@@ -425,10 +426,17 @@ public partial class SettingsWindow : Window
 
     private int ReadPulseSpeed()
     {
-        var fallback = string.Equals(SelectedEffect(), "Fade", StringComparison.OrdinalIgnoreCase) ? 1200 : 450;
-        return int.TryParse(PulseSpeedBox.Text, out var value)
-            ? string.Equals(SelectedEffect(), "Fade", StringComparison.OrdinalIgnoreCase) ? Math.Clamp(value, 1000, 6000) : Math.Clamp(value, 120, 2000)
-            : fallback;
+        var progress = Math.Clamp(EffectSpeedSlider?.Value ?? 50d, 0d, 100d) / 100d;
+        return string.Equals(SelectedEffect(), "Fade", StringComparison.OrdinalIgnoreCase)
+            ? (int)Math.Round(6000d - (5000d * progress))
+            : (int)Math.Round(2000d - (1880d * progress));
+    }
+
+    private static double SpeedToSlider(int milliseconds, string effect)
+    {
+        if (string.Equals(effect, "Fade", StringComparison.OrdinalIgnoreCase))
+            return (6000d - Math.Clamp(milliseconds, 1000, 6000)) * 100d / 5000d;
+        return (2000d - Math.Clamp(milliseconds, 120, 2000)) * 100d / 1880d;
     }
 
     private void UpdateColorPreview()
@@ -461,16 +469,19 @@ public partial class SettingsWindow : Window
     }
     private void UpdatePulseSpeedEnabled()
     {
-        if (PulseSpeedBox is null || EffectSpeedHint is null) return;
+        if (EffectSpeedSlider is null || EffectSpeedHint is null || EffectSpeedValueLabel is null) return;
         var effect = SelectedEffect();
-        PulseSpeedBox.IsEnabled = !string.Equals(effect, "Constant", StringComparison.OrdinalIgnoreCase);
+        EffectSpeedSlider.IsEnabled = !string.Equals(effect, "Constant", StringComparison.OrdinalIgnoreCase);
         if (string.Equals(effect, "Fade", StringComparison.OrdinalIgnoreCase))
         {
-            if (!int.TryParse(PulseSpeedBox.Text, out var speed) || speed < 1000) PulseSpeedBox.Text = "1200";
-            EffectSpeedHint.Text = "Pulse is a smooth fade cycle (1000–6000 ms), capped at 12 key updates per second.";
+            EffectSpeedValueLabel.Text = $"{ReadPulseSpeed() / 1000d:0.0} s per cycle";
+            EffectSpeedHint.Text = "Pulse fades smoothly; use the slider to choose a slower or faster cycle.";
         }
         else if (string.Equals(effect, "Blink", StringComparison.OrdinalIgnoreCase))
-            EffectSpeedHint.Text = "Blink is on/off; speed is the time per state (120–2000 ms).";
-        else EffectSpeedHint.Text = "Constant keeps the key lit continuously.";
+        {
+            EffectSpeedValueLabel.Text = $"{ReadPulseSpeed():N0} ms per state";
+            EffectSpeedHint.Text = "Blink switches the key on and off at the selected speed.";
+        }
+        else { EffectSpeedValueLabel.Text = "Always on"; EffectSpeedHint.Text = "Constant keeps the key lit continuously."; }
     }
 }

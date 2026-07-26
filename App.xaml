@@ -111,6 +111,10 @@
                 <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="{DynamicResource AccentPressedBrush}" /></Trigger>
             </Style.Triggers>
         </Style>
+        <Style x:Key="EffectSpeedSlider" TargetType="Slider">
+            <Setter Property="Height" Value="22" /><Setter Property="Minimum" Value="0" /><Setter Property="Maximum" Value="100" /><Setter Property="SmallChange" Value="1" /><Setter Property="LargeChange" Value="10" />
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Slider"><Grid Height="22"><Track x:Name="PART_Track" Height="5" VerticalAlignment="Center" Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}" Value="{Binding Value, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"><Track.DecreaseRepeatButton><RepeatButton Command="Slider.DecreaseLarge" CommandTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="{DynamicResource AccentBrush}" CornerRadius="3"/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.DecreaseRepeatButton><Track.Thumb><Thumb Width="14" Height="14"><Thumb.Template><ControlTemplate TargetType="Thumb"><Border Background="{DynamicResource AccentHoverBrush}" BorderBrush="{DynamicResource AccentPaleBrush}" BorderThickness="1" CornerRadius="7"/></ControlTemplate></Thumb.Template></Thumb></Track.Thumb><Track.IncreaseRepeatButton><RepeatButton Command="Slider.IncreaseLarge" CommandTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="{DynamicResource ControlBorderBrush}" CornerRadius="3"/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.IncreaseRepeatButton></Track></Grid></ControlTemplate></Setter.Value></Setter>
+        </Style>
         <Style TargetType="ListBox">
             <Setter Property="Background" Value="{DynamicResource InputBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
