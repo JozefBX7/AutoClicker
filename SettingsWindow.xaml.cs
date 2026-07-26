@@ -469,9 +469,12 @@ public partial class SettingsWindow : Window
     }
     private void UpdatePulseSpeedEnabled()
     {
-        if (EffectSpeedSlider is null || EffectSpeedHint is null || EffectSpeedValueLabel is null) return;
+        if (EffectSpeedSlider is null || EffectSpeedHint is null || EffectSpeedValueLabel is null || EffectSpeedPanel is null) return;
         var effect = SelectedEffect();
-        EffectSpeedSlider.IsEnabled = !string.Equals(effect, "Constant", StringComparison.OrdinalIgnoreCase);
+        var hasSpeed = !string.Equals(effect, "Constant", StringComparison.OrdinalIgnoreCase);
+        EffectSpeedPanel.Visibility = hasSpeed ? Visibility.Visible : Visibility.Collapsed;
+        EffectSpeedHint.Visibility = hasSpeed ? Visibility.Visible : Visibility.Collapsed;
+        EffectSpeedSlider.IsEnabled = hasSpeed;
         if (string.Equals(effect, "Fade", StringComparison.OrdinalIgnoreCase))
         {
             EffectSpeedValueLabel.Text = $"{ReadPulseSpeed() / 1000d:0.0} s per cycle";
@@ -482,6 +485,6 @@ public partial class SettingsWindow : Window
             EffectSpeedValueLabel.Text = $"{ReadPulseSpeed():N0} ms per state";
             EffectSpeedHint.Text = "Blink switches the key on and off at the selected speed.";
         }
-        else { EffectSpeedValueLabel.Text = "Always on"; EffectSpeedHint.Text = "Constant keeps the key lit continuously."; }
+        else { EffectSpeedValueLabel.Text = string.Empty; EffectSpeedHint.Text = string.Empty; }
     }
 }
