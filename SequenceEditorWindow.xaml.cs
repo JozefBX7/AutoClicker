@@ -119,6 +119,22 @@ public partial class SequenceEditorWindow : Window
         HintLabel.Text = $"Loaded {preset.Name}.";
     }
 
+    private void NewSequence_Click(object sender, RoutedEventArgs e)
+    {
+        if (steps.Count > 0)
+        {
+            var confirmation = new ConfirmationWindow("Start new sequence", "Clear the current sequence? Saved sequences will not be changed.", "Clear") { Owner = this };
+            if (confirmation.ShowDialog() != true) return;
+        }
+
+        pickingKey = false;
+        steps.Clear();
+        StepsList.SelectedItem = null;
+        PresetCombo.SelectedItem = null;
+        PresetNameBox.Clear();
+        HintLabel.Text = "New empty sequence.";
+    }
+
     private void SavePreset_Click(object sender, RoutedEventArgs e)
     {
         var name = PresetNameBox.Text.Trim();
