@@ -2,7 +2,7 @@
 
 A compact Windows auto clicker and keyboard spammer, with custom sequences, global hotkeys, backups, and optional OpenRGB lighting.
 
-Detailed user documentation is available in the [Wiki source](docs/wiki/Home.md) and is mirrored to the repository Wiki when it is enabled.
+Detailed guides are available in the [AutoClicker Wiki](https://github.com/JozefBX7/AutoClicker/wiki).
 
 ## Download
 
