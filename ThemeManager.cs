@@ -2,6 +2,7 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Media;
+using Microsoft.Win32;
 
 namespace AutoClicker;
 
@@ -29,9 +30,16 @@ internal static class ThemeManager
         try
         {
             if (File.Exists(SettingsPath) && JsonSerializer.Deserialize<AppearanceSettings>(File.ReadAllText(SettingsPath)) is { } settings)
+            {
                 Apply(settings.Theme, persist: false);
+                return;
+            }
         }
         catch { }
+
+        // Do not create an appearance file here: until the user chooses a theme,
+        // a fresh installation should continue to follow their Windows preference.
+        Apply(SystemTheme(), persist: false);
     }
 
     internal static void Apply(AppTheme theme, bool persist = true)
@@ -61,6 +69,22 @@ internal static class ThemeManager
     }
 
     internal static Brush Brush(string key) => (Brush)Application.Current.Resources[key];
+
+    internal static AppTheme ThemeFromAppsUseLightTheme(object? value) => value is int enabled && enabled != 0 ? AppTheme.Light : AppTheme.Dark;
+
+    private static AppTheme SystemTheme()
+    {
+        try
+        {
+            using var personalize = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return ThemeFromAppsUseLightTheme(personalize?.GetValue("AppsUseLightTheme"));
+        }
+        catch
+        {
+            // Retain the established dark theme if the preference is unavailable.
+            return AppTheme.Dark;
+        }
+    }
 
     internal static string ExportConfiguration() => JsonSerializer.Serialize(new AppearanceSettings { Theme = Current });
 

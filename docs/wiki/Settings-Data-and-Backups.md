@@ -2,7 +2,7 @@
 
 ## Appearance and window behaviour
 
-The title-bar theme button switches between the matching dark and light themes. The layout is intentionally identical in both modes; only colours and contrast change.
+On a fresh installation, AutoClicker follows Windows’ app light/dark preference. The title-bar theme button then switches between the matching dark and light themes and saves that explicit choice for later starts. The layout is intentionally identical in both modes; only colours and contrast change.
 
 The pin button keeps AutoClicker above other windows. Pin state is remembered. The centre bar at the footer edge hides or shows the configuration area; compact mode also hides **Set as default** and is remembered between runs. The app starts centred.
 
