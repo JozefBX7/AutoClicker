@@ -4,6 +4,8 @@ A compact Windows auto clicker and keyboard spammer, with custom sequences, glob
 
 Detailed user documentation is available in the [Wiki source](docs/wiki/Home.md) and is mirrored to the repository Wiki when it is enabled.
 
+<img width="522" height="558" alt="image" src="https://github.com/user-attachments/assets/c3ffb3c9-831d-4c96-b864-0e1eedbc26fa" />
+
 ## Download
 
 Get both options from the [latest release](../../releases/latest).
