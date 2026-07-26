@@ -1021,12 +1021,11 @@ public partial class MainWindow : Window
         if (SequencePresetPopup is not null) SequencePresetPopup.IsOpen = false;
     }
 
-    private void SequencePresetList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void SequencePresetButton_Click(object sender, RoutedEventArgs e)
     {
-        if (SequencePresetList.SelectedItem is not SequencePreset preset) return;
+        if (sender is not Button { DataContext: SequencePreset preset }) return;
         customSequence = preset.Steps.Select(step => step.Clone()).ToList();
         CloseSequenceFlyout();
-        SequencePresetList.SelectedItem = null;
         ButtonCombo.IsDropDownOpen = false;
         SequenceItem.Content = "Custom sequence  ›";
         updatingActionSelection = true; ButtonCombo.SelectedItem = SequenceItem; updatingActionSelection = false;
