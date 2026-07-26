@@ -5,6 +5,7 @@ namespace AutoClicker;
 
 internal sealed class ConfigBackupDocument
 {
+    // Keep the outer document versioned so later releases can reject or migrate incompatible backups safely.
     public int SchemaVersion { get; set; } = 1;
     public DateTimeOffset CreatedUtc { get; set; } = DateTimeOffset.UtcNow;
     public string DefaultsJson { get; set; } = string.Empty;
@@ -31,6 +32,7 @@ internal static class ConfigBackupStore
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var temporary = path + ".tmp";
         File.WriteAllText(temporary, JsonSerializer.Serialize(document, new JsonSerializerOptions { WriteIndented = true }));
+        // Write-then-replace avoids leaving a half-written backup if the app is interrupted.
         File.Move(temporary, path, overwrite: true);
     }
 }

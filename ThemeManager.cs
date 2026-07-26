@@ -79,6 +79,7 @@ internal static class ThemeManager
     private static SolidColorBrush MakeBrush(string color)
     {
         var brush = (SolidColorBrush)new BrushConverter().ConvertFromString(color)!;
+        // Frozen brushes are immutable and safe to reuse throughout the visual tree.
         brush.Freeze();
         return brush;
     }

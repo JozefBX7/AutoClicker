@@ -57,6 +57,7 @@ internal static class UpdateService
     internal static bool TryParseVersion(string tag, out Version version) =>
         Version.TryParse(tag.Trim().TrimStart('v', 'V'), out version!);
 
+    // The installer runner only accepts the fixed official release path; a result from another host is never executed.
     internal static bool IsOfficialDownloadUrl(Uri uri) =>
         uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
         && uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
@@ -67,6 +68,7 @@ internal static class UpdateService
         if (!IsOfficialDownloadUrl(downloadUri))
             throw new InvalidOperationException("The update download is not an official AutoClicker GitHub Release.");
 
+        // Release tags become part of a temporary filename, so remove anything that could escape that filename.
         var safeTag = string.Concat(versionTag.Where(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '_'));
         if (string.IsNullOrWhiteSpace(safeTag)) safeTag = "latest";
         var directory = Path.Combine(Path.GetTempPath(), "AutoClicker", "Updates");

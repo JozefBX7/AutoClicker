@@ -49,6 +49,7 @@ public partial class MainWindow : Window
     private RgbLightingSnapshot? rgbSnapshot;
     private CancellationTokenSource? rgbPulseCancellation;
     private Task? rgbPulseTask;
+    // Invalidates background RGB work started for an earlier run or an earlier hotkey.
     private int rgbIndicatorGeneration;
     private long lastGuiHeartbeat;
     private int statusRevision;
@@ -83,6 +84,7 @@ public partial class MainWindow : Window
 
     private nint WndProc(nint handle, int msg, nint wParam, nint lParam, ref bool handled)
     {
+        // Never let the currently assigned hotkey fire the app while we are trying to capture a replacement key.
         if (!capturingHotkey && !capturingSpamKey && msg == WmHotkey && wParam.ToInt32() == HotkeyId)
         {
             ToggleClicking();
@@ -354,6 +356,7 @@ public partial class MainWindow : Window
             return;
         }
         var delay = InputRules.CreateInterval(Read(HoursBox, 0, 999), Read(MinutesBox, 0, 59), Read(SecondsBox, 0, 59), Read(MillisBox, 1, 999));
+        // One cancellation source owns this run and is also the worker's emergency-stop signal.
         var cancellation = new CancellationTokenSource();
         clickCancellation = cancellation;
         Volatile.Write(ref lastGuiHeartbeat, Stopwatch.GetTimestamp());
@@ -657,6 +660,7 @@ public partial class MainWindow : Window
     private void StartRgbIndicator()
     {
         if (!rgbSettings.Enabled) return;
+        // Each start gets a generation so an old background OpenRGB request cannot light a key after stopping.
         var generation = Interlocked.Increment(ref rgbIndicatorGeneration);
         var settings = new RgbSettings { Enabled = true, DeviceIndex = rgbSettings.DeviceIndex, DeviceName = rgbSettings.DeviceName, AutoStart = rgbSettings.AutoStart, StopAutoStartedOnExit = rgbSettings.StopAutoStartedOnExit, IndicatorColor = rgbSettings.IndicatorColor, LightingEffect = rgbSettings.LightingEffect, PulseSpeedMilliseconds = rgbSettings.PulseSpeedMilliseconds };
         var keyName = HotkeyKeyName();
@@ -752,6 +756,7 @@ public partial class MainWindow : Window
 
     private void StopRgbIndicator()
     {
+        // Invalidate pending startup work before restoring the saved LED state.
         Interlocked.Increment(ref rgbIndicatorGeneration);
         RgbLightingSnapshot? snapshot;
         CancellationTokenSource? pulseCancellation;
@@ -1093,6 +1098,7 @@ public partial class MainWindow : Window
             new() { Type = 1, Data = new InputUnion { Keyboard = new KeyboardInput { VirtualKey = (ushort)virtualKey, Flags = flags | KeyboardFlags.KeyUp } } }
         ];
     }
+    // Convert editor-friendly steps into native input packets once per run, rather than rebuilding them inside the worker loop.
     private static SequenceAction[] BuildSequence(IEnumerable<SequenceStep> sequence) => sequence.Select(step =>
     {
         if (step.Input == "Delay") return new SequenceAction([], false, true, Math.Clamp(step.DelayAfterMilliseconds, 1, 600000));
@@ -1108,6 +1114,7 @@ public partial class MainWindow : Window
 
     private sealed record ClickSettings(bool FixedPosition, int X, int Y, string Button, int? KeyboardVirtualKey, bool DoubleClick, int? MaximumClicks, SequenceAction[]? Sequence);
     private sealed record SequenceAction(Input[] Inputs, bool IsMouse, bool IsDelay, int DelayAfterMilliseconds);
+    // A cancellable Windows waitable timer gives lower-jitter waits than Task.Delay without spinning a CPU core.
     private sealed class PrecisionTimer : IDisposable
     {
         private const uint TimerAllAccess = 0x001F0003;
@@ -1126,6 +1133,7 @@ public partial class MainWindow : Window
         {
             var remainingTicks = targetTimestamp - Stopwatch.GetTimestamp();
             if (remainingTicks <= 0) return;
+            // Windows expects a negative relative due time in 100-nanosecond units.
             var dueTime = -Math.Max(1L, (long)Math.Ceiling(remainingTicks * 10_000_000 / Stopwatch.Frequency));
             if (!SetWaitableTimer(handle, ref dueTime, 0, nint.Zero, nint.Zero, false)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
             var handles = new[] { handle, token.WaitHandle.SafeWaitHandle.DangerousGetHandle() };
