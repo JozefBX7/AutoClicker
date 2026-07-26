@@ -982,6 +982,8 @@ public partial class MainWindow : Window
         OpenSequencePresetMenu();
     }
 
+    private void SequenceItem_MouseMove(object sender, System.Windows.Input.MouseEventArgs e) => OpenSequencePresetMenu();
+
     private void SequencePresetList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (SequencePresetList.SelectedItem is not SequencePreset preset) return;
