@@ -88,9 +88,19 @@ public partial class MainWindow : Window
         if (picker.ShowDialog() != true || picker.SelectedWindow is not { } window) return;
         TargetExecutableBox.Text = window.ExecutableName;
         targetWindowTitle = window.Title;
-        TargetWindowHint.Text = "Window target selected.";
-        TargetWindowHint.ToolTip = window.DisplayName;
+        EnableTargetWindowCheckBox.IsChecked = true;
+        UpdateTargetWindowUi();
     }
+
+    private void ClearTargetWindowButton_Click(object sender, RoutedEventArgs e)
+    {
+        targetWindowTitle = null;
+        TargetExecutableBox.Text = string.Empty;
+        EnableTargetWindowCheckBox.IsChecked = false;
+        UpdateTargetWindowUi();
+    }
+
+    private void EnableTargetWindowCheckBox_Changed(object sender, RoutedEventArgs e) => UpdateTargetWindowUi();
 
     private void InputPulseButton_Click(object sender, RoutedEventArgs e)
     {
@@ -110,10 +120,22 @@ public partial class MainWindow : Window
     {
         if (TargetExecutableBox is null || TargetWindowHint is null) return;
         targetWindowTitle = null;
-        TargetWindowHint.Text = string.IsNullOrWhiteSpace(TargetExecutableBox.Text) ? "Global input enabled." : "Executable target selected.";
-        TargetWindowHint.ToolTip = string.IsNullOrWhiteSpace(TargetExecutableBox.Text)
-            ? "Input is sent to whichever window is active."
-            : "Input runs only while any active window from this executable is focused.";
+        UpdateTargetWindowUi();
+    }
+
+    private void UpdateTargetWindowUi()
+    {
+        if (TargetExecutableBox is null || TargetWindowHint is null || EnableTargetWindowCheckBox is null || ClearTargetWindowButton is null) return;
+        var hasTarget = !string.IsNullOrWhiteSpace(TargetExecutableBox.Text);
+        var enabled = hasTarget && EnableTargetWindowCheckBox.IsChecked == true;
+        EnableTargetWindowCheckBox.IsEnabled = hasTarget;
+        ClearTargetWindowButton.IsEnabled = hasTarget;
+        TargetWindowHint.Text = enabled
+            ? targetWindowTitle is null ? "Executable target enabled." : "Window target enabled."
+            : hasTarget ? "Target disabled. Global input enabled." : "Global input enabled.";
+        TargetWindowHint.ToolTip = enabled
+            ? targetWindowTitle is null ? "Input runs only while any active window from this executable is focused." : $"{targetWindowTitle} — {TargetExecutableBox.Text}"
+            : "Input is sent to whichever window is active.";
     }
 
     private void Window_SourceInitialized(object? sender, EventArgs e)
@@ -432,7 +454,7 @@ public partial class MainWindow : Window
             Status("Add at least two actions to the custom sequence first.", ThemeManager.Brush("WarningBrush"));
             return;
         }
-        if (InputRules.IsHoldAction(Selected(TypeCombo)) && !string.IsNullOrWhiteSpace(TargetExecutableBox.Text))
+        if (InputRules.IsHoldAction(Selected(TypeCombo)) && EnableTargetWindowCheckBox.IsChecked == true && !string.IsNullOrWhiteSpace(TargetExecutableBox.Text))
         {
             Status("Target-window mode does not support held input.", ThemeManager.Brush("WarningBrush"));
             return;
@@ -452,7 +474,9 @@ public partial class MainWindow : Window
         clickCancellation = cancellation;
         Volatile.Write(ref lastGuiHeartbeat, Stopwatch.GetTimestamp());
         var hold = InputRules.IsHoldAction(Selected(TypeCombo));
-        var target = new TargetWindowRule(TargetExecutableBox.Text, targetWindowTitle);
+        var target = EnableTargetWindowCheckBox.IsChecked == true
+            ? new TargetWindowRule(TargetExecutableBox.Text, targetWindowTitle)
+            : new TargetWindowRule(string.Empty, null);
         var sequencePulseMilliseconds = customSequenceUsesGlobalInputPulse ? inputPulseMilliseconds : 0;
         var settings = new ClickSettings(FixedPositionRadio.IsChecked == true, Read(XBox, -32768, 32767), Read(YBox, -32768, 32767), input, keyboardVirtualKey == 0 ? null : keyboardVirtualKey, Selected(TypeCombo) == "Double", hold, hold ? null : CountRadio.IsChecked == true ? Read(CountBox, 1, 999999) : null, input == "Sequence" ? BuildSequence(customSequence) : null, InputRules.NormalizeInputPulseMilliseconds(input == "Sequence" ? sequencePulseMilliseconds : inputPulseMilliseconds), workerPriority, cadenceDiagnosticsEnabled, target);
         // Reflect the running state before the worker can send its first input.
@@ -1004,7 +1028,7 @@ public partial class MainWindow : Window
     private AppDefaults CreateCurrentDefaults()
     {
         var interval = NormalizeIntervalBoxes();
-        return new AppDefaults { Hours = interval.Hours, Minutes = interval.Minutes, Seconds = interval.Seconds, Milliseconds = interval.Milliseconds, MouseButton = Selected(ButtonCombo), Input = Selected(ButtonCombo), CustomKey = customSpamVirtualKey, CustomSequence = customSequence.Select(step => step.Clone()).ToList(), CustomSequenceUsesGlobalInputPulse = customSequenceUsesGlobalInputPulse, ClickType = Selected(TypeCombo), RepeatUntilStopped = UntilStoppedRadio.IsChecked == true, RepeatCount = Read(CountBox, 1, 999999), FixedPosition = FixedPositionRadio.IsChecked == true, X = Read(XBox, -32768, 32767), Y = Read(YBox, -32768, 32767), InputPulseMilliseconds = inputPulseMilliseconds, TargetExecutable = TargetExecutableBox.Text.Trim(), TargetWindowTitle = targetWindowTitle, Hotkey = hotkey, HotkeyModifiers = hotkeyModifiers, Rgb = rgbSettings };
+        return new AppDefaults { Hours = interval.Hours, Minutes = interval.Minutes, Seconds = interval.Seconds, Milliseconds = interval.Milliseconds, MouseButton = Selected(ButtonCombo), Input = Selected(ButtonCombo), CustomKey = customSpamVirtualKey, CustomSequence = customSequence.Select(step => step.Clone()).ToList(), CustomSequenceUsesGlobalInputPulse = customSequenceUsesGlobalInputPulse, ClickType = Selected(TypeCombo), RepeatUntilStopped = UntilStoppedRadio.IsChecked == true, RepeatCount = Read(CountBox, 1, 999999), FixedPosition = FixedPositionRadio.IsChecked == true, X = Read(XBox, -32768, 32767), Y = Read(YBox, -32768, 32767), InputPulseMilliseconds = inputPulseMilliseconds, TargetExecutable = TargetExecutableBox.Text.Trim(), TargetWindowTitle = targetWindowTitle, TargetWindowEnabled = EnableTargetWindowCheckBox.IsChecked == true, Hotkey = hotkey, HotkeyModifiers = hotkeyModifiers, Rgb = rgbSettings };
     }
 
     private string? ExportFullBackup(string path)
@@ -1075,10 +1099,8 @@ public partial class MainWindow : Window
         CurrentPositionRadio.IsChecked = !s.FixedPosition; FixedPositionRadio.IsChecked = s.FixedPosition; XBox.Text = s.X.ToString(); YBox.Text = s.Y.ToString();
         TargetExecutableBox.Text = s.TargetExecutable ?? string.Empty;
         targetWindowTitle = string.IsNullOrWhiteSpace(s.TargetWindowTitle) ? null : s.TargetWindowTitle;
-        TargetWindowHint.Text = targetWindowTitle is null
-            ? string.IsNullOrWhiteSpace(TargetExecutableBox.Text) ? "Global input enabled." : "Executable target selected."
-            : "Window target selected.";
-        TargetWindowHint.ToolTip = targetWindowTitle is null ? TargetWindowHint.Text : $"{targetWindowTitle} — {TargetExecutableBox.Text}";
+        EnableTargetWindowCheckBox.IsChecked = s.TargetWindowEnabled;
+        UpdateTargetWindowUi();
         inputPulseMilliseconds = InputRules.NormalizeInputPulseMilliseconds(s.InputPulseMilliseconds ?? InputRules.DefaultInputPulseMilliseconds);
         UpdateInputPulseButton();
         hotkey = s.Hotkey > 0 ? s.Hotkey : System.Windows.Input.KeyInterop.VirtualKeyFromKey(System.Windows.Input.Key.F6); hotkeyModifiers = s.HotkeyModifiers;
@@ -1415,7 +1437,7 @@ public partial class MainWindow : Window
         public void Dispose() => CloseHandle(handle);
     }
 
-    private sealed class AppDefaults { public int Hours { get; set; } public int Minutes { get; set; } public int Seconds { get; set; } public int Milliseconds { get; set; } = 100; public string MouseButton { get; set; } = "Left"; public string? Input { get; set; } public int CustomKey { get; set; } public List<SequenceStep>? CustomSequence { get; set; } public bool CustomSequenceUsesGlobalInputPulse { get; set; } = true; public string ClickType { get; set; } = "Single"; public bool RepeatUntilStopped { get; set; } = true; public int RepeatCount { get; set; } = 10; public bool FixedPosition { get; set; } public int X { get; set; } public int Y { get; set; } public int? InputPulseMilliseconds { get; set; } = InputRules.DefaultInputPulseMilliseconds; public string TargetExecutable { get; set; } = string.Empty; public string? TargetWindowTitle { get; set; } = null; public int Hotkey { get; set; } = 117; public uint HotkeyModifiers { get; set; } public RgbSettings? Rgb { get; set; } }
+    private sealed class AppDefaults { public int Hours { get; set; } public int Minutes { get; set; } public int Seconds { get; set; } public int Milliseconds { get; set; } = 100; public string MouseButton { get; set; } = "Left"; public string? Input { get; set; } public int CustomKey { get; set; } public List<SequenceStep>? CustomSequence { get; set; } public bool CustomSequenceUsesGlobalInputPulse { get; set; } = true; public string ClickType { get; set; } = "Single"; public bool RepeatUntilStopped { get; set; } = true; public int RepeatCount { get; set; } = 10; public bool FixedPosition { get; set; } public int X { get; set; } public int Y { get; set; } public int? InputPulseMilliseconds { get; set; } = InputRules.DefaultInputPulseMilliseconds; public string TargetExecutable { get; set; } = string.Empty; public string? TargetWindowTitle { get; set; } = null; public bool TargetWindowEnabled { get; set; } = true; public int Hotkey { get; set; } = 117; public uint HotkeyModifiers { get; set; } public RgbSettings? Rgb { get; set; } }
     [Flags] private enum MouseFlags : uint { LeftDown = 2, LeftUp = 4, RightDown = 8, RightUp = 16, MiddleDown = 32, MiddleUp = 64 }
     [Flags] private enum KeyboardFlags : uint { None = 0, ExtendedKey = 1, KeyUp = 2 }
     [StructLayout(LayoutKind.Sequential)] private struct Input { public uint Type; public InputUnion Data; }

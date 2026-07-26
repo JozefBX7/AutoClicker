@@ -30,4 +30,12 @@ public sealed class WindowTargetingTests
 
         Assert.IsTrue(rule.Matches("notepad.exe", "Untitled - Notepad"));
     }
+
+    [TestMethod]
+    public void EmptyRule_IsDisabledAndAllowsGlobalInput()
+    {
+        var rule = new TargetWindowRule(string.Empty, null);
+
+        Assert.IsFalse(rule.IsEnabled);
+    }
 }
