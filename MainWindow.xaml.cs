@@ -271,7 +271,7 @@ public partial class MainWindow : Window
     {
         if (updatingActionSelection || ButtonCombo is null || PickKeyItem is null) return;
         var selectedAction = Selected(ButtonCombo);
-        if (selectedAction != "Sequence") SequencePresetMenu.IsOpen = false;
+        if (selectedAction != "Sequence") SequencePresetPopup.IsOpen = false;
         if (selectedAction == "Sequence")
         {
             SequenceItem.Content = "Custom sequence  ›";
@@ -964,26 +964,16 @@ public partial class MainWindow : Window
 
     private void RefreshSequencePresetActions()
     {
-        if (SequencePresetMenu is null) return;
-        // The flyout is rebuilt after library edits or imports.
-        SequencePresetMenu.Items.Clear();
-        if (sequenceLibrary.Count == 0)
-        {
-            SequencePresetMenu.Items.Add(new MenuItem { Header = "No saved sequences have been added yet.", IsEnabled = false });
-            return;
-        }
-        foreach (var preset in sequenceLibrary.OrderBy(preset => preset.Name, StringComparer.OrdinalIgnoreCase))
-        {
-            var item = new MenuItem { Header = preset.Name, Tag = preset.Id };
-            item.Click += SequencePresetMenuItem_Click;
-            SequencePresetMenu.Items.Add(item);
-        }
+        if (SequencePresetList is null) return;
+        // Keep the flyout list in alphabetical order after any library change.
+        SequencePresetList.ItemsSource = sequenceLibrary.OrderBy(preset => preset.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+        EmptySequencePresetsLabel.Visibility = sequenceLibrary.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void OpenSequencePresetMenu()
     {
-        SequencePresetMenu.PlacementTarget = SequenceItem;
-        SequencePresetMenu.IsOpen = true;
+        SequencePresetPopup.PlacementTarget = SequenceItem;
+        SequencePresetPopup.IsOpen = true;
     }
 
     private void SequenceItem_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
@@ -992,13 +982,13 @@ public partial class MainWindow : Window
         OpenSequencePresetMenu();
     }
 
-    private void SequencePresetMenuItem_Click(object sender, RoutedEventArgs e)
+    private void SequencePresetList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (sender is not MenuItem { Tag: string presetId }) return;
-        var preset = sequenceLibrary.FirstOrDefault(item => item.Id == presetId);
-        if (preset is null) return;
+        if (SequencePresetList.SelectedItem is not SequencePreset preset) return;
         customSequence = preset.Steps.Select(step => step.Clone()).ToList();
-        SequencePresetMenu.IsOpen = false;
+        SequencePresetPopup.IsOpen = false;
+        SequencePresetList.SelectedItem = null;
+        ButtonCombo.IsDropDownOpen = false;
         SequenceItem.Content = "Custom sequence  ›";
         updatingActionSelection = true; ButtonCombo.SelectedItem = SequenceItem; updatingActionSelection = false;
         UpdateLiveInputMode();
