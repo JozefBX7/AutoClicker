@@ -3,6 +3,7 @@
 [Oo]bj/
 bin-*/
 test-artifacts/
+.buildverify/
 TestResults/
 artifacts/
 dist/
