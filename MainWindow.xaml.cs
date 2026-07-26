@@ -24,6 +24,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer resetTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
     private readonly DispatcherTimer flashTimer = new() { Interval = TimeSpan.FromMilliseconds(85) };
     private readonly DispatcherTimer guiHeartbeatTimer = new() { Interval = TimeSpan.FromSeconds(1) };
+    private readonly DispatcherTimer sequenceFlyoutCloseTimer = new() { Interval = TimeSpan.FromMilliseconds(180) };
     private CancellationTokenSource? clickCancellation;
     private Task? clickTask;
     private HwndSource? hwndSource;
@@ -70,6 +71,7 @@ public partial class MainWindow : Window
         resetTimer.Tick += (_, _) => ResetCounterWhenIdle();
         flashTimer.Tick += (_, _) => RestoreLiveArea();
         guiHeartbeatTimer.Tick += (_, _) => Volatile.Write(ref lastGuiHeartbeat, Stopwatch.GetTimestamp());
+        sequenceFlyoutCloseTimer.Tick += (_, _) => CloseSequenceFlyoutIfPointerLeft();
         Volatile.Write(ref lastGuiHeartbeat, Stopwatch.GetTimestamp());
         resetTimer.Start();
         guiHeartbeatTimer.Start();
@@ -271,7 +273,7 @@ public partial class MainWindow : Window
     {
         if (updatingActionSelection || ButtonCombo is null || PickKeyItem is null) return;
         var selectedAction = Selected(ButtonCombo);
-        if (selectedAction != "Sequence" && SequencePresetPopup is not null) SequencePresetPopup.IsOpen = false;
+        if (selectedAction != "Sequence") CloseSequenceFlyout();
         if (selectedAction == "Sequence")
         {
             SequenceItem.Content = "Custom sequence  ›";
@@ -972,6 +974,7 @@ public partial class MainWindow : Window
 
     private void OpenSequencePresetMenu()
     {
+        sequenceFlyoutCloseTimer.Stop();
         SequencePresetPopup.PlacementTarget = SequenceItem;
         SequencePresetPopup.IsOpen = true;
     }
@@ -983,6 +986,9 @@ public partial class MainWindow : Window
     }
 
     private void SequenceItem_MouseMove(object sender, System.Windows.Input.MouseEventArgs e) => OpenSequencePresetMenu();
+    private void SequenceItem_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e) => ScheduleSequenceFlyoutClose();
+    private void SequencePresetFlyoutSurface_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e) => sequenceFlyoutCloseTimer.Stop();
+    private void SequencePresetFlyoutSurface_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e) => ScheduleSequenceFlyoutClose();
 
     private void SequenceItem_PreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
@@ -995,6 +1001,23 @@ public partial class MainWindow : Window
     {
         // A prior outside close may leave the separate Popup open. Reset it
         // before showing the action list, never while a flyout item is clicked.
+        CloseSequenceFlyout();
+    }
+
+    private void ScheduleSequenceFlyoutClose()
+    {
+        if (SequencePresetPopup?.IsOpen == true) { sequenceFlyoutCloseTimer.Stop(); sequenceFlyoutCloseTimer.Start(); }
+    }
+
+    private void CloseSequenceFlyoutIfPointerLeft()
+    {
+        sequenceFlyoutCloseTimer.Stop();
+        if (SequenceItem?.IsMouseOver != true && SequencePresetFlyoutSurface?.IsMouseOver != true) CloseSequenceFlyout();
+    }
+
+    private void CloseSequenceFlyout()
+    {
+        sequenceFlyoutCloseTimer.Stop();
         if (SequencePresetPopup is not null) SequencePresetPopup.IsOpen = false;
     }
 
@@ -1002,7 +1025,7 @@ public partial class MainWindow : Window
     {
         if (SequencePresetList.SelectedItem is not SequencePreset preset) return;
         customSequence = preset.Steps.Select(step => step.Clone()).ToList();
-        SequencePresetPopup.IsOpen = false;
+        CloseSequenceFlyout();
         SequencePresetList.SelectedItem = null;
         ButtonCombo.IsDropDownOpen = false;
         SequenceItem.Content = "Custom sequence  ›";
