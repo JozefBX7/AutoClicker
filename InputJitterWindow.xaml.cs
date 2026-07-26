@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 
 namespace AutoClicker;
@@ -20,6 +21,16 @@ public partial class InputJitterWindow : Window
         if (e.LeftButton == MouseButtonState.Pressed) DragMove();
     }
 
+    private void Window_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is not DependencyObject source) return;
+        var textBox = FindParent<TextBox>(source);
+        if (textBox is null) return;
+        textBox.Focus();
+        textBox.SelectAll();
+        e.Handled = true;
+    }
+
     private void CancelButton_Click(object sender, RoutedEventArgs e) => DialogResult = false;
 
     private void ClearButton_Click(object sender, RoutedEventArgs e)
@@ -34,5 +45,15 @@ public partial class InputJitterWindow : Window
             InputRules.ParseClamped(SecondsBox.Text, 0, 59),
             InputRules.ParseClamped(MillisecondsBox.Text, 0, 999));
         DialogResult = true;
+    }
+
+    private static T? FindParent<T>(DependencyObject source) where T : DependencyObject
+    {
+        while (source is not null)
+        {
+            if (source is T match) return match;
+            source = System.Windows.Media.VisualTreeHelper.GetParent(source);
+        }
+        return null;
     }
 }

@@ -102,7 +102,11 @@ public partial class MainWindow : Window
         UpdateTargetWindowUi();
     }
 
-    private void EnableTargetWindowCheckBox_Changed(object sender, RoutedEventArgs e) => UpdateTargetWindowUi();
+    private void EnableTargetWindowCheckBox_Changed(object sender, RoutedEventArgs e)
+    {
+        UpdateTargetWindowUi();
+        UpdateLiveInputMode();
+    }
 
     private void InputPulseButton_Click(object sender, RoutedEventArgs e)
     {
@@ -145,6 +149,7 @@ public partial class MainWindow : Window
         if (TargetExecutableBox is null || TargetWindowHint is null) return;
         targetWindowTitle = null;
         UpdateTargetWindowUi();
+        UpdateLiveInputMode();
     }
 
     private void UpdateTargetWindowUi()
@@ -771,14 +776,27 @@ public partial class MainWindow : Window
         if (ButtonCombo?.SelectedItem is not ComboBoxItem
             || LiveMouseHint is null || LiveKeyFocusBox is null || LiveTitleLabel is null
             || IntervalHint is null || LiveCountLabel is null || LiveIntervalLabel is null || TypeCombo is null || PositionCard is null) return;
+        var targetWindowEnabled = EnableTargetWindowCheckBox?.IsChecked == true && !string.IsNullOrWhiteSpace(TargetExecutableBox?.Text);
         var sequenceInput = Selected(ButtonCombo) == "Sequence";
         var keyboardInput = IsKeyboardInputSelected();
         var hold = InputRules.IsHoldAction(Selected(TypeCombo));
         TypeCombo.IsEnabled = !sequenceInput;
         PositionCard.IsEnabled = !sequenceInput && !keyboardInput;
         UpdatePositionInputEnabled();
-        LiveArea.IsHitTestVisible = !sequenceInput;
-        LiveArea.Opacity = sequenceInput ? 0.7 : 1;
+        LiveArea.IsHitTestVisible = !sequenceInput && !targetWindowEnabled;
+        LiveArea.Opacity = sequenceInput || targetWindowEnabled ? 0.7 : 1;
+        if (targetWindowEnabled)
+        {
+            LiveMouseHint.Visibility = Visibility.Visible;
+            LiveKeyFocusBox.Visibility = Visibility.Collapsed;
+            LiveTitleLabel.Text = "TARGET WINDOW MODE";
+            LiveMouseHint.Text = "Test area disabled while targeting a window";
+            LiveCountLabel.Text = "Target window active";
+            LiveIntervalLabel.Text = "Input is sent only to the selected target";
+            IntervalHint.Text = sequenceInput ? "Time between sequences" : hold ? "Hold stays active until stopped" : keyboardInput ? "Time between key presses" : "Time between clicks";
+            UpdateLiveAreaTextContrast();
+            return;
+        }
         if (sequenceInput)
         {
             LiveMouseHint.Visibility = Visibility.Visible;
@@ -807,6 +825,11 @@ public partial class MainWindow : Window
             liveKeyPressCount = 0;
             KeyTestBox?.Clear();
             if (KeyTestPlaceholder is not null) KeyTestPlaceholder.Visibility = Visibility.Visible;
+            if (clickCancellation is null)
+            {
+                LiveCountLabel.Text = "Start to test";
+                LiveIntervalLabel.Text = "Waiting for clicks";
+            }
         }
         UpdateLiveAreaTextContrast();
     }
