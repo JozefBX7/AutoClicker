@@ -25,6 +25,7 @@ internal static class CrashRecovery
 
     internal static void StartIfEnabled()
     {
+        // The watcher is another AutoClicker process running in watchdog mode.
         if (watcherStarted || !IsEnabled()) return;
         var executable = Environment.ProcessPath;
         if (string.IsNullOrWhiteSpace(executable)) return;
@@ -78,6 +79,7 @@ internal static class CrashRecovery
     {
         try
         {
+            // Either signal means the main process no longer needs watching.
             using var parent = Process.GetProcessById(parentProcessId);
             using var cleanExit = EventWaitHandle.OpenExisting(cleanExitEventName);
             using var parentExited = new ManualResetEvent(false);
@@ -87,6 +89,7 @@ internal static class CrashRecovery
 
             // Kernel wait: no polling while AutoClicker is healthy.
             var signalled = WaitHandle.WaitAny([cleanExit, parentExited]);
+            // Clean exits are ignored; only recognised crash codes may restart.
             if (!ShouldRestartAfterExit(signalled == 0 || cleanExit.WaitOne(0), parent.ExitCode)) return;
             if (!RecordCrashAndAllowRestart())
             {
@@ -130,6 +133,7 @@ internal static class CrashRecovery
     {
         try
         {
+            // Keep restart limits across process restarts.
             var now = DateTimeOffset.UtcNow;
             var history = File.Exists(CrashHistoryPath)
                 ? JsonSerializer.Deserialize<CrashHistory>(File.ReadAllText(CrashHistoryPath)) ?? new CrashHistory()

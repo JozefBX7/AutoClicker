@@ -52,6 +52,7 @@ public partial class SettingsWindow : Window
 
     private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
     {
+        // Update checks are manual; this only runs from the Settings button.
         CheckUpdatesButton.IsEnabled = false;
         DownloadUpdateButton.Visibility = Visibility.Collapsed;
         UpdateStatus.Text = "Checking GitHub Releases…";
@@ -83,6 +84,7 @@ public partial class SettingsWindow : Window
         if (DownloadUpdateButton.Tag is not UpdateCheckResult { DownloadUri: { } downloadUri } update) return;
         if (AppPaths.IsPortable)
         {
+            // Portable files are replaced by the user so their folder remains under their control.
             OpenUrl(downloadUri);
             UpdateStatus.Text = "Download opened. Extract it over the portable copy after AutoClicker closes; its Data folder is preserved.";
             UpdateStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
@@ -95,6 +97,7 @@ public partial class SettingsWindow : Window
             "Download and install") { Owner = this };
         if (confirmation.ShowDialog() != true) return;
 
+        // Download first; launch the normal installer only after a complete file is available.
         DownloadUpdateButton.IsEnabled = false;
         UpdateStatus.Text = "Downloading the installer from GitHub Releases…";
         UpdateStatus.Foreground = ThemeManager.Brush("TextMutedBrush");

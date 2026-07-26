@@ -322,6 +322,7 @@ public partial class MainWindow : Window
     }
     private void StartClicking()
     {
+        // Reject states that cannot produce a valid worker configuration.
         if (settingsOpen)
         {
             Status($"Close Settings before {ActivityVerb().ToLowerInvariant()}.", ThemeManager.Brush("WarningBrush"));
@@ -349,18 +350,21 @@ public partial class MainWindow : Window
             Status("Add at least two actions to the custom sequence first.", ThemeManager.Brush("WarningBrush"));
             return;
         }
+        // Resolve keyboard shortcuts before handing work to the background thread.
         var keyboardVirtualKey = input switch { "Space" => 0x20, "Enter" => 0x0D, "Custom" => customSpamVirtualKey, _ => 0 };
         if (keyboardVirtualKey == hotkey && hotkeyModifiers == 0)
         {
             Status($"{FormatInputKey(keyboardVirtualKey)} is also the start/stop hotkey. Choose another key or change the hotkey first.", ThemeManager.Brush("WarningBrush"));
             return;
         }
+        // Take a snapshot of the UI; the worker must not read WPF controls.
         var delay = InputRules.CreateInterval(Read(HoursBox, 0, 999), Read(MinutesBox, 0, 59), Read(SecondsBox, 0, 59), Read(MillisBox, 1, 999));
         // Owns cancellation for this run.
         var cancellation = new CancellationTokenSource();
         clickCancellation = cancellation;
         Volatile.Write(ref lastGuiHeartbeat, Stopwatch.GetTimestamp());
         var settings = new ClickSettings(FixedPositionRadio.IsChecked == true, Read(XBox, -32768, 32767), Read(YBox, -32768, 32767), input, keyboardVirtualKey == 0 ? null : keyboardVirtualKey, Selected(TypeCombo) == "Double", CountRadio.IsChecked == true ? Read(CountBox, 1, 999999) : null, input == "Sequence" ? BuildSequence(customSequence) : null);
+        // Reflect the running state before the worker can send its first input.
         AppLog.Info($"Starting {ActivityVerb().ToLowerInvariant()} | Input={input} | IntervalMs={delay.TotalMilliseconds:0.###} | Repeat={(settings.MaximumClicks?.ToString() ?? "until stopped")}");
         StartButton.IsEnabled = false; StopButton.IsEnabled = true;
         CollapseButton.IsEnabled = false;
@@ -384,6 +388,7 @@ public partial class MainWindow : Window
         {
             // Avoid Highest/Realtime so foreground apps retain priority.
             Thread.CurrentThread.Priority = ThreadPriority.AboveNormal;
+            // Set up a fixed cadence rather than sleeping after each action.
             using var timer = new PrecisionTimer();
             var intervalTicks = delay.TotalSeconds * Stopwatch.Frequency;
             var nextClickAt = (double)Stopwatch.GetTimestamp();
@@ -396,6 +401,7 @@ public partial class MainWindow : Window
                 if (now - nextClickAt > intervalTicks) nextClickAt = now;
                 if (settings.Sequence is { Length: > 0 })
                 {
+                    // A sequence has its own ordered actions and optional waits.
                     foreach (var step in settings.Sequence)
                     {
                         if (step.IsDelay)
@@ -412,6 +418,7 @@ public partial class MainWindow : Window
                 }
                 else
                 {
+                    // Single mouse/key actions share the main interval.
                     if (settings.FixedPosition && settings.KeyboardVirtualKey is null) SetCursorPos(settings.X, settings.Y);
                     SendAction(actionInputs, settings.DoubleClick);
                 }
@@ -430,6 +437,7 @@ public partial class MainWindow : Window
         finally
         {
             try { Thread.CurrentThread.Priority = originalPriority; } catch { }
+            // Return state changes to the UI thread after the worker has finished.
             if (!isClosing && !Dispatcher.HasShutdownStarted)
                 Dispatcher.BeginInvoke(() =>
                 {
@@ -455,6 +463,7 @@ public partial class MainWindow : Window
 
     private void StopClicking()
     {
+        // Clear the shared reference first so a late completion cannot stop a new run.
         var cancellation = clickCancellation;
         clickCancellation = null;
         cancellation?.Cancel();
@@ -655,6 +664,7 @@ public partial class MainWindow : Window
         if (!rgbSettings.Enabled) return;
         // Prevent an old OpenRGB request from lighting a key after stop.
         var generation = Interlocked.Increment(ref rgbIndicatorGeneration);
+        // Work from a copy because Settings may change while OpenRGB is resolving.
         var settings = new RgbSettings { Enabled = true, DeviceIndex = rgbSettings.DeviceIndex, DeviceName = rgbSettings.DeviceName, AutoStart = rgbSettings.AutoStart, StopAutoStartedOnExit = rgbSettings.StopAutoStartedOnExit, IndicatorColor = rgbSettings.IndicatorColor, LightingEffect = rgbSettings.LightingEffect, PulseSpeedMilliseconds = rgbSettings.PulseSpeedMilliseconds };
         var keyName = HotkeyKeyName();
         _ = Task.Run(() =>
@@ -669,6 +679,7 @@ public partial class MainWindow : Window
                 }
                 if (availability.Message is not null && !Dispatcher.HasShutdownStarted)
                     _ = Dispatcher.BeginInvoke(() => ShowOpenRgbStartedStatus(generation));
+                // Resolve by saved name where possible, then keep the resolved device details.
                 var keyboard = OpenRgbHighlighter.ResolveKeyboard(settings);
                 if (keyboard is null)
                 {
@@ -680,6 +691,7 @@ public partial class MainWindow : Window
                 var snapshot = OpenRgbHighlighter.EnableKeyIndicator(settings, keyName, out var error);
                 if (snapshot is not null)
                 {
+                    // Publish the snapshot only if this is still the current run.
                     var restoreImmediately = false;
                     lock (rgbLock)
                     {
@@ -756,6 +768,7 @@ public partial class MainWindow : Window
         Task? pulseTask;
         lock (rgbLock)
         {
+            // Detach shared state before awaiting the effect task.
             snapshot = rgbSnapshot;
             rgbSnapshot = null;
             pulseCancellation = rgbPulseCancellation;
@@ -765,6 +778,7 @@ public partial class MainWindow : Window
         }
         pulseCancellation?.Cancel();
         if (snapshot is null) return;
+        // Restore after a blink/pulse task has released the LED.
         _ = Task.Run(async () =>
         {
             try { if (pulseTask is not null) await pulseTask; }
@@ -803,6 +817,7 @@ public partial class MainWindow : Window
             return false;
         }
 
+        // Re-register after restoring F6 and its modifiers.
         if (hotkeyRegistered) { UnregisterHotKey(hwnd, HotkeyId); hotkeyRegistered = false; }
         ApplyDefaults(new AppDefaults());
         ThemeManager.Apply(AppTheme.Dark);
@@ -844,6 +859,7 @@ public partial class MainWindow : Window
     {
         try
         {
+            // Store serialized sections so later schema versions can evolve independently.
             ConfigBackupStore.Write(path, new ConfigBackupDocument
             {
                 DefaultsJson = JsonSerializer.Serialize(CreateCurrentDefaults()),
@@ -862,6 +878,7 @@ public partial class MainWindow : Window
         if (clickCancellation is not null) return "Stop AutoClicker before importing a backup.";
         try
         {
+            // Validate every section before touching live settings.
             var backup = ConfigBackupStore.Read(path);
             var defaults = JsonSerializer.Deserialize<AppDefaults>(backup.DefaultsJson) ?? throw new InvalidDataException("Backup settings are invalid.");
             var rgb = string.IsNullOrWhiteSpace(backup.RgbJson) ? defaults.Rgb ?? new RgbSettings() : JsonSerializer.Deserialize<RgbSettings>(backup.RgbJson) ?? new RgbSettings();
@@ -869,6 +886,7 @@ public partial class MainWindow : Window
             var library = string.IsNullOrWhiteSpace(backup.SequenceLibraryJson) ? new SequenceLibraryDocument() : JsonSerializer.Deserialize<SequenceLibraryDocument>(backup.SequenceLibraryJson) ?? new SequenceLibraryDocument();
             if (!string.IsNullOrWhiteSpace(backup.AppearanceJson) && !ThemeManager.TryImportConfiguration(backup.AppearanceJson)) throw new InvalidDataException("Backup appearance settings are invalid.");
 
+            // Apply all persisted state as one UI operation, then restore the hotkey registration.
             if (hotkeyRegistered) { UnregisterHotKey(hwnd, HotkeyId); hotkeyRegistered = false; }
             ApplyDefaults(defaults);
             rgbSettings = rgb; SaveRgbSettings(); CrashRecovery.UpdateEnabled(rgb.CrashRecoveryEnabled);
@@ -929,6 +947,7 @@ public partial class MainWindow : Window
     private void RefreshSequencePresetActions()
     {
         if (SequencePresetMenu is null) return;
+        // The flyout is rebuilt after library edits or imports.
         SequencePresetMenu.Items.Clear();
         if (sequenceLibrary.Count == 0)
         {
@@ -1067,11 +1086,13 @@ public partial class MainWindow : Window
 
     private void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        // Cancel first, then give the worker a short chance to release native resources.
         isClosing = true;
         var activeTask = clickTask;
         StopClicking();
         try { activeTask?.Wait(TimeSpan.FromSeconds(2)); } catch (Exception exception) { AppLog.Error("Error while waiting for worker shutdown", exception); }
         if (rgbSettings.StopAutoStartedOnExit) OpenRgbHighlighter.StopAutoStartedServer();
+        // Release UI timers and the Windows hotkey hook last.
         resetTimer.Stop(); flashTimer.Stop(); guiHeartbeatTimer.Stop(); if (hotkeyRegistered) UnregisterHotKey(hwnd, HotkeyId); if (hwndSource is not null) hwndSource.RemoveHook(WndProc);
     }
 
