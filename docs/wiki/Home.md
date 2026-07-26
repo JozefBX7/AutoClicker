@@ -1,6 +1,6 @@
 # AutoClicker
 
-AutoClicker is a compact Windows tool for repeating mouse clicks, keyboard keys, and custom sequences. It is designed to stay out of the way while providing a global stop hotkey, reliable configuration storage, optional RGB feedback through OpenRGB, and safeguards for unexpected failures.
+AutoClicker is a compact Windows tool for repeating mouse clicks, keyboard keys, and custom sequences. It includes a global stop hotkey, saved settings, and optional OpenRGB feedback.
 
 Use automated input only where it is permitted.
 
@@ -11,7 +11,7 @@ Use automated input only where it is permitted.
 - [Custom sequences](Custom-Sequences) — build, save, select, and back up multi-action routines.
 - [OpenRGB lighting](OpenRGB-Lighting) — optional keyboard hotkey lighting.
 - [Settings, data, and backups](Settings-Data-and-Backups) — themes, defaults, configuration locations, and recovery.
-- [Safety and reliability](Safety-and-Reliability) — stopping behaviour, watchdogs, crash recovery, and logs.
+- [Reliability](Safety-and-Reliability) — closing behaviour, crash recovery, and logs.
 - [Updates and releases](Updates-and-Releases) — manual GitHub update checks and release publishing.
 - [Troubleshooting](Troubleshooting) — common setup and RGB issues.
 
@@ -25,8 +25,8 @@ Use automated input only where it is permitted.
 - Saved sequence presets, full backups, and sequence import/export.
 - Global configurable hotkey (F6 by default), pin-to-top, dark/light themes, and a compact view.
 - Optional local OpenRGB key lighting while active.
-- One running instance, automatic emergency stop, a lightweight GUI heartbeat, and optional crash recovery.
+- One running instance, a global stop hotkey, and optional crash recovery.
 
 ## Support and feedback
 
-For bugs or feature requests, use the repository’s Issues page. When reporting a fault, include `AutoClicker.log` if possible; it contains timestamps and exception context without intentionally recording user input.
+For bugs or feature requests, use the repository’s Issues page. When reporting a fault, include `AutoClicker.log` if possible; it contains timestamps and exception context but does not record user input.

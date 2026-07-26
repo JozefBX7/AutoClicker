@@ -33,7 +33,7 @@ public sealed record KeyboardDevice(int Index, string Name)
 
 public static class OpenRgbHighlighter
 {
-    // Track only the OpenRGB process we launched; an existing user-managed process must never be stopped.
+    // Never stop an OpenRGB instance we did not start.
     private static readonly object StartedProcessLock = new();
     private static Process? processStartedByAutoClicker;
 
@@ -66,7 +66,7 @@ public static class OpenRgbHighlighter
             return new(false, $"Could not start OpenRGB: {exception.Message}");
         }
 
-        // Give OpenRGB a short, bounded window to expose its local SDK socket.
+        // Wait briefly for the SDK socket.
         for (var attempt = 0; attempt < 20; attempt++)
         {
             await Task.Delay(200);
@@ -131,7 +131,7 @@ public static class OpenRgbHighlighter
     internal static KeyboardDevice? SelectKeyboard(IEnumerable<KeyboardDevice> keyboards, RgbSettings settings)
     {
         var candidates = keyboards.ToArray();
-        // Device indices can move after reconnecting hardware; prefer the remembered name and only guess when unambiguous.
+        // Indices can move after reconnecting hardware.
         var namedMatch = candidates.FirstOrDefault(device => string.Equals(device.Name, settings.DeviceName, StringComparison.OrdinalIgnoreCase));
         if (namedMatch is not null) return namedMatch;
         return candidates.Length == 1 ? candidates[0] : null;
@@ -174,7 +174,7 @@ public static class OpenRgbHighlighter
             if (led is null) { error = $"OpenRGB could not light {keyName} on {keyboard.Name}. Choose a standard keyboard key, then try again."; return null; }
             if (keyboard.Colors.Length != keyboard.Leds.Length) { error = "This keyboard does not expose per-key colours to OpenRGB."; return null; }
 
-            // Preserve every original LED so stopping, testing, or failing can restore the keyboard exactly.
+            // Restore the original keyboard colours when finished.
             var snapshot = new RgbLightingSnapshot(keyboard.Index, keyboard.Colors.ToArray(), led.Index, IndicatorColor(settings));
             var colors = snapshot.Colors.ToArray();
             colors[snapshot.KeyIndex] = snapshot.IndicatorColor;

@@ -1,20 +1,18 @@
-# Safety and reliability
+# Reliability
 
-AutoClicker is built to make an unwanted long-running input loop less likely.
+AutoClicker stops active input when you stop or close it. Crash recovery is optional.
 
 ## How input stops
 
 - The global hotkey starts and stops AutoClicker from anywhere.
 - The Stop button is separate from Start so generated clicks cannot immediately press it.
-- Closing the window, a normal process exit, and the application crash path all request an emergency stop.
+- Closing the window or ending the app stops the active run.
 - A single-instance mutex prevents two copies from running. Starting a second copy focuses the existing window instead.
 - Settings cannot be opened while the worker is active.
 
 ## GUI heartbeat
 
-The input worker receives a lightweight heartbeat from the GUI. If it has not heard from the GUI for five seconds, it cancels itself. This protects against a worker surviving a stalled interface.
-
-The heartbeat is intentionally low overhead. It is updated once per second and checked by the worker without a busy loop.
+The worker also stops if the interface has not responded for five seconds. This check is lightweight and does not use a busy loop.
 
 ## Crash recovery
 

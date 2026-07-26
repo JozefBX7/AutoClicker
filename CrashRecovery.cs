@@ -85,7 +85,7 @@ internal static class CrashRecovery
             parent.Exited += (_, _) => parentExited.Set();
             if (parent.HasExited) parentExited.Set();
 
-            // This is a kernel wait, not a polling loop: the watchdog consumes no CPU while AutoClicker is healthy.
+            // Kernel wait: no polling while AutoClicker is healthy.
             var signalled = WaitHandle.WaitAny([cleanExit, parentExited]);
             if (!ShouldRestartAfterExit(signalled == 0 || cleanExit.WaitOne(0), parent.ExitCode)) return;
             if (!RecordCrashAndAllowRestart())

@@ -7,8 +7,7 @@ namespace AutoClicker;
 
 internal static class AppLog
 {
-    // Keep enough history to diagnose a fault without turning logging into an
-    // unbounded disk consumer: one current log and one prior log, 2 MB each.
+    // Keep the current and previous logs at 2 MB each.
     internal const long MaxLogBytes = 2 * 1024 * 1024;
     private const int MaxEntryCharacters = 12 * 1024;
     private static readonly object Sync = new();
@@ -36,9 +35,7 @@ internal static class AppLog
                     ? message
                     : message[..MaxEntryCharacters] + " [log entry truncated]";
                 var entry = $"[{DateTime.UtcNow:O}] [{level}] [T{Environment.CurrentManagedThreadId}] {safeMessage}{Environment.NewLine}";
-                // If another program has the file open without permitting a
-                // rename, skip this entry. Logging must never enlarge a capped
-                // file or interfere with the input/safety paths.
+                // Skip an entry when the log cannot be rotated or opened.
                 if (!TryPrepareForAppend(path, Encoding.UTF8.GetByteCount(entry))) return;
                 using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read);
                 using var writer = new StreamWriter(stream);
@@ -47,7 +44,7 @@ internal static class AppLog
         }
         catch
         {
-            // Logging must never prevent the safety shutdown path.
+            // Logging must not affect the app.
         }
     }
 
@@ -81,9 +78,7 @@ internal static class AppLog
         }
         catch
         {
-            // An editor, antivirus scanner, or diagnostic tool may hold the log
-            // open. Do not append past the cap and never surface that failure to
-            // the application.
+            // Keep the cap when another process has the file open.
             return false;
         }
     }
@@ -105,9 +100,7 @@ internal static class AppLog
         }
         catch
         {
-            // Rotation has already succeeded, so keep the retained previous log
-            // unchanged if a trim cannot safely complete. The next rotation will
-            // replace it with a normal capped file.
+            // A later rotation replaces an untrimmed previous log.
         }
         finally
         {

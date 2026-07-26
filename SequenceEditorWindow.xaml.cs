@@ -93,7 +93,7 @@ public partial class SequenceEditorWindow : Window
             var insertAfter = container is not null && e.GetPosition(container).Y > container.ActualHeight / 2;
             var destination = targetIndex + (insertAfter ? 1 : 0);
             if (sourceIndex < destination) destination--;
-            // Reorder during drag-over so the insertion point is visible before the user releases the mouse.
+            // Show the insertion point while dragging.
             if (sourceIndex >= 0 && destination >= 0 && sourceIndex != destination) steps.Move(sourceIndex, destination);
             StepsList.SelectedItem = draggingStep;
         }

@@ -5,7 +5,7 @@ namespace AutoClicker;
 internal static class AppPaths
 {
     private const string PortableMarkerName = "portable.flag";
-    // The marker travels with the portable ZIP, keeping its state beside the executable.
+    // Portable builds keep their data beside the executable.
     internal static bool IsPortable { get; } = File.Exists(Path.Combine(AppContext.BaseDirectory, PortableMarkerName));
     private static readonly string configDirectory = ResolveConfigDirectory();
 
@@ -17,7 +17,7 @@ internal static class AppPaths
 
     private static string ResolveConfigDirectory()
     {
-        // Portable folders can be read-only (for example, a protected USB drive), so retain a usable per-user fallback.
+        // A read-only portable location falls back to per-user storage.
         var fallback = InstalledConfigDirectory(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
         if (!IsPortable) return fallback;
 

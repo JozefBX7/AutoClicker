@@ -2,7 +2,7 @@ namespace AutoClicker;
 
 public partial class App : System.Windows.Application
 {
-    // Named OS primitives coordinate separate AutoClicker processes, not just this UI instance.
+    // Shared across processes.
     private const string InstanceMutexName = "Local\\AutoClicker.Singleton";
     private const string ActivateEventName = "Local\\AutoClicker.Activate";
     private System.Threading.Mutex? instanceMutex;
@@ -33,7 +33,7 @@ public partial class App : System.Windows.Application
             return;
         }
         ThemeManager.Load();
-        // A second launch signals the first instance to foreground itself, then exits quietly.
+        // A second launch brings the existing window forward.
         instanceMutex = new System.Threading.Mutex(true, InstanceMutexName, out var isFirstInstance);
         if (!isFirstInstance)
         {

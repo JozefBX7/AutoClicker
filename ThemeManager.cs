@@ -37,8 +37,7 @@ internal static class ThemeManager
         }
         catch { }
 
-        // Do not create an appearance file here: until the user chooses a theme,
-        // a fresh installation should continue to follow their Windows preference.
+        // No saved choice: follow Windows without creating a preference file.
         Apply(SystemTheme(), persist: false);
     }
 
@@ -81,7 +80,7 @@ internal static class ThemeManager
         }
         catch
         {
-            // Retain the established dark theme if the preference is unavailable.
+            // Default to dark if Windows does not expose a preference.
             return AppTheme.Dark;
         }
     }
@@ -103,7 +102,6 @@ internal static class ThemeManager
     private static SolidColorBrush MakeBrush(string color)
     {
         var brush = (SolidColorBrush)new BrushConverter().ConvertFromString(color)!;
-        // Frozen brushes are immutable and safe to reuse throughout the visual tree.
         brush.Freeze();
         return brush;
     }
