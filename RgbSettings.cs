@@ -24,6 +24,19 @@ public sealed class RgbSettings
     public bool IsBlink => string.Equals(LightingEffect, "Blink", StringComparison.OrdinalIgnoreCase)
         || string.Equals(LightingEffect, "Pulse", StringComparison.OrdinalIgnoreCase);
     public bool IsPulse => string.Equals(LightingEffect, "Fade", StringComparison.OrdinalIgnoreCase);
+
+    public RgbSettings Clone() => new()
+    {
+        Enabled = Enabled,
+        DeviceIndex = DeviceIndex,
+        DeviceName = DeviceName,
+        AutoStart = AutoStart,
+        StopAutoStartedOnExit = StopAutoStartedOnExit,
+        CrashRecoveryEnabled = CrashRecoveryEnabled,
+        IndicatorColor = IndicatorColor,
+        LightingEffect = LightingEffect,
+        PulseSpeedMilliseconds = PulseSpeedMilliseconds
+    };
 }
 
 public sealed record KeyboardDevice(int Index, string Name)
@@ -41,7 +54,10 @@ public static class OpenRgbHighlighter
     internal const int SolidPreviewDurationMilliseconds = 5000;
     // Never stop an OpenRGB instance we did not start.
     private static readonly object StartedProcessLock = new();
+    private static readonly SemaphoreSlim SdkStartupLock = new(1, 1);
     private static Process? processStartedByAutoClicker;
+
+    internal static bool ShouldStartOnApplicationLaunch(RgbSettings settings) => settings.Enabled && settings.AutoStart;
 
     public static async Task<OpenRgbAvailability> EnsureSdkAsync(RgbSettings settings)
     {
@@ -49,36 +65,47 @@ public static class OpenRgbHighlighter
         if (!settings.AutoStart)
             return new(false, "OpenRGB's SDK server is not available. Enable it in OpenRGB, or turn on automatic startup here.");
 
-        if (Process.GetProcessesByName("OpenRGB").Length > 0)
-            return new(false, "OpenRGB is already running, but its SDK server is not available. Enable its SDK server on port 6742, then refresh.");
-
-        var executable = FindOpenRgbExecutable();
-        if (executable is null)
-            return new(false, "OpenRGB is not installed in its usual location. Install OpenRGB, start it once, then refresh.");
-
+        await SdkStartupLock.WaitAsync();
         try
         {
-            var process = Process.Start(new ProcessStartInfo(executable, "--server")
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = Path.GetDirectoryName(executable)!
-            });
-            if (process is null) return new(false, "OpenRGB could not be started.");
-            lock (StartedProcessLock) processStartedByAutoClicker = process;
-        }
-        catch (Exception exception)
-        {
-            return new(false, $"Could not start OpenRGB: {exception.Message}");
-        }
+            // Another request may have started OpenRGB while this caller was waiting.
+            if (await IsSdkAvailableAsync()) return new(true, null);
 
-        // Wait briefly for the SDK socket.
-        for (var attempt = 0; attempt < 20; attempt++)
-        {
-            await Task.Delay(200);
-            if (await IsSdkAvailableAsync()) return new(true, "OpenRGB was started automatically.");
+            if (Process.GetProcessesByName("OpenRGB").Length > 0)
+                return new(false, "OpenRGB is already running, but its SDK server is not available. Enable its SDK server on port 6742, then refresh.");
+
+            var executable = FindOpenRgbExecutable();
+            if (executable is null)
+                return new(false, "OpenRGB is not installed in its usual location. Install OpenRGB, start it once, then refresh.");
+
+            try
+            {
+                var process = Process.Start(new ProcessStartInfo(executable, "--server")
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WorkingDirectory = Path.GetDirectoryName(executable)!
+                });
+                if (process is null) return new(false, "OpenRGB could not be started.");
+                lock (StartedProcessLock) processStartedByAutoClicker = process;
+            }
+            catch (Exception exception)
+            {
+                return new(false, $"Could not start OpenRGB: {exception.Message}");
+            }
+
+            // Wait briefly for the SDK socket.
+            for (var attempt = 0; attempt < 20; attempt++)
+            {
+                await Task.Delay(200);
+                if (await IsSdkAvailableAsync()) return new(true, "OpenRGB was started automatically.");
+            }
+            return new(false, "OpenRGB started, but its SDK server did not become available. Open OpenRGB and enable its SDK server.");
         }
-        return new(false, "OpenRGB started, but its SDK server did not become available. Open OpenRGB and enable its SDK server.");
+        finally
+        {
+            SdkStartupLock.Release();
+        }
     }
 
     public static void StopAutoStartedServer()
@@ -305,6 +332,77 @@ public static class OpenRgbHighlighter
         }
     }
 
+    // The global Settings test validates the selected keyboard itself, independent of key mapping.
+    public static async Task<string?> FlashKeyboardAsync(RgbSettings settings)
+    {
+        var snapshot = EnableKeyboardIndicator(settings, out var error);
+        if (snapshot is null) return error ?? "OpenRGB could not start the keyboard lighting test.";
+
+        try
+        {
+            for (var flash = 0; flash < 3; flash++)
+            {
+                LightKeyboard(snapshot);
+                await Task.Delay(170);
+                RestoreKeyboard(snapshot);
+                if (flash < 2) await Task.Delay(110);
+            }
+            return null;
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error("OpenRGB keyboard lighting test failed", exception);
+            return $"OpenRGB test failed: {exception.Message}";
+        }
+        finally
+        {
+            // Preserve the selected keyboard's pre-test colours even if its SDK call fails mid-test.
+            RestoreKeyboard(snapshot);
+        }
+    }
+
+    public static RgbKeyboardSnapshot? EnableKeyboardIndicator(RgbSettings settings, out string? error, bool lightImmediately = true)
+    {
+        var snapshot = CaptureKeyboardForTest(settings, out error);
+        if (snapshot is not null && lightImmediately) LightKeyboard(snapshot);
+        return snapshot;
+    }
+
+    public static async Task BlinkKeyboardAsync(RgbKeyboardSnapshot snapshot, int halfCycleMilliseconds, CancellationToken cancellation)
+    {
+        var halfCycle = Math.Clamp(halfCycleMilliseconds, 120, 2000);
+        var lit = true;
+        try
+        {
+            while (true)
+            {
+                await Task.Delay(halfCycle, cancellation);
+                if (lit) RestoreKeyboard(snapshot); else LightKeyboard(snapshot);
+                lit = !lit;
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception exception) { AppLog.Error("OpenRGB keyboard blink effect failed", exception); }
+    }
+
+    public static async Task FadePulseKeyboardAsync(RgbKeyboardSnapshot snapshot, int cycleMilliseconds, CancellationToken cancellation)
+    {
+        var cycle = Math.Clamp(cycleMilliseconds, MinimumPulseCycleMilliseconds, MaximumPulseCycleMilliseconds);
+        var framesPerCycle = GetPulseFramesPerCycle(cycle);
+        var frameDelay = TimeSpan.FromMilliseconds(cycle / framesPerCycle);
+        try
+        {
+            for (var frame = 0; ; frame = (frame + 1) % framesPerCycle)
+            {
+                var strength = 0.5d - 0.5d * Math.Cos(2d * Math.PI * frame / framesPerCycle);
+                SetKeyboardBlend(snapshot, strength);
+                await Task.Delay(frameDelay, cancellation);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception exception) { AppLog.Error("OpenRGB keyboard fade effect failed", exception); }
+    }
+
     public static async Task<string?> ShowKeySolidAsync(RgbSettings settings, string keyName, CancellationToken cancellation = default)
     {
         var snapshot = EnableKeyIndicator(settings, keyName, out var error, lightImmediately: false);
@@ -339,6 +437,46 @@ public static class OpenRgbHighlighter
         client.UpdateSingleLed(snapshot.DeviceIndex, snapshot.KeyIndex, snapshot.IndicatorColor);
     }
 
+    private static RgbKeyboardSnapshot? CaptureKeyboardForTest(RgbSettings settings, out string? error)
+    {
+        error = null;
+        try
+        {
+            using var client = new OpenRgbClient(name: "AutoClicker");
+            var keyboard = client.GetControllerData(settings.DeviceIndex);
+            if (keyboard.Colors.Length == 0)
+            {
+                error = $"{keyboard.Name} does not expose colours that OpenRGB can test.";
+                return null;
+            }
+            return new RgbKeyboardSnapshot(keyboard.Index, keyboard.Colors.ToArray(), IndicatorColor(settings));
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error("OpenRGB keyboard test setup failed", exception);
+            error = $"OpenRGB unavailable: {exception.Message}";
+            return null;
+        }
+    }
+
+    private static void LightKeyboard(RgbKeyboardSnapshot snapshot)
+    {
+        using var client = new OpenRgbClient(name: "AutoClicker");
+        client.SetCustomMode(snapshot.DeviceIndex);
+        client.UpdateLeds(snapshot.DeviceIndex, CreateKeyboardFlashColors(snapshot.Colors, snapshot.IndicatorColor));
+    }
+
+    public static void RestoreKeyboard(RgbKeyboardSnapshot snapshot)
+    {
+        try
+        {
+            using var client = new OpenRgbClient(name: "AutoClicker");
+            client.SetCustomMode(snapshot.DeviceIndex);
+            client.UpdateLeds(snapshot.DeviceIndex, snapshot.Colors);
+        }
+        catch (Exception exception) { AppLog.Error("OpenRGB keyboard test restore failed", exception); }
+    }
+
     private static void RestoreKey(RgbLightingSnapshot snapshot)
     {
         using var client = new OpenRgbClient(name: "AutoClicker");
@@ -361,6 +499,17 @@ public static class OpenRgbHighlighter
             (byte)Math.Round(baseColor.G + (indicatorColor.G - baseColor.G) * amount),
             (byte)Math.Round(baseColor.B + (indicatorColor.B - baseColor.B) * amount));
     }
+
+    private static void SetKeyboardBlend(RgbKeyboardSnapshot snapshot, double strength)
+    {
+        using var client = new OpenRgbClient(name: "AutoClicker");
+        client.SetCustomMode(snapshot.DeviceIndex);
+        client.UpdateLeds(snapshot.DeviceIndex, CreateKeyboardBlendColors(snapshot.Colors, snapshot.IndicatorColor, strength));
+    }
+
+    internal static Color[] CreateKeyboardFlashColors(IReadOnlyCollection<Color> currentColors, Color indicatorColor) => Enumerable.Repeat(indicatorColor, currentColors.Count).ToArray();
+
+    internal static Color[] CreateKeyboardBlendColors(IEnumerable<Color> currentColors, Color indicatorColor, double strength) => currentColors.Select(color => BlendColor(color, indicatorColor, strength)).ToArray();
 
     private static Color IndicatorColor(RgbSettings settings)
     {
@@ -450,4 +599,5 @@ public static class OpenRgbHighlighter
 }
 
 public sealed record RgbLightingSnapshot(int DeviceIndex, Color[] Colors, int KeyIndex, Color IndicatorColor);
+public sealed record RgbKeyboardSnapshot(int DeviceIndex, Color[] Colors, Color IndicatorColor);
 public sealed record OpenRgbAvailability(bool IsAvailable, string? Message);

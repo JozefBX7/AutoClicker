@@ -10,22 +10,23 @@ public partial class SettingsWindow : Window
     public RgbSettings Settings { get; }
     public WorkerPriorityOption WorkerPriority { get; private set; }
     public bool CadenceDiagnosticsEnabled { get; private set; }
+    public bool AdvancedMode { get; private set; }
     private readonly string hotkeyName;
-    private readonly string hotkeyKeyName;
-    private readonly Func<bool> resetToDefaults;
-    private readonly Func<string, string?> exportBackup;
-    private readonly Func<string, string?> importBackup;
+    private readonly string? hotkeyKeyName;
+    private readonly Func<ResetScope, bool> resetSettings;
+    private readonly Func<BackupScope, string, string?> exportBackup;
+    private readonly Func<BackupScope, string, string?> importBackup;
     private CancellationTokenSource? effectTestCancellation;
     private readonly System.Windows.Threading.DispatcherTimer effectPreviewRestartTimer;
     private bool restartEffectPreview;
     private bool isClosing;
 
-    public SettingsWindow(RgbSettings current, WorkerPriorityOption workerPriority, bool cadenceDiagnosticsEnabled, string hotkeyName, string hotkeyKeyName, Func<bool> resetToDefaults, Func<string, string?> exportBackup, Func<string, string?> importBackup)
+    public SettingsWindow(RgbSettings current, WorkerPriorityOption workerPriority, bool cadenceDiagnosticsEnabled, bool advancedMode, string hotkeyName, string? hotkeyKeyName, Func<ResetScope, bool> resetSettings, Func<BackupScope, string, string?> exportBackup, Func<BackupScope, string, string?> importBackup)
     {
         InitializeComponent();
         this.hotkeyName = hotkeyName;
         this.hotkeyKeyName = hotkeyKeyName;
-        this.resetToDefaults = resetToDefaults;
+        this.resetSettings = resetSettings;
         this.exportBackup = exportBackup;
         this.importBackup = importBackup;
         effectPreviewRestartTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
@@ -35,6 +36,8 @@ public partial class SettingsWindow : Window
         WorkerPriorityCombo.SelectedItem = WorkerPriorityCombo.Items.OfType<ComboBoxItem>().First(item => string.Equals(item.Tag?.ToString(), WorkerPriority.ToString(), StringComparison.OrdinalIgnoreCase));
         CadenceDiagnosticsEnabled = cadenceDiagnosticsEnabled;
         EnableCadenceDiagnostics.IsChecked = CadenceDiagnosticsEnabled;
+        AdvancedMode = advancedMode;
+        ModeCombo.SelectedIndex = AdvancedMode ? 1 : 0;
         EnableOpenRgb.IsChecked = Settings.Enabled;
         AutoStartOpenRgb.IsChecked = Settings.AutoStart;
         StopAutoStartedOpenRgb.IsChecked = Settings.StopAutoStartedOnExit;
@@ -44,7 +47,9 @@ public partial class SettingsWindow : Window
         SelectEffect(Settings.LightingEffect);
         EffectSpeedSlider.Value = SpeedToSlider(Settings.PulseSpeedMilliseconds, SelectedEffect());
         UpdatePulseSpeedEnabled();
-        HotkeyLightingHint.Text = $"When AutoClicker is active, OpenRGB will light {hotkeyName}.";
+        HotkeyLightingHint.Text = hotkeyKeyName is null
+            ? "OpenRGB lighting applies to keyboard hotkeys. Select a keyboard hotkey to light one."
+            : $"When AutoClicker is active, OpenRGB will light {hotkeyName}.";
         Loaded += (_, _) => RefreshKeyboards();
     }
 
@@ -147,23 +152,43 @@ public partial class SettingsWindow : Window
     }
     private static void OpenUrl(Uri url) => Process.Start(new ProcessStartInfo(url.AbsoluteUri) { UseShellExecute = true });
 
-    private void ExportBackup_Click(object sender, RoutedEventArgs e)
+    private void ExportBackup(BackupScope scope)
     {
-        var dialog = new Microsoft.Win32.SaveFileDialog { Filter = "AutoClicker backup (*.json)|*.json", FileName = "AutoClicker-backup.json", AddExtension = true };
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = $"Export {BackupScopeInfo.DisplayName(scope)}",
+            Filter = BackupScopeInfo.ExportFilter(scope),
+            FileName = BackupScopeInfo.DefaultFileName(scope),
+            DefaultExt = BackupScopeInfo.FileExtension(scope),
+            AddExtension = true
+        };
         if (dialog.ShowDialog(this) != true) return;
-        var error = exportBackup(dialog.FileName);
-        ConnectionStatus.Text = error is null ? "Full configuration backup exported." : error;
+        var error = exportBackup(scope, dialog.FileName);
+        ConnectionStatus.Text = error is null ? $"{BackupScopeInfo.DisplayName(scope)} exported." : error;
         ConnectionStatus.Foreground = ThemeManager.Brush(error is null ? "SuccessBrush" : "ErrorBrush");
     }
 
-    private void ImportBackup_Click(object sender, RoutedEventArgs e)
+    private void ImportBackup(BackupScope scope)
     {
-        var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "AutoClicker backup (*.json)|*.json" };
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = $"Restore {BackupScopeInfo.DisplayName(scope)}",
+            Filter = BackupScopeInfo.ImportFilter(scope)
+        };
         if (dialog.ShowDialog(this) != true) return;
-        var error = importBackup(dialog.FileName);
-        ConnectionStatus.Text = error is null ? "Full backup imported. Close Settings to use it." : error;
+        var error = importBackup(scope, dialog.FileName);
+        ConnectionStatus.Text = error is null ? $"{BackupScopeInfo.DisplayName(scope)} restored. Close Settings to use it." : error;
         ConnectionStatus.Foreground = ThemeManager.Brush(error is null ? "SuccessBrush" : "ErrorBrush");
     }
+
+    private void ExportEverything_Click(object sender, RoutedEventArgs e) => ExportBackup(BackupScope.Everything);
+    private void ExportSimple_Click(object sender, RoutedEventArgs e) => ExportBackup(BackupScope.SimpleMode);
+    private void ExportAdvanced_Click(object sender, RoutedEventArgs e) => ExportBackup(BackupScope.AdvancedMode);
+    private void ExportSequences_Click(object sender, RoutedEventArgs e) => ExportBackup(BackupScope.CustomSequences);
+    private void ImportEverything_Click(object sender, RoutedEventArgs e) => ImportBackup(BackupScope.Everything);
+    private void ImportSimple_Click(object sender, RoutedEventArgs e) => ImportBackup(BackupScope.SimpleMode);
+    private void ImportAdvanced_Click(object sender, RoutedEventArgs e) => ImportBackup(BackupScope.AdvancedMode);
+    private void ImportSequences_Click(object sender, RoutedEventArgs e) => ImportBackup(BackupScope.CustomSequences);
 
     private void LightingEffect_Changed(object sender, RoutedEventArgs e) => UpdatePulseSpeedEnabled();
     private void EffectSpeedSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -198,6 +223,7 @@ public partial class SettingsWindow : Window
     private async Task<string?> PreviewPickedColourAsync(string color, CancellationToken cancellation)
     {
         cancellation.ThrowIfCancellationRequested();
+        if (hotkeyKeyName is null) return "OpenRGB can only preview keyboard hotkeys.";
         if (EnableOpenRgb.IsChecked != true || KeyboardCombo.SelectedItem is not KeyboardDevice keyboard)
             return "Enable OpenRGB lighting and select a keyboard to preview this colour.";
 
@@ -218,22 +244,18 @@ public partial class SettingsWindow : Window
 
     private void RestoreDefaults_Click(object sender, RoutedEventArgs e)
     {
-        var confirmation = new ConfirmationWindow(
-            "Reset to defaults",
-            "Reset every option to AutoClicker's original defaults? This includes the 100 ms interval, F6 hotkey, disabled RGB lighting, and enabled crash recovery.",
-            "Reset everything",
-            destructive: true) { Owner = this };
-        if (confirmation.ShowDialog() != true) return;
-        if (resetToDefaults()) Close();
-        else
-        {
-            ConnectionStatus.Text = "Defaults could not be reset while AutoClicker is active. Stop it first, then try again.";
-            ConnectionStatus.Foreground = ThemeManager.Brush("WarningBrush");
-        }
+        var dialog = new ResetOptionsWindow(resetSettings) { Owner = this };
+        if (dialog.ShowDialog() == true) Close();
     }
 
     private async void TestRgbButton_Click(object sender, RoutedEventArgs e)
     {
+        if (hotkeyKeyName is null)
+        {
+            ConnectionStatus.Text = "OpenRGB can only light a keyboard hotkey.";
+            ConnectionStatus.Foreground = ThemeManager.Brush("WarningBrush");
+            return;
+        }
         if (Owner is MainWindow { IsClicking: true })
         {
             ConnectionStatus.Text = "Stop AutoClicker before testing RGB lighting.";
@@ -249,7 +271,7 @@ public partial class SettingsWindow : Window
 
         TestRgbButton.IsEnabled = false;
         TestEffectButton.IsEnabled = false;
-        ConnectionStatus.Text = $"Flashing {hotkeyName} three times…";
+        ConnectionStatus.Text = "Flashing the selected keyboard three times…";
         ConnectionStatus.Foreground = ThemeManager.Brush("SuccessBrush");
         try
         {
@@ -267,8 +289,8 @@ public partial class SettingsWindow : Window
                 ConnectionStatus.Foreground = ThemeManager.Brush("ErrorBrush");
                 return;
             }
-            var error = await OpenRgbHighlighter.FlashKeyAsync(settings, hotkeyKeyName);
-            ConnectionStatus.Text = error is null ? $"Finished testing {hotkeyName}; its previous colour was restored." : error;
+            var error = await OpenRgbHighlighter.FlashKeyboardAsync(settings);
+            ConnectionStatus.Text = error is null ? "Finished testing the keyboard; its previous colours were restored." : error;
             ConnectionStatus.Foreground = error is null ? ThemeManager.Brush("SuccessBrush") : ThemeManager.Brush("ErrorBrush");
         }
         finally
@@ -286,7 +308,7 @@ public partial class SettingsWindow : Window
             restartEffectPreview = false;
             effectTestCancellation.Cancel();
             TestEffectButton.IsEnabled = false;
-            ConnectionStatus.Text = "Stopping hotkey effect test…";
+            ConnectionStatus.Text = "Stopping keyboard effect test…";
             ConnectionStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
             return;
         }
@@ -307,11 +329,11 @@ public partial class SettingsWindow : Window
         TestRgbButton.IsEnabled = false;
         effectTestCancellation = new CancellationTokenSource();
         TestEffectButton.Content = "Stop effect test";
-        TestEffectButton.ToolTip = "Stop the current hotkey effect test and restore the key.";
-        ConnectionStatus.Text = $"Testing {SelectedEffect().ToLowerInvariant()} on {hotkeyName}…";
+        TestEffectButton.ToolTip = "Stop the current keyboard effect test and restore its previous colours.";
+        ConnectionStatus.Text = $"Testing {SelectedEffect().ToLowerInvariant()} across the keyboard…";
         ConnectionStatus.Foreground = ThemeManager.Brush("SuccessBrush");
 
-        RgbLightingSnapshot? snapshot = null;
+        RgbKeyboardSnapshot? snapshot = null;
         try
         {
             var availability = await OpenRgbHighlighter.EnsureSdkAsync(settings);
@@ -322,7 +344,7 @@ public partial class SettingsWindow : Window
                 return;
             }
 
-            snapshot = OpenRgbHighlighter.EnableKeyIndicator(settings, hotkeyKeyName, out var error, lightImmediately: !settings.IsPulse);
+            snapshot = OpenRgbHighlighter.EnableKeyboardIndicator(settings, out var error, lightImmediately: !settings.IsPulse);
             if (snapshot is null)
             {
                 ConnectionStatus.Text = error ?? "OpenRGB could not start the effect test.";
@@ -334,12 +356,12 @@ public partial class SettingsWindow : Window
             if (settings.IsBlink)
             {
                 duration.CancelAfter(TimeSpan.FromMilliseconds(Math.Clamp(settings.PulseSpeedMilliseconds, 120, 2000) * 6));
-                await OpenRgbHighlighter.BlinkIndicatorAsync(snapshot, settings.PulseSpeedMilliseconds, duration.Token);
+                await OpenRgbHighlighter.BlinkKeyboardAsync(snapshot, settings.PulseSpeedMilliseconds, duration.Token);
             }
             else if (settings.IsPulse)
             {
                 duration.CancelAfter(TimeSpan.FromMilliseconds(Math.Clamp(settings.PulseSpeedMilliseconds, OpenRgbHighlighter.MinimumPulseCycleMilliseconds, OpenRgbHighlighter.MaximumPulseCycleMilliseconds) * 3));
-                await OpenRgbHighlighter.FadePulseIndicatorAsync(snapshot, settings.PulseSpeedMilliseconds, duration.Token);
+                await OpenRgbHighlighter.FadePulseKeyboardAsync(snapshot, settings.PulseSpeedMilliseconds, duration.Token);
             }
             else
             {
@@ -350,13 +372,13 @@ public partial class SettingsWindow : Window
             {
                 if (!isClosing)
                 {
-                    ConnectionStatus.Text = "Hotkey effect test stopped; the previous key colour was restored.";
+                    ConnectionStatus.Text = "Keyboard effect test stopped; the previous colours were restored.";
                     ConnectionStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
                 }
             }
             else
             {
-                ConnectionStatus.Text = $"Finished testing {SelectedEffect().ToLowerInvariant()}; the previous key colour was restored.";
+                ConnectionStatus.Text = $"Finished testing {SelectedEffect().ToLowerInvariant()}; the previous colours were restored.";
                 ConnectionStatus.Foreground = ThemeManager.Brush("SuccessBrush");
             }
         }
@@ -364,7 +386,7 @@ public partial class SettingsWindow : Window
         {
             if (!isClosing)
             {
-                ConnectionStatus.Text = "Hotkey effect test stopped; the previous key colour was restored.";
+                ConnectionStatus.Text = "Keyboard effect test stopped; the previous colours were restored.";
                 ConnectionStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
             }
         }
@@ -373,13 +395,13 @@ public partial class SettingsWindow : Window
             AppLog.Error("OpenRGB effect test failed", exception);
             if (!isClosing)
             {
-                ConnectionStatus.Text = $"Hotkey effect test failed: {exception.Message}";
+                ConnectionStatus.Text = $"Keyboard effect test failed: {exception.Message}";
                 ConnectionStatus.Foreground = ThemeManager.Brush("ErrorBrush");
             }
         }
         finally
         {
-            if (snapshot is not null) OpenRgbHighlighter.RestoreIndicator(snapshot);
+            if (snapshot is not null) OpenRgbHighlighter.RestoreKeyboard(snapshot);
             var restart = restartEffectPreview && !isClosing;
             restartEffectPreview = false;
             effectTestCancellation?.Dispose();
@@ -388,8 +410,8 @@ public partial class SettingsWindow : Window
             {
                 TestRgbButton.IsEnabled = true;
                 TestEffectButton.IsEnabled = true;
-                TestEffectButton.Content = "Test hotkey effect";
-                TestEffectButton.ToolTip = "Shows the selected lighting effect for three cycles, then restores the key. Click again to stop it early.";
+                TestEffectButton.Content = "Test keyboard effect";
+                TestEffectButton.ToolTip = "Shows the selected lighting effect across the keyboard, then restores its previous colours. Click again to stop it early.";
             }
             if (restart) TestEffectButton_Click(this, new RoutedEventArgs());
         }
@@ -432,7 +454,7 @@ public partial class SettingsWindow : Window
             ConnectionStatus.Text = keyboards.Length == 0 ? "Connected, but OpenRGB did not expose your keyboard. In OpenRGB, rescan devices and try running it as administrator." : $"Found {keyboards.Length} keyboard{(keyboards.Length == 1 ? string.Empty : "s")}.";
             ConnectionStatus.Foreground = keyboards.Length == 0 ? ThemeManager.Brush("WarningBrush") : ThemeManager.Brush("SuccessBrush");
             var selected = KeyboardCombo.SelectedItem as KeyboardDevice;
-            if (EnableOpenRgb.IsChecked == true && selected is not null)
+            if (EnableOpenRgb.IsChecked == true && selected is not null && hotkeyKeyName is not null)
             {
                 var candidate = new RgbSettings { Enabled = true, DeviceIndex = selected.Index, DeviceName = selected.Name };
                 var canLight = OpenRgbHighlighter.CanHighlightKey(candidate, hotkeyKeyName, out var error);
@@ -469,6 +491,7 @@ public partial class SettingsWindow : Window
         Settings.DeviceName = keyboard?.Name ?? string.Empty;
         WorkerPriority = WorkerPriorityRules.Normalize((WorkerPriorityCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString());
         CadenceDiagnosticsEnabled = EnableCadenceDiagnostics.IsChecked == true;
+        AdvancedMode = string.Equals((ModeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString(), "Advanced", StringComparison.Ordinal);
         DialogResult = true;
     }
 

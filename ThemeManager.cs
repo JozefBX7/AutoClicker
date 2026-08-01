@@ -69,6 +69,14 @@ internal static class ThemeManager
 
     internal static Brush Brush(string key) => (Brush)Application.Current.Resources[key];
 
+    // Status messages receive concrete brushes, so retain the semantic key to reapply it after a palette swap.
+    internal static string? StatusBrushKey(Brush brush)
+    {
+        foreach (var key in new[] { "SuccessBrush", "WarningBrush", "ErrorBrush", "TextMutedBrush" })
+            if (ReferenceEquals(Brush(key), brush)) return key;
+        return null;
+    }
+
     internal static AppTheme ThemeFromAppsUseLightTheme(object? value) => value is int enabled && enabled != 0 ? AppTheme.Light : AppTheme.Dark;
 
     private static AppTheme SystemTheme()

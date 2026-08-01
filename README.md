@@ -1,10 +1,27 @@
 # AutoClicker
 
-A compact Windows auto clicker and keyboard spammer, with memory, custom sequences, global hotkeys, configurable input pulses and jitter, backups, optional OpenRGB lighting, and foreground-window targeting that keeps input in the app you choose.
+A compact Windows auto clicker and keyboard spammer with two ways of working: a focused one-hotkey Simple mode, or Advanced profiles with up to 15 independently configurable hotkeys running together. It includes custom sequences, configurable input pulses and jitter, backups, optional OpenRGB lighting, and foreground-window targeting that keeps input in the app you choose.
 
 Detailed guides are available in the [AutoClicker Wiki](https://github.com/JozefBX7/AutoClicker/wiki).
 
 <img width="522" height="580" alt="image" src="https://github.com/user-attachments/assets/6cd3c0e9-2fa0-41a4-be2a-406b61d1d15f" />
+
+## Choose a mode
+
+- **Simple mode** keeps one action and one global hotkey visible—ideal for a quick clicker or key spammer.
+- **Advanced mode** keeps named profiles of hotkeys. Actions may run concurrently, can be enabled or disabled individually, and inherit repeat, position, targeting, jitter, pulse, and lighting from profile or Advanced defaults until overridden.
+
+Profiles are saved deliberately, so experimenting does not overwrite a saved setup. They can be duplicated, reordered, imported/exported individually, or copied into another profile.
+
+## Input and targeting
+
+Leave the target blank for normal global input, enter an executable name to run only while that app is active, or choose a specific visible window. AutoClicker pauses its clicks and keys whenever the selected target is not in the foreground.
+
+Choose left, middle, or right clicks; Space, Enter, or a picked key; or a custom sequence. Mouse buttons beyond left/right may also be used as global hotkeys.
+
+## Keep your setup portable
+
+Settings can export or restore **Everything**, **Simple mode**, **Advanced mode and profiles**, or **Custom sequences**. Full backups are versioned for future compatibility, while profile export makes it easy to share one named setup.
 
 ## Download
 

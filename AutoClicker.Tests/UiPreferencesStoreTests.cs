@@ -17,6 +17,7 @@ public sealed class UiPreferencesStoreTests
             Assert.IsFalse(preferences.CompactMode);
             Assert.AreEqual("Normal", preferences.WorkerPriority);
             Assert.IsFalse(preferences.CadenceDiagnosticsEnabled);
+            Assert.IsFalse(preferences.AdvancedMode);
         }
         finally { DeleteTemporaryDirectory(path); }
     }
@@ -27,13 +28,14 @@ public sealed class UiPreferencesStoreTests
         var path = TemporaryPath();
         try
         {
-            UiPreferencesStore.Save(path, new UiPreferences { Pinned = true, CompactMode = true, RgbLightingTipSeen = true, WorkerPriority = "AboveNormal", CadenceDiagnosticsEnabled = true });
+            UiPreferencesStore.Save(path, new UiPreferences { Pinned = true, CompactMode = true, RgbLightingTipSeen = true, WorkerPriority = "AboveNormal", CadenceDiagnosticsEnabled = true, AdvancedMode = true });
             var preferences = UiPreferencesStore.Load(path);
             Assert.IsTrue(preferences.Pinned);
             Assert.IsTrue(preferences.CompactMode);
             Assert.IsTrue(preferences.RgbLightingTipSeen);
             Assert.AreEqual("AboveNormal", preferences.WorkerPriority);
             Assert.IsTrue(preferences.CadenceDiagnosticsEnabled);
+            Assert.IsTrue(preferences.AdvancedMode);
         }
         finally { DeleteTemporaryDirectory(path); }
     }

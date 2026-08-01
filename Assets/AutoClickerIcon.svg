@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="25 35 420 420">
+  <defs>
+    <linearGradient id="blue" x1="92" y1="72" x2="412" y2="440" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#63B1FF"/>
+      <stop offset="1" stop-color="#1267E8"/>
+    </linearGradient>
+  </defs>
+  <!-- Two deliberately broad rings stay recognisable at small taskbar sizes. -->
+  <circle cx="177" cy="175" r="116" fill="none" stroke="#3C8DFF" stroke-width="28"/>
+  <circle cx="177" cy="175" r="65" fill="none" stroke="#3C8DFF" stroke-width="26"/>
+  <path d="M165 126 403 288 305 308 358 405 304 435 249 336 191 419Z" fill="#F8FBFF" stroke="url(#blue)" stroke-width="27" stroke-linejoin="round"/>
+</svg>

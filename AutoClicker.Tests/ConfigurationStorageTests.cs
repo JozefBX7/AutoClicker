@@ -131,6 +131,116 @@ public sealed class ConfigurationStorageTests
     }
 
     [TestMethod]
+    public void FocusedBackup_RoundTripsWithoutUnrelatedSettings()
+    {
+        var path = TemporaryPath("advanced-backup.json");
+        try
+        {
+            ConfigBackupStore.Write(path, new ConfigBackupDocument
+            {
+                Scope = BackupScope.AdvancedMode,
+                AdvancedDefaultsJson = "{\"Milliseconds\":80}",
+                AutomationProfilesJson = "{\"Profiles\":[]}"
+            });
+
+            var backup = ConfigBackupStore.Read(path);
+
+            Assert.AreEqual(BackupScope.AdvancedMode, backup.Scope);
+            Assert.AreEqual("{\"Milliseconds\":80}", backup.AdvancedDefaultsJson);
+            Assert.IsTrue(string.IsNullOrEmpty(backup.SequenceLibraryJson));
+        }
+        finally { DeleteTemporaryDirectory(path); }
+    }
+
+    [TestMethod]
+    public void BackupDocument_KeepsSimpleAndAdvancedDefaultsIndependent()
+    {
+        var path = TemporaryPath("separate-defaults.json");
+        try
+        {
+            ConfigBackupStore.Write(path, new ConfigBackupDocument
+            {
+                Scope = BackupScope.Everything,
+                SimpleDefaultsJson = "{\"Milliseconds\":35,\"InputPulseMilliseconds\":5}",
+                AdvancedDefaultsJson = "{\"Milliseconds\":100,\"InputPulseMilliseconds\":2,\"InputJitterMaximumMilliseconds\":7}",
+                AutomationProfilesJson = "{\"Profiles\":[{\"Name\":\"Game\",\"BehaviorDefaults\":{\"InputPulseMilliseconds\":3}}]}"
+            });
+
+            var backup = ConfigBackupStore.Read(path);
+
+            Assert.AreNotEqual(backup.SimpleDefaultsJson, backup.AdvancedDefaultsJson);
+            StringAssert.Contains(backup.SimpleDefaultsJson, "\"Milliseconds\":35");
+            StringAssert.Contains(backup.AdvancedDefaultsJson, "\"InputJitterMaximumMilliseconds\":7");
+            StringAssert.Contains(backup.AutomationProfilesJson, "\"InputPulseMilliseconds\":3");
+        }
+        finally { DeleteTemporaryDirectory(path); }
+    }
+
+    [TestMethod]
+    public void ScopeRules_KeepResetAndBackupPartitionsSeparate()
+    {
+        Assert.IsTrue(SettingsScopeRules.ResetsSimple(ResetScope.SimpleMode));
+        Assert.IsFalse(SettingsScopeRules.ResetsAdvancedProfiles(ResetScope.SimpleMode));
+        Assert.IsFalse(SettingsScopeRules.ResetsAdvancedGlobals(ResetScope.SimpleMode));
+
+        Assert.IsFalse(SettingsScopeRules.ResetsSimple(ResetScope.AdvancedMode));
+        Assert.IsTrue(SettingsScopeRules.ResetsAdvancedProfiles(ResetScope.AdvancedMode));
+        Assert.IsFalse(SettingsScopeRules.ResetsAdvancedGlobals(ResetScope.AdvancedMode));
+
+        Assert.IsFalse(SettingsScopeRules.ResetsSimple(ResetScope.SharedDefaults));
+        Assert.IsFalse(SettingsScopeRules.ResetsAdvancedProfiles(ResetScope.SharedDefaults));
+        Assert.IsTrue(SettingsScopeRules.ResetsAdvancedGlobals(ResetScope.SharedDefaults));
+
+        Assert.IsTrue(SettingsScopeRules.ResetsSimple(ResetScope.Everything));
+        Assert.IsTrue(SettingsScopeRules.ResetsAdvancedProfiles(ResetScope.Everything));
+        Assert.IsTrue(SettingsScopeRules.ResetsAdvancedGlobals(ResetScope.Everything));
+
+        Assert.IsTrue(SettingsScopeRules.IncludesSimple(BackupScope.SimpleMode));
+        Assert.IsFalse(SettingsScopeRules.IncludesAdvanced(BackupScope.SimpleMode));
+        Assert.IsFalse(SettingsScopeRules.IncludesAppSettings(BackupScope.AdvancedMode));
+        Assert.IsTrue(SettingsScopeRules.IncludesAdvanced(BackupScope.AdvancedMode));
+        Assert.IsTrue(SettingsScopeRules.IncludesSequences(BackupScope.CustomSequences));
+        Assert.IsTrue(SettingsScopeRules.IncludesSimple(BackupScope.Everything));
+        Assert.IsTrue(SettingsScopeRules.IncludesAdvanced(BackupScope.Everything));
+        Assert.IsTrue(SettingsScopeRules.IncludesSequences(BackupScope.Everything));
+        Assert.IsTrue(SettingsScopeRules.IncludesAppSettings(BackupScope.Everything));
+    }
+
+    [TestMethod]
+    public void BackupFileFilters_ShowOnlyAFocusedBackupAndCompleteBackupForFocusedRestore()
+    {
+        var simpleExport = BackupScopeInfo.ExportFilter(BackupScope.SimpleMode);
+        var simpleImport = BackupScopeInfo.ImportFilter(BackupScope.SimpleMode);
+        var everythingImport = BackupScopeInfo.ImportFilter(BackupScope.Everything);
+
+        StringAssert.Contains(simpleExport, "*.autoclicker-simple.json");
+        Assert.IsFalse(simpleExport.Contains("*.autoclicker-backup.json", StringComparison.Ordinal));
+        StringAssert.Contains(simpleImport, "Supported backups");
+        StringAssert.Contains(simpleImport, "*.autoclicker-simple.json;*.autoclicker-backup.json");
+        StringAssert.Contains(simpleImport, "Simple mode settings only");
+        StringAssert.Contains(everythingImport, "Complete AutoClicker backups");
+        Assert.IsFalse(everythingImport.Contains("*.autoclicker-simple.json", StringComparison.Ordinal));
+        Assert.AreEqual("AutoClicker-advanced-settings.autoclicker-advanced.json", BackupScopeInfo.DefaultFileName(BackupScope.AdvancedMode));
+    }
+
+    [TestMethod]
+    public void FullBackupVersion2_RemainsReadableAsEverything()
+    {
+        var path = TemporaryPath("legacy-backup.json");
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, "{\"SchemaVersion\":2,\"DefaultsJson\":\"{}\"}");
+
+            var backup = ConfigBackupStore.Read(path);
+
+            Assert.AreEqual(BackupScope.Everything, backup.Scope);
+            Assert.AreEqual("{}", backup.DefaultsJson);
+        }
+        finally { DeleteTemporaryDirectory(path); }
+    }
+
+    [TestMethod]
     public void FullBackup_RejectsFutureSchemas()
     {
         var path = TemporaryPath("future.json");

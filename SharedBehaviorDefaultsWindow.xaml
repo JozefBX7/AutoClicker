@@ -1,0 +1,20 @@
+<Window x:Class="AutoClicker.SharedBehaviorDefaultsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Icon="Assets/AutoClickerIcon.ico" Width="430" Height="360" ResizeMode="NoResize" WindowStyle="None" AllowsTransparency="True" Background="Transparent" FontFamily="Segoe UI" WindowStartupLocation="CenterOwner">
+    <Border Background="{DynamicResource AppBackgroundBrush}" BorderBrush="{DynamicResource ControlBorderBrush}" BorderThickness="1" CornerRadius="14">
+        <Grid Margin="1">
+            <Grid.RowDefinitions><RowDefinition Height="58"/><RowDefinition Height="*"/><RowDefinition Height="58"/></Grid.RowDefinitions>
+            <Border Background="{DynamicResource PanelBrush}" CornerRadius="13,13,0,0" MouseLeftButtonDown="Header_MouseLeftButtonDown"><TextBlock x:Name="TitleLabel" Text="Use shared behavior defaults" Margin="20,0" VerticalAlignment="Center" FontSize="17" FontWeight="SemiBold" Foreground="{DynamicResource TextStrongBrush}"/></Border>
+            <StackPanel Grid.Row="1" Margin="20,15">
+                <TextBlock x:Name="DescriptionLabel" Text="Choose the settings to return to the inherited defaults: profile defaults first, then global Advanced defaults." Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                <CheckBox x:Name="RepeatCheck" Content="Repeat" Margin="0,4"/>
+                <CheckBox x:Name="PositionCheck" Content="Position" Margin="0,4"/>
+                <CheckBox x:Name="TargetWindowCheck" Content="Target window" Margin="0,4"/>
+                <CheckBox x:Name="InputJitterCheck" Content="Input jitter" Margin="0,4"/>
+                <CheckBox x:Name="InputPulseCheck" Content="Input pulse" Margin="0,4"/>
+            </StackPanel>
+            <Border Grid.Row="2" Background="{DynamicResource PanelBrush}" CornerRadius="0,0,13,13" Padding="20,10"><StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><Button Content="Cancel" Click="CancelButton_Click" Style="{StaticResource GhostButton}"/><Button Content="Revert selected" Click="RevertSelectedButton_Click" Style="{StaticResource GhostButton}" Margin="8,0,0,0"/><Button Content="Revert all" Click="RevertAllButton_Click" Style="{StaticResource PrimaryButton}" Margin="8,0,0,0"/></StackPanel></Border>
+        </Grid>
+    </Border>
+</Window>

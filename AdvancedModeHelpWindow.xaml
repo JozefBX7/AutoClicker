@@ -1,0 +1,24 @@
+<Window x:Class="AutoClicker.AdvancedModeHelpWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Advanced mode help" Icon="Assets/AutoClickerIcon.ico" Width="460" Height="380" ResizeMode="NoResize" WindowStyle="None" AllowsTransparency="True" Background="Transparent" FontFamily="Segoe UI" WindowStartupLocation="CenterOwner">
+    <Border Background="{DynamicResource AppBackgroundBrush}" BorderBrush="{DynamicResource ControlBorderBrush}" BorderThickness="1" CornerRadius="14">
+        <Grid Margin="1">
+            <Grid.RowDefinitions><RowDefinition Height="58"/><RowDefinition Height="*"/><RowDefinition Height="58"/></Grid.RowDefinitions>
+            <Border Background="{DynamicResource PanelBrush}" CornerRadius="13,13,0,0" MouseLeftButtonDown="Header_MouseLeftButtonDown"><TextBlock Text="Advanced mode" Margin="20,0" VerticalAlignment="Center" FontSize="17" FontWeight="SemiBold" Foreground="{DynamicResource TextStrongBrush}"/></Border>
+            <StackPanel Grid.Row="1" Margin="20,16">
+                <TextBlock Text="Profiles keep named sets of hotkeys. Behavior can inherit at three levels." Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,14"/>
+                <TextBlock Text="Profile button" Style="{StaticResource SectionTitle}"/>
+                <TextBlock Text="Click any profile button in the footer, including the one already selected, to edit its profile defaults. They apply to its hotkeys unless a hotkey overrides that part. Right-click it to return selected sections to global Advanced defaults." Style="{StaticResource SectionHint}" TextWrapping="Wrap" Margin="0,2,0,11"/>
+                <TextBlock Text="Hotkey tile" Style="{StaticResource SectionTitle}"/>
+                <TextBlock Text="Click a tile to edit that hotkey only. Ctrl+click tiles to select several, then right-click for shared actions." Style="{StaticResource SectionHint}" TextWrapping="Wrap" Margin="0,2,0,11"/>
+                <TextBlock Text="Global defaults" Style="{StaticResource SectionTitle}"/>
+                <TextBlock Text="Click the app header or empty footer space to return to global Advanced defaults. These apply when neither a profile nor a hotkey overrides an option." Style="{StaticResource SectionHint}" TextWrapping="Wrap" Margin="0,2,0,11"/>
+                <TextBlock Text="Quick options" Style="{StaticResource SectionTitle}"/>
+                <TextBlock Text="Right-click empty header space for the reset chooser or a confirmed reset of global Advanced defaults. Right-click a profile and choose Use app defaults to clear all of that profile’s behavior overrides without removing its hotkeys." Style="{StaticResource SectionHint}" TextWrapping="Wrap" Margin="0,2,0,11"/>
+                <TextBlock Text="The dot and save icon indicate pending profile changes. Right-click a profile to export it; use … to import one." Style="{StaticResource SectionHint}" TextWrapping="Wrap"/>
+            </StackPanel>
+            <Border Grid.Row="2" Background="{DynamicResource PanelBrush}" CornerRadius="0,0,13,13" Padding="20,10"><Button Content="Got it" Click="CloseButton_Click" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Right"/></Border>
+        </Grid>
+    </Border>
+</Window>

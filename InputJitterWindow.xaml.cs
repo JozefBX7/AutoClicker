@@ -8,9 +8,10 @@ public partial class InputJitterWindow : Window
 {
     public long MaximumJitterMilliseconds { get; private set; }
 
-    public InputJitterWindow(long maximumJitterMilliseconds)
+    public InputJitterWindow(long maximumJitterMilliseconds, string scopeDescription)
     {
         InitializeComponent();
+        ScopeLabel.Text = $"Editing: {scopeDescription}";
         var parts = InputRules.DescribeJitter(maximumJitterMilliseconds);
         SecondsBox.Text = parts.Seconds.ToString();
         MillisecondsBox.Text = parts.Milliseconds.ToString();

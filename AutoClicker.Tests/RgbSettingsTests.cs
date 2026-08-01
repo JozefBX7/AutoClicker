@@ -43,6 +43,15 @@ public sealed class RgbSettingsTests
         Assert.IsTrue(settings.IsPulse);
     }
 
+    [DataTestMethod]
+    [DataRow(true, true, true)]
+    [DataRow(false, true, false)]
+    [DataRow(true, false, false)]
+    public void ApplicationLaunch_StartsOpenRgbOnlyWhenLightingAndAutoStartAreEnabled(bool enabled, bool autoStart, bool expected)
+    {
+        Assert.AreEqual(expected, OpenRgbHighlighter.ShouldStartOnApplicationLaunch(new RgbSettings { Enabled = enabled, AutoStart = autoStart }));
+    }
+
     [TestMethod]
     public void BlendColor_InterpolatesAndClampsTheFadeStrength()
     {
@@ -52,6 +61,23 @@ public sealed class RgbSettingsTests
         Assert.AreEqual(new OpenRGB.NET.Color(10, 20, 30), OpenRgbHighlighter.BlendColor(baseColor, indicator, -1));
         Assert.AreEqual(new OpenRGB.NET.Color(60, 70, 80), OpenRgbHighlighter.BlendColor(baseColor, indicator, 0.5));
         Assert.AreEqual(new OpenRGB.NET.Color(110, 120, 130), OpenRgbHighlighter.BlendColor(baseColor, indicator, 2));
+    }
+
+    [TestMethod]
+    public void KeyboardLightingTest_UsesTheSelectedColourForEveryExposedLed()
+    {
+        var selected = new OpenRGB.NET.Color(34, 211, 238);
+        var colours = OpenRgbHighlighter.CreateKeyboardFlashColors([new OpenRGB.NET.Color(1, 2, 3), new OpenRGB.NET.Color(4, 5, 6), new OpenRGB.NET.Color(7, 8, 9)], selected);
+
+        CollectionAssert.AreEqual(new[] { selected, selected, selected }, colours);
+    }
+
+    [TestMethod]
+    public void KeyboardEffectTest_BlendsEveryExposedLed()
+    {
+        var colours = OpenRgbHighlighter.CreateKeyboardBlendColors([new OpenRGB.NET.Color(10, 20, 30), new OpenRGB.NET.Color(30, 40, 50)], new OpenRGB.NET.Color(110, 120, 130), 0.5);
+
+        CollectionAssert.AreEqual(new[] { new OpenRGB.NET.Color(60, 70, 80), new OpenRGB.NET.Color(70, 80, 90) }, colours);
     }
 
     [TestMethod]

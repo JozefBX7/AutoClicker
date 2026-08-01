@@ -10,6 +10,16 @@
             </Border>
             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Margin="22,14">
+                    <Border Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1" CornerRadius="7" Padding="10,8" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="Interface mode" Style="{StaticResource SectionTitle}" />
+                            <TextBlock Text="Simple keeps one hotkey. Advanced lets a profile run multiple hotkeys at once." Foreground="{DynamicResource TextMutedBrush}" FontSize="10" TextWrapping="Wrap" Margin="0,3,0,7" />
+                            <ComboBox x:Name="ModeCombo">
+                                <ComboBoxItem Content="Simple" Tag="Simple" />
+                                <ComboBoxItem Content="Advanced" Tag="Advanced" />
+                            </ComboBox>
+                        </StackPanel>
+                    </Border>
                     <Border Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1" CornerRadius="7" Padding="11,10" Margin="0,0,0,12">
                         <StackPanel>
                             <TextBlock Text="Keyboard lighting" Style="{StaticResource SectionTitle}" />
@@ -30,7 +40,7 @@
                             <StackPanel x:Name="EffectSpeedPanel" Margin="0,10,0,0"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="Effect speed" Foreground="{DynamicResource TextMutedBrush}" FontSize="10" Margin="0,0,18,0"/><TextBlock x:Name="EffectSpeedValueLabel" Grid.Column="1" Foreground="{DynamicResource TextAccentBrush}" FontSize="10" HorizontalAlignment="Right"/></Grid><StackPanel Orientation="Horizontal" Height="24" Margin="0,2,0,2" ClipToBounds="False"><TextBlock Text="Slow" Width="34" Foreground="{DynamicResource TextMutedBrush}" FontSize="9" VerticalAlignment="Center"/><Slider x:Name="EffectSpeedSlider" Width="190" Style="{StaticResource EffectSpeedSlider}" ValueChanged="EffectSpeedSlider_ValueChanged" Margin="6,0" VerticalAlignment="Center"/><TextBlock Text="Fast" Width="34" Foreground="{DynamicResource TextMutedBrush}" FontSize="9" VerticalAlignment="Center" TextAlignment="Right"/></StackPanel></StackPanel>
                             <TextBlock x:Name="EffectSpeedHint" Foreground="{DynamicResource TextMutedBrush}" FontSize="10" Margin="0,4,0,0" />
                             <TextBlock x:Name="HotkeyLightingHint" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,9,0,0" />
-                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0"><Button x:Name="TestRgbButton" Content="Test hotkey lighting" ToolTip="Flashes the assigned hotkey three times, then restores its previous colour." Click="TestRgbButton_Click" Style="{StaticResource GhostButton}"/><Button x:Name="TestEffectButton" Content="Test hotkey effect" ToolTip="Shows the selected lighting effect for three cycles, then restores the key. Click again to stop it early." Click="TestEffectButton_Click" Style="{StaticResource GhostButton}" Margin="7,0,0,0"/></StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0"><Button x:Name="TestRgbButton" Content="Test keyboard lighting" ToolTip="Flashes the selected keyboard three times, then restores its previous colours." Click="TestRgbButton_Click" Style="{StaticResource GhostButton}"/><Button x:Name="TestEffectButton" Content="Test keyboard effect" ToolTip="Shows the selected lighting effect across the keyboard, then restores its previous colours. Click again to stop it early." Click="TestEffectButton_Click" Style="{StaticResource GhostButton}" Margin="7,0,0,0"/></StackPanel>
                             <TextBlock x:Name="ConnectionStatus" Text="OpenRGB must be running with its SDK server enabled." Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,10,0,0" />
                         </StackPanel>
                     </Border>
@@ -38,8 +48,8 @@
                     <TextBlock Text="Intentional closures and forced terminations never restart the app. Repeated crashes are paused automatically." Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,12" />
                     <Border Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1" CornerRadius="7" Padding="10,8" Margin="0,0,0,12">
                         <StackPanel>
-                            <TextBlock Text="Click worker priority" Style="{StaticResource SectionTitle}" />
-                            <TextBlock Text="Normal is recommended. Above Normal can help on busy systems but may compete with the foreground game or app." Foreground="{DynamicResource TextMutedBrush}" FontSize="10" TextWrapping="Wrap" Margin="0,3,0,7" />
+                            <TextBlock Text="Automation worker priority" Style="{StaticResource SectionTitle}" />
+                            <TextBlock Text="Applies to Simple and Advanced actions. Normal is recommended; Above Normal can help on busy systems but may compete with the foreground game or app." Foreground="{DynamicResource TextMutedBrush}" FontSize="10" TextWrapping="Wrap" Margin="0,3,0,7" />
                             <ComboBox x:Name="WorkerPriorityCombo" SelectedValuePath="Tag">
                                 <ComboBoxItem Content="Normal (recommended)" Tag="Normal" />
                                 <ComboBoxItem Content="Above Normal (compatibility)" Tag="AboveNormal" />
@@ -49,11 +59,24 @@
                     <Border Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1" CornerRadius="7" Padding="10,8" Margin="0,0,0,12">
                         <StackPanel>
                             <TextBlock Text="Cadence diagnostics" Style="{StaticResource SectionTitle}" />
-                            <CheckBox x:Name="EnableCadenceDiagnostics" Content="Write click timing statistics to AutoClicker.log" FontWeight="SemiBold" Margin="0,5,0,0" />
-                            <TextBlock Text="For troubleshooting only. When enabled, AutoClicker records timing around each input dispatch; when disabled, it adds no diagnostics work to clicking." Foreground="{DynamicResource TextMutedBrush}" FontSize="10" TextWrapping="Wrap" Margin="0,3,0,0" />
+                            <CheckBox x:Name="EnableCadenceDiagnostics" Content="Write automation timing statistics to AutoClicker.log" FontWeight="SemiBold" Margin="0,5,0,0" />
+                            <TextBlock Text="For troubleshooting only." Foreground="{DynamicResource TextMutedBrush}" FontSize="10" TextWrapping="Wrap" Margin="0,3,0,0" />
                         </StackPanel>
                     </Border>
-                    <Border Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1" CornerRadius="7" Padding="10,8"><StackPanel><TextBlock Text="Configuration backup" Style="{StaticResource SectionTitle}"/><TextBlock Text="Full backup includes defaults, RGB, appearance, window preferences, and every saved sequence." Foreground="{DynamicResource TextMutedBrush}" FontSize="10" TextWrapping="Wrap" Margin="0,3,0,7"/><StackPanel Orientation="Horizontal"><Button Content="Export full backup" Click="ExportBackup_Click" Style="{StaticResource GhostButton}"/><Button Content="Import full backup" Click="ImportBackup_Click" Style="{StaticResource GhostButton}" Margin="7,0,0,0"/></StackPanel></StackPanel></Border>
+                    <Border Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1" CornerRadius="7" Padding="10,8">
+                        <StackPanel>
+                            <TextBlock Text="Backup and restore" Style="{StaticResource SectionTitle}"/>
+                            <TextBlock Text="Focused restore accepts its own export or an Everything backup, using only the selected part." Foreground="{DynamicResource TextMutedBrush}" FontSize="10" TextWrapping="Wrap" Margin="0,3,0,8"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                <TextBlock Text="Everything" FontWeight="SemiBold" VerticalAlignment="Center"/><Button Grid.Column="1" Content="Export" Click="ExportEverything_Click" Style="{StaticResource GhostButton}" Padding="9,5" Margin="8,0,0,0"/><Button Grid.Column="2" Content="Restore" Click="ImportEverything_Click" Style="{StaticResource GhostButton}" Padding="9,5" Margin="5,0,0,0"/>
+                                <TextBlock Grid.Row="1" Text="Simple mode settings" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,6,0,0"/><Button Grid.Row="1" Grid.Column="1" Content="Export" Click="ExportSimple_Click" Style="{StaticResource GhostButton}" Padding="9,5" Margin="8,6,0,0"/><Button Grid.Row="1" Grid.Column="2" Content="Restore" Click="ImportSimple_Click" Style="{StaticResource GhostButton}" Padding="9,5" Margin="5,6,0,0"/>
+                                <TextBlock Grid.Row="2" Text="Advanced mode &amp; profiles" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,6,0,0"/><Button Grid.Row="2" Grid.Column="1" Content="Export" Click="ExportAdvanced_Click" Style="{StaticResource GhostButton}" Padding="9,5" Margin="8,6,0,0"/><Button Grid.Row="2" Grid.Column="2" Content="Restore" Click="ImportAdvanced_Click" Style="{StaticResource GhostButton}" Padding="9,5" Margin="5,6,0,0"/>
+                                <TextBlock Grid.Row="3" Text="Custom sequences" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,6,0,0"/><Button Grid.Row="3" Grid.Column="1" Content="Export" Click="ExportSequences_Click" Style="{StaticResource GhostButton}" Padding="9,5" Margin="8,6,0,0"/><Button Grid.Row="3" Grid.Column="2" Content="Restore" Click="ImportSequences_Click" Style="{StaticResource GhostButton}" Padding="9,5" Margin="5,6,0,0"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
                     <Border Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1" CornerRadius="7" Padding="10,8" Margin="0,12,0,0">
                         <StackPanel>
                             <TextBlock Text="Updates" Style="{StaticResource SectionTitle}" />

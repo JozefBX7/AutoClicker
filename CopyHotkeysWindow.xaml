@@ -1,0 +1,27 @@
+<Window x:Class="AutoClicker.CopyHotkeysWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Copy hotkeys" Icon="Assets/AutoClickerIcon.ico" Width="450" Height="300" ResizeMode="NoResize" WindowStyle="None" AllowsTransparency="True" Background="Transparent" FontFamily="Segoe UI" WindowStartupLocation="CenterOwner">
+    <Border Background="{DynamicResource AppBackgroundBrush}" BorderBrush="{DynamicResource ControlBorderBrush}" BorderThickness="1" CornerRadius="14">
+        <Grid Margin="1">
+            <Grid.RowDefinitions><RowDefinition Height="58"/><RowDefinition Height="*"/><RowDefinition Height="58"/></Grid.RowDefinitions>
+            <Border Background="{DynamicResource PanelBrush}" CornerRadius="13,13,0,0" MouseLeftButtonDown="Header_MouseLeftButtonDown"><TextBlock Text="Copy hotkeys" Margin="20,0" VerticalAlignment="Center" FontSize="17" FontWeight="SemiBold" Foreground="{DynamicResource TextStrongBrush}"/></Border>
+            <StackPanel Grid.Row="1" Margin="20,14">
+                <TextBlock x:Name="DescriptionLabel" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                <TextBlock Text="Copy to" Style="{StaticResource FieldLabel}"/>
+                <ComboBox x:Name="DestinationCombo" DisplayMemberPath="Name" SelectionChanged="DestinationCombo_SelectionChanged"/>
+                <StackPanel x:Name="NewProfileNamePanel" Margin="0,10,0,0">
+                    <TextBlock Text="New profile name" Style="{StaticResource FieldLabel}"/>
+                    <TextBox x:Name="NewProfileNameBox" MaxLength="60"/>
+                </StackPanel>
+                <TextBlock Text="If a hotkey is already configured there" Style="{StaticResource FieldLabel}" Margin="0,12,0,3"/>
+                <StackPanel Orientation="Horizontal">
+                    <RadioButton x:Name="SkipConflictsRadio" Content="Skip conflicting hotkeys" IsChecked="True" GroupName="ConflictChoice" Margin="0,0,16,0"/>
+                    <RadioButton x:Name="ReplaceConflictsRadio" Content="Replace existing hotkeys" GroupName="ConflictChoice"/>
+                </StackPanel>
+                <TextBlock x:Name="ValidationLabel" Foreground="{DynamicResource WarningBrush}" FontSize="10" Margin="0,7,0,0"/>
+            </StackPanel>
+            <Border Grid.Row="2" Background="{DynamicResource PanelBrush}" CornerRadius="0,0,13,13" Padding="20,10"><StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><Button Content="Cancel" Click="CancelButton_Click" Style="{StaticResource GhostButton}"/><Button Content="Copy" Click="CopyButton_Click" Style="{StaticResource PrimaryButton}" Margin="8,0,0,0"/></StackPanel></Border>
+        </Grid>
+    </Border>
+</Window>

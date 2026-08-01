@@ -8,9 +8,10 @@ public partial class InputPulseWindow : Window
 {
     public int PulseMilliseconds { get; private set; }
 
-    public InputPulseWindow(int pulseMilliseconds)
+    public InputPulseWindow(int pulseMilliseconds, string scopeDescription)
     {
         InitializeComponent();
+        ScopeLabel.Text = $"Editing: {scopeDescription}";
         PulseMilliseconds = InputRules.NormalizeInputPulseMilliseconds(pulseMilliseconds);
         PulseCombo.SelectedItem = PulseCombo.Items.OfType<ComboBoxItem>().First(item => item.Tag?.ToString() == PulseMilliseconds.ToString());
     }
