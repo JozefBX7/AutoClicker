@@ -24,6 +24,27 @@ public sealed class AutomationProfileTests
     }
 
     [TestMethod]
+    public void ProfileTransfer_RoundTripsUnselectedAction()
+    {
+        var path = TemporaryPath();
+        try
+        {
+            var profile = new AutomationProfile
+            {
+                Name = "Unselected action",
+                Actions = [new AutomationAction { Settings = new AppDefaults { Hotkey = 118, Input = "Unset", MouseButton = "Unset" } }]
+            };
+
+            ProfileTransferStore.Save(path, profile);
+            var imported = ProfileTransferStore.Load(path);
+
+            Assert.AreEqual("Unset", imported.Actions[0].Settings.Input);
+            Assert.AreEqual("Unset", imported.Actions[0].Settings.MouseButton);
+        }
+        finally { Delete(path); }
+    }
+
+    [TestMethod]
     public void MissingAdvancedProfileStore_UsesItsOwnFallbackRatherThanSimpleModeValues()
     {
         var path = TemporaryPath();
@@ -397,6 +418,14 @@ public sealed class AutomationProfileTests
     }
 
     [TestMethod]
+    public void AdvancedActionTile_ShowsWaitingLabelWhileHotkeyCaptureIsPending()
+    {
+        var tile = new AdvancedActionTile(new AutomationAction(), isRunning: false, removalPending: false, isSelected: true, isManagementLocked: false, hotkeyCapturePending: true);
+
+        Assert.AreEqual("Waiting...", tile.HotkeyLabel);
+    }
+
+    [TestMethod]
     public void AdvancedProfileTile_ShowsUnsavedIndicatorOnlyForPendingChanges()
     {
         var profile = new AutomationProfile { Name = "Unsaved" };
@@ -440,6 +469,15 @@ public sealed class AutomationProfileTests
         Assert.AreEqual("R", converter.Convert([mouse, 75d], typeof(string), null!, CultureInfo.InvariantCulture));
         Assert.AreEqual("Right click", converter.Convert([mouse, 75d, false], typeof(string), null!, CultureInfo.InvariantCulture));
         Assert.AreEqual("Space", converter.Convert([key, 95d], typeof(string), null!, CultureInfo.InvariantCulture));
+    }
+
+    [TestMethod]
+    public void AdvancedActionLabelConverter_ShowsPlaceholderForUnconfiguredActions()
+    {
+        var converter = new AdvancedActionLabelConverter();
+        var unconfigured = new AutomationAction { Settings = new AppDefaults { Input = "Unset", MouseButton = "Unset" } };
+
+        Assert.AreEqual("Set action", converter.Convert([unconfigured, 120d], typeof(string), null!, CultureInfo.InvariantCulture));
     }
 
     [TestMethod]
@@ -522,6 +560,20 @@ public sealed class AutomationProfileTests
         Assert.AreEqual("Space", destination.Actions[0].Settings.Input);
         Assert.AreNotEqual(source.Id, destination.Actions[0].Id);
         Assert.AreNotSame(source.Settings, destination.Actions[0].Settings);
+    }
+
+    [TestMethod]
+    public void ProfileCopy_PreservesUnselectedAction()
+    {
+        var source = new AutomationAction { Id = "source", Settings = new AppDefaults { Hotkey = 118, Input = "Unset", MouseButton = "Unset" } };
+        var destination = new AutomationProfile();
+
+        var result = AutomationProfileCopy.CopyTo(destination, [source], ProfileCopyConflictResolution.Skip);
+
+        Assert.AreEqual(1, result.CopiedCount);
+        Assert.AreEqual("Unset", destination.Actions[0].Settings.Input);
+        Assert.AreEqual("Unset", destination.Actions[0].Settings.MouseButton);
+        Assert.AreNotEqual(source.Id, destination.Actions[0].Id);
     }
 
     [TestMethod]

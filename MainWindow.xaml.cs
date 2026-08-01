@@ -480,6 +480,7 @@ public partial class MainWindow : Window
         hotkeyTrigger = trigger;
         CaptureCurrentActionToProfile();
         pendingNewActionId = null;
+        RefreshAdvancedFooterUi();
         UpdateHotkeyLabel();
         CancelHotkeyCapture(keepStatus: true);
         Status($"Ready — press {FormatHotkey()} to start or stop.", ThemeManager.Brush("SuccessBrush"));
@@ -682,7 +683,7 @@ public partial class MainWindow : Window
 
     private void ActionCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (updatingActionSelection || ButtonCombo is null || PickKeyItem is null) return;
+        if (applyingDefaults || updatingActionSelection || ButtonCombo is null || PickKeyItem is null) return;
         var selectedAction = Selected(ButtonCombo);
         if (selectedAction.StartsWith("SequencePreset:", StringComparison.Ordinal))
         {
@@ -1547,7 +1548,7 @@ public partial class MainWindow : Window
         // Multiple selections still edit shared defaults, but every selected tile remains visibly highlighted.
         var multiSelection = selectedAdvancedActionIds.Count > 1;
         var showInlineActionControls = (profile?.Actions.Count ?? 0) < AutomationProfileLimits.HideInlineActionControlsAt;
-        AdvancedActionsFooterList.ItemsSource = profile?.Actions.Select(action => new AdvancedActionTile(action, profileRuns.ContainsKey(action.Id), action.Id == pendingRemovalActionId, selectedAdvancedActionIds.Contains(action.Id), profileRuns.Count > 0, multiSelection, showInlineActionControls)).ToList();
+        AdvancedActionsFooterList.ItemsSource = profile?.Actions.Select(action => new AdvancedActionTile(action, profileRuns.ContainsKey(action.Id), action.Id == pendingRemovalActionId, selectedAdvancedActionIds.Contains(action.Id), profileRuns.Count > 0, multiSelection, showInlineActionControls, hotkeyCapturePending: action.Id == pendingNewActionId)).ToList();
         if (EmptyAdvancedActionsLabel is not null)
             EmptyAdvancedActionsLabel.Visibility = profile?.Actions.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         if (AdvancedSaveProfileButton is not null) AdvancedSaveProfileButton.Visibility = profilesDirty || ActiveProfile()?.Id == unsavedProfileId ? Visibility.Visible : Visibility.Collapsed;
@@ -3832,11 +3833,12 @@ public partial class MainWindow : Window
 // A small immutable view of a configured action for the Advanced-mode footer.
 public sealed class AdvancedActionTile
 {
-    public AdvancedActionTile(AutomationAction action, bool isRunning, bool removalPending, bool isSelected, bool isManagementLocked, bool isMultiSelection = false, bool showInlineActionControls = true)
+    public AdvancedActionTile(AutomationAction action, bool isRunning, bool removalPending, bool isSelected, bool isManagementLocked, bool isMultiSelection = false, bool showInlineActionControls = true, bool hotkeyCapturePending = false)
     {
         Action = action;
         IsRunning = isRunning;
         RemovalPending = removalPending;
+        HotkeyCapturePending = hotkeyCapturePending;
         IsSelected = isSelected;
         IsManagementLocked = isManagementLocked;
         IsMultiSelection = isMultiSelection;
@@ -3846,6 +3848,7 @@ public sealed class AdvancedActionTile
     public AutomationAction Action { get; }
     public bool IsRunning { get; }
     public bool RemovalPending { get; }
+    public bool HotkeyCapturePending { get; }
     public bool IsSelected { get; }
     public bool IsManagementLocked { get; }
     public bool IsMultiSelection { get; }
@@ -3859,7 +3862,7 @@ public sealed class AdvancedActionTile
     public Visibility InlineActionControlsVisibility => ShowInlineActionControls ? Visibility.Visible : Visibility.Collapsed;
     public int ActionLabelColumnSpan => ShowInlineActionControls ? 1 : 3;
     public bool HotkeyEnabled => Action.HotkeyEnabled;
-    public string HotkeyLabel => HotkeyFormatter.Format(Action.Settings.Hotkey, Action.Settings.HotkeyModifiers, Action.Settings.HotkeyTrigger);
+    public string HotkeyLabel => HotkeyCapturePending ? "Waiting..." : HotkeyFormatter.Format(Action.Settings.Hotkey, Action.Settings.HotkeyModifiers, Action.Settings.HotkeyTrigger);
     public string HotkeyTooltip => Action.HotkeyEnabled ? $"Hotkey: {HotkeyLabel}" : $"Hotkey disabled: {HotkeyLabel}";
     public string ActionLabel => Action.DisplayName[(Action.DisplayName.IndexOf('·') + 1)..].Trim();
     public Visibility RemoveButtonVisibility => RemovalPending || IsMultiSelection ? Visibility.Collapsed : Visibility.Visible;

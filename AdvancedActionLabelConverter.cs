@@ -16,6 +16,7 @@ public sealed class AdvancedActionLabelConverter : IMultiValueConverter
         var tileWidth = values[1] is double actualWidth ? actualWidth : double.MaxValue;
         var hasInlineActionControls = values.Length < 3 || values[2] is not bool visible || visible;
         var labelWidth = Math.Max(0, tileWidth - (hasInlineActionControls ? NonLabelWidth : 0));
+        if (action.Settings.Input == "Unset") return "Set action";
         var label = Describe(action.Settings, out var isMouseAction, out var compactSymbol);
 
         if (labelWidth >= EstimateWidth(label)) return label;
