@@ -80,7 +80,7 @@ public partial class ProfilesWindow : Window
         DialogResult = true;
     }
     private void RefreshProfiles() { ProfilesList.Items.Refresh(); CopyTargetCombo.Items.Refresh(); }
-    private string NextProfileName() { var number = 2; while (document.Profiles.Any(profile => profile.Name.Equals($"Profile {number}", StringComparison.OrdinalIgnoreCase))) number++; return $"Profile {number}"; }
+    private string NextProfileName() => AutomationProfileNameRules.MakeUnique("Profile 2", document.Profiles);
     private static void EnsureUniqueHotkey(AutomationAction action, AutomationProfile profile)
     {
         for (var key = 0x76; key <= 0x7E; key++) if (!profile.Actions.Any(existing => existing != action && existing.Settings.Hotkey == key && existing.Settings.HotkeyModifiers == 0)) { action.Settings.Hotkey = key; action.Settings.HotkeyModifiers = 0; return; }

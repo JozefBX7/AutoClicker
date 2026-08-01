@@ -106,7 +106,8 @@
                                     </Grid.ColumnDefinitions>
                                     <StackPanel>
                                         <TextBlock Text="Input" Style="{StaticResource FieldLabel}" />
-                                        <ComboBox x:Name="ButtonCombo" SelectedIndex="0" SelectionChanged="ActionCombo_SelectionChanged">
+                                        <ComboBox x:Name="ButtonCombo" SelectedIndex="1" SelectionChanged="ActionCombo_SelectionChanged">
+                                            <ComboBoxItem x:Name="UnsetActionItem" Content="Set action…" Tag="Unset" Foreground="{DynamicResource TextMutedBrush}" />
                                             <ComboBoxItem Content="Left click" Tag="Left" />
                                             <ComboBoxItem Content="Right click" Tag="Right" />
                                             <ComboBoxItem Content="Middle click" Tag="Middle" />
@@ -145,12 +146,12 @@
                                 <RadioButton x:Name="UntilStoppedRadio" GroupName="RepeatMode" Content="Repeat until stopped" IsChecked="True" Margin="0,12,0,7" Checked="RepeatMode_Changed" />
                                 <StackPanel Orientation="Horizontal">
                                     <RadioButton x:Name="CountRadio" GroupName="RepeatMode" Content="Repeat" Checked="RepeatMode_Changed" />
-                                    <TextBox x:Name="CountBox" Text="10" Width="52" Margin="8,-4,6,0" IsEnabled="False" TextChanged="ProfileDefaultFieldChanged" />
+                                <TextBox x:Name="CountBox" Text="10" Width="52" Margin="8,-4,6,0" IsEnabled="False" TextChanged="RepeatDefaultFieldChanged" />
                                     <TextBlock Text="times" Foreground="{DynamicResource TextMutedBrush}" FontSize="12" />
                                 </StackPanel>
                             </StackPanel>
                             <Border x:Name="RepeatSharedOverlay" Visibility="Collapsed" Background="{DynamicResource ControlBrush}" Opacity="0.97" CornerRadius="8" IsHitTestVisible="False">
-                                <TextBlock Text="Click to override repeat for this hotkey" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="11" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="18" />
+                                <TextBlock x:Name="RepeatSharedOverlayLabel" Text="Click to override repeat for this hotkey" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="11" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="18" />
                             </Border>
                             </Grid>
                         </Border>
@@ -173,7 +174,7 @@
                                     </Grid.ColumnDefinitions>
                                     <RadioButton x:Name="FixedPositionRadio" GroupName="PositionMode" Content="Fixed" Checked="PositionMode_Changed" Grid.ColumnSpan="2" Margin="0,0,10,0" />
                                     <TextBlock Grid.Column="1" Text="X" Style="{StaticResource InlineLabel}" Margin="26,0,38,0" Grid.ColumnSpan="2" />
-                                    <TextBox x:Name="XBox" Grid.Column="2" Text="0" IsEnabled="False" TextChanged="ProfileDefaultFieldChanged" Margin="8,-4,12,0" RenderTransformOrigin="0.5,0.5" >
+                                    <TextBox x:Name="XBox" Grid.Column="2" Text="0" IsEnabled="False" TextChanged="PositionDefaultFieldChanged" Margin="8,-4,12,0" RenderTransformOrigin="0.5,0.5" >
                                         <TextBox.RenderTransform>
                                             <TransformGroup>
                                                 <ScaleTransform/>
@@ -184,7 +185,7 @@
                                         </TextBox.RenderTransform>
                                     </TextBox>
                                     <TextBlock Grid.Column="2" Text="Y" Style="{StaticResource InlineLabel}" Margin="63,0,30,0" Grid.ColumnSpan="3" />
-                                    <TextBox x:Name="YBox" Grid.Column="4" Text="0" IsEnabled="False" TextChanged="ProfileDefaultFieldChanged" Margin="3,-4,1,0" RenderTransformOrigin="0.5,0.5" >
+                                    <TextBox x:Name="YBox" Grid.Column="4" Text="0" IsEnabled="False" TextChanged="PositionDefaultFieldChanged" Margin="3,-4,1,0" RenderTransformOrigin="0.5,0.5" >
                                         <TextBox.RenderTransform>
                                             <TransformGroup>
                                                 <ScaleTransform/>
@@ -210,7 +211,7 @@
                                 </Grid>
                             </StackPanel>
                             <Border x:Name="PositionSharedOverlay" Visibility="Collapsed" Background="{DynamicResource ControlBrush}" Opacity="0.97" CornerRadius="8" IsHitTestVisible="False">
-                                <TextBlock Text="Click to override position for this hotkey" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="11" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="18" />
+                                <TextBlock x:Name="PositionSharedOverlayLabel" Text="Click to override position for this hotkey" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="11" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="18" />
                             </Border>
                             </Grid>
                         </Border>
@@ -275,7 +276,7 @@
                                 <TextBlock x:Name="TargetWindowHint" Text="Global input enabled." Foreground="{DynamicResource TextMutedBrush}" FontSize="10" ToolTip="Input is sent to whichever window is active." Margin="0,5,0,0" />
                             </StackPanel>
                             <Border x:Name="TargetWindowSharedOverlay" Visibility="Collapsed" Background="{DynamicResource ControlBrush}" Opacity="0.97" CornerRadius="8" IsHitTestVisible="False">
-                                <TextBlock Text="Click to override target window for this hotkey" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="11" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="18" />
+                                <TextBlock x:Name="TargetWindowSharedOverlayLabel" Text="Click to override target window for this hotkey" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="11" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="18" />
                             </Border>
                             </Grid>
                         </Border>
@@ -317,7 +318,7 @@
                         <TextBlock Text="PROFILE" FontSize="9" FontWeight="Bold" Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center" Margin="0,0,7,0"/>
                         <ItemsControl x:Name="RecentProfilesList" Grid.Column="1">
                             <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate><DataTemplate><Button Tag="{Binding Profile}" Click="RecentProfileButton_Click" ToolTip="{Binding Tooltip}" FontSize="9" Padding="4,3" Width="54" Margin="0,0,3,0"><Button.Style><Style TargetType="Button" BasedOn="{StaticResource GhostButton}"><Style.Triggers><DataTrigger Binding="{Binding IsSelected}" Value="True"><Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/><Setter Property="Background" Value="{DynamicResource ControlHoverBrush}"/></DataTrigger></Style.Triggers></Style></Button.Style><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/><Ellipse Grid.Column="1" Width="5" Height="5" Fill="{DynamicResource AccentBrush}" VerticalAlignment="Center" Margin="3,0,0,0" Visibility="{Binding UnsavedIndicatorVisibility}" ToolTip="Unsaved changes"/></Grid><Button.ContextMenu><ContextMenu><MenuItem Header="Configure profile defaults" Tag="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="ConfigureProfileDefaults_Click"/><MenuItem Header="Use app defaults" Tag="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="UseAppDefaultsForProfile_Click"/><MenuItem Header="Choose sections to use app defaults…" Tag="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="UseSharedProfileBehaviorDefaults_Click"/><Separator/><MenuItem Header="Configure profile lighting…" Tag="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="ConfigureProfileLighting_Click"/><MenuItem Header="Use app lighting defaults" Tag="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="UseAppLightingDefaultsForProfile_Click"/><Separator/><MenuItem Header="Export profile…" Tag="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="ExportProfile_Click"/><MenuItem Header="Rename profile" Tag="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="RenameProfile_Click"/><MenuItem Header="Duplicate profile" Tag="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="DuplicateProfile_Click"/></ContextMenu></Button.ContextMenu></Button></DataTemplate></ItemsControl.ItemTemplate>
+                            <ItemsControl.ItemTemplate><DataTemplate><Button Tag="{Binding Profile}" Click="RecentProfileButton_Click" ToolTip="{Binding Tooltip}" FontSize="9" Padding="4,3" Width="54" Margin="0,0,3,0"><Button.Style><Style TargetType="Button" BasedOn="{StaticResource GhostButton}"><Style.Triggers><DataTrigger Binding="{Binding IsSelected}" Value="True"><Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/><Setter Property="Background" Value="{DynamicResource ControlHoverBrush}"/></DataTrigger></Style.Triggers></Style></Button.Style><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/><Ellipse Grid.Column="1" Width="5" Height="5" Fill="{DynamicResource AccentBrush}" VerticalAlignment="Center" Margin="3,0,0,0" Visibility="{Binding UnsavedIndicatorVisibility}" ToolTip="Unsaved changes"/></Grid><Button.ContextMenu><ContextMenu Opened="ProfileContextMenu_Opened"><MenuItem Header="Configure profile defaults" Tag="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="ConfigureProfileDefaults_Click"/><MenuItem Header="Use app defaults" Tag="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="UseAppDefaultsForProfile_Click"/><MenuItem Header="Choose sections to use app defaults…" Tag="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="UseSharedProfileBehaviorDefaults_Click"/><Separator/><MenuItem Header="Configure profile lighting…" Tag="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="ConfigureProfileLighting_Click"/><MenuItem Header="Use app lighting defaults" Tag="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="UseAppLightingDefaultsForProfile_Click"/><Separator/><MenuItem Header="Export profile…" Tag="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="ExportProfile_Click"/><MenuItem Header="Rename profile" Tag="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="RenameProfile_Click"/><MenuItem Header="Duplicate profile" Tag="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="DuplicateProfile_Click"/><Separator x:Name="DeleteProfileSeparator"/><MenuItem x:Name="DeleteProfileMenuItem" Header="Delete profile" Tag="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="DeleteProfile_Click" Style="{StaticResource DangerMenuItem}"/></ContextMenu></Button.ContextMenu></Button></DataTemplate></ItemsControl.ItemTemplate>
                         </ItemsControl>
                         <Button x:Name="NewProfileButton" Grid.Column="2" Click="NewProfileButton_Click" ToolTip="Start a new unsaved profile" Style="{StaticResource RoundFooterIconButton}" Margin="0,0,4,0"><TextBlock Text="+" Margin="0,-1,0,0"/></Button>
                         <Button x:Name="AdvancedSaveProfileButton" Grid.Column="3" Click="SaveProfileButton_Click" ToolTip="Save changes to this profile" Style="{StaticResource GhostButton}" Width="26" Height="24" Padding="0" Margin="0,0,4,0"><Viewbox Width="12" Height="12"><Path Data="M 3 2 L 17 2 L 21 6 L 21 21 L 3 21 Z M 7 2 L 7 8 L 16 8 L 16 2 M 7 21 L 7 13 L 17 13 L 17 21" Stroke="{DynamicResource TextAccentBrush}" StrokeThickness="1.7" StrokeLineJoin="Round" Fill="Transparent"/></Viewbox></Button>

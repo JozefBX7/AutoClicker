@@ -44,6 +44,27 @@ public sealed class AutomationProfileTests
     }
 
     [TestMethod]
+    public void ProfileNames_AreUniqueCaseInsensitivelyAcrossLoadAndCreation()
+    {
+        var path = TemporaryPath();
+        try
+        {
+            var document = new AutomationProfileDocument
+            {
+                Profiles = [new AutomationProfile { Id = "one", Name = "Games" }, new AutomationProfile { Id = "two", Name = "games" }, new AutomationProfile { Id = "three", Name = "Tools" }]
+            };
+            AutomationProfileStore.Save(path, document);
+
+            var loaded = AutomationProfileStore.Load(path, new AppDefaults());
+
+            CollectionAssert.AreEqual(new[] { "Games", "games (2)", "Tools" }, loaded.Profiles.Select(profile => profile.Name).ToArray());
+            Assert.AreEqual("games (3)", AutomationProfileNameRules.MakeUnique("games", loaded.Profiles));
+            Assert.AreEqual("games", AutomationProfileNameRules.MakeUnique("games", loaded.Profiles, "one"));
+        }
+        finally { Delete(path); }
+    }
+
+    [TestMethod]
     public void Store_RoundTripsMultipleActionsAndTargetRules()
     {
         var path = TemporaryPath();

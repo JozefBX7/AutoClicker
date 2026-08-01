@@ -72,7 +72,7 @@ public partial class MainWindow : Window
     private int statusRevision;
     private string statusBrushKey = "SuccessBrush";
     private bool compactMode;
-    private bool rgbLightingTipSeen;
+    private bool quickStartSeen;
     private string? targetWindowTitle;
     private int inputPulseMilliseconds = InputRules.DefaultInputPulseMilliseconds;
     private long inputJitterMaximumMilliseconds;
@@ -81,6 +81,7 @@ public partial class MainWindow : Window
     private string? editingProfileDefaultsId;
     private bool profileDefaultsEditingDirty;
     private bool suppressProfileDefaultTracking;
+    private bool applyingDefaults;
     private string savedProfileConfiguration = string.Empty;
     private string? unsavedProfileId;
     private string? pendingRemovalActionId;
@@ -113,7 +114,7 @@ public partial class MainWindow : Window
         Volatile.Write(ref lastGuiHeartbeat, Stopwatch.GetTimestamp());
         resetTimer.Start();
         guiHeartbeatTimer.Start();
-        Loaded += (_, _) => _ = Dispatcher.BeginInvoke(ShowRgbLightingTip, DispatcherPriority.ContextIdle);
+        Loaded += (_, _) => _ = Dispatcher.BeginInvoke(ShowQuickStart, DispatcherPriority.ContextIdle);
         Loaded += (_, _) => StartConfiguredOpenRgb();
     }
     private void FindWindowsButton_Click(object sender, RoutedEventArgs e)
@@ -124,6 +125,7 @@ public partial class MainWindow : Window
         targetWindowTitle = window.Title;
         EnableTargetWindowCheckBox.IsChecked = true;
         UpdateTargetWindowUi();
+        CommitBehaviorChange(AutomationBehaviorOverride.TargetWindow);
     }
 
     private void ClearTargetWindowButton_Click(object sender, RoutedEventArgs e)
@@ -138,7 +140,7 @@ public partial class MainWindow : Window
     {
         UpdateTargetWindowUi();
         UpdateLiveInputMode();
-        MarkProfileDefaultsEdited();
+        CommitBehaviorChange(AutomationBehaviorOverride.TargetWindow);
     }
 
     private void InputPulseButton_Click(object sender, RoutedEventArgs e)
@@ -229,7 +231,7 @@ public partial class MainWindow : Window
         targetWindowTitle = null;
         UpdateTargetWindowUi();
         UpdateLiveInputMode();
-        MarkProfileDefaultsEdited();
+        CommitBehaviorChange(AutomationBehaviorOverride.TargetWindow);
     }
 
     private void UpdateTargetWindowUi()
@@ -274,12 +276,13 @@ public partial class MainWindow : Window
 
     private void Header_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        if (advancedMode) ShowAdvancedSharedDefaults(announce: true);
+        if (advancedMode && !IsClicking) ShowAdvancedSharedDefaults(announce: true);
         if (e.LeftButton == System.Windows.Input.MouseButtonState.Pressed) DragMove();
     }
 
     private void Header_MouseRightButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
+        if (IsClicking) return;
         if (FindParent<Button>(e.OriginalSource as DependencyObject) is not null) return;
         var menu = new ContextMenu { PlacementTarget = sender as UIElement };
         var resetOptions = new MenuItem { Header = "Reset options…" };
@@ -319,7 +322,7 @@ public partial class MainWindow : Window
 
     private void AdvancedHelpButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!advancedMode) return;
+        if (!advancedMode || IsClicking) return;
         new AdvancedModeHelpWindow { Owner = this }.ShowDialog();
     }
     private void PinButton_Click(object sender, RoutedEventArgs e)
@@ -342,16 +345,12 @@ public partial class MainWindow : Window
         PinButton.ToolTip = Topmost ? "Always on top — click to unpin" : "Keep on top";
     }
 
-    private void ShowRgbLightingTip()
+    private void ShowQuickStart()
     {
-        if (rgbLightingTipSeen || isClosing) return;
-        var dialog = new ConfirmationWindow(
-            "RGB keyboard lighting",
-            "AutoClicker can light your active hotkey on compatible RGB keyboards with OpenRGB. Enable it in Settings → Keyboard lighting.",
-            "Got it",
-            showCancel: false) { Owner = this };
+        if (quickStartSeen || isClosing) return;
+        var dialog = new QuickStartWindow { Owner = this };
         dialog.ShowDialog();
-        rgbLightingTipSeen = true;
+        quickStartSeen = true;
         SaveUiPreferences();
     }
     private void SettingsButton_Click(object sender, RoutedEventArgs e)
@@ -503,7 +502,7 @@ public partial class MainWindow : Window
         var clickedProfileButton = FindParent<Button>(source)?.Tag is AutomationProfile;
         var withinFooter = IsWithin(source, AdvancedFooter);
         var editorDeadSpace = IsAdvancedEditorDeadSpace(source);
-        if (!clickedProfileButton && (ShouldReturnToSharedDefaults(advancedMode, IsWithinAdvancedActionTile(source), withinFooter)
+        if (!IsClicking && !clickedProfileButton && (ShouldReturnToSharedDefaults(advancedMode, IsWithinAdvancedActionTile(source), withinFooter)
             || ShouldReturnFromEditorDeadSpace(advancedMode, editorDeadSpace)))
             ShowAdvancedSharedDefaults(announce: true);
 
@@ -913,6 +912,14 @@ public partial class MainWindow : Window
         catch (Exception exception) { AppLog.Error("Could not save automation profiles", exception); }
     }
 
+    // Active/recent profile navigation is useful state, but changing it must not silently save an edited profile.
+    private void PersistProfileNavigation()
+    {
+        if (profilesDirty) return;
+        try { AutomationProfileStore.Save(ProfilesPath, automationProfiles); }
+        catch (Exception exception) { AppLog.Error("Could not save selected automation profile", exception); }
+    }
+
     private void SaveAutomationProfiles() => MarkProfilesDirty();
 
     private void MarkProfilesDirty()
@@ -1258,9 +1265,15 @@ public partial class MainWindow : Window
         if (profile is null) return false;
         if (profile.Id == unsavedProfileId)
         {
-            var name = savedProfileName ?? Microsoft.VisualBasic.Interaction.InputBox("Name this profile:", "Save profile", "New profile");
+            var name = savedProfileName;
+            if (name is null)
+            {
+                var dialog = new ProfileNameWindow("Save profile", "Give this profile a name before saving it.", "New profile") { Owner = this };
+                if (dialog.ShowDialog() != true) return false;
+                name = dialog.ProfileName;
+            }
             if (string.IsNullOrWhiteSpace(name)) return false;
-            profile.Name = name.Trim();
+            profile.Name = UniqueProfileName(name, profile.Id);
             unsavedProfileId = null;
         }
         PersistAutomationProfiles();
@@ -1335,6 +1348,9 @@ public partial class MainWindow : Window
         UpdateSharedBehaviorSurface(RepeatCard, sharedRepeat, "repeat", overrideScope);
         UpdateSharedBehaviorSurface(PositionCard, sharedPosition, "position", overrideScope);
         UpdateSharedBehaviorSurface(TargetWindowCard, sharedTarget, "target window", overrideScope);
+        RepeatSharedOverlayLabel.Text = $"Click to override repeat for this {overrideScope}";
+        PositionSharedOverlayLabel.Text = $"Click to override position for this {overrideScope}";
+        TargetWindowSharedOverlayLabel.Text = $"Click to override target window for this {overrideScope}";
         UpdateSharedBehaviorSurface(InputJitterOverrideHost, sharedJitter, "input jitter", overrideScope);
         UpdateSharedBehaviorSurface(InputPulseOverrideHost, sharedPulse, "input pulse", overrideScope);
         RepeatSharedOverlay.Visibility = sharedRepeat ? Visibility.Visible : Visibility.Collapsed;
@@ -1345,6 +1361,7 @@ public partial class MainWindow : Window
         HotkeyButton.IsEnabled = !locked;
         ModeButton.IsEnabled = !locked;
         SettingsButton.IsEnabled = !locked;
+        AdvancedHelpButton.IsEnabled = !locked;
         SetDefaultButton.IsEnabled = !locked;
 
         var profileManagementLocked = advancedMode && profileRuns.Count > 0;
@@ -1465,14 +1482,8 @@ public partial class MainWindow : Window
         }
     }
 
-    private string UniqueProfileName(string preferredName)
-    {
-        var name = string.IsNullOrWhiteSpace(preferredName) ? "Imported profile" : preferredName.Trim();
-        if (!automationProfiles.Profiles.Any(profile => profile.Name.Equals(name, StringComparison.OrdinalIgnoreCase))) return name;
-        var number = 2;
-        while (automationProfiles.Profiles.Any(profile => profile.Name.Equals($"{name} ({number})", StringComparison.OrdinalIgnoreCase))) number++;
-        return $"{name} ({number})";
-    }
+    private string UniqueProfileName(string preferredName, string? excludedProfileId = null) =>
+        AutomationProfileNameRules.MakeUnique(preferredName, automationProfiles.Profiles, excludedProfileId);
 
     private static string SafeProfileFileName(string name)
     {
@@ -1566,6 +1577,7 @@ public partial class MainWindow : Window
         var action = profile.Actions.FirstOrDefault();
         automationProfiles.ActiveActionId = action?.Id ?? string.Empty;
         TouchRecentProfile(profile.Id);
+        PersistProfileNavigation();
         selectedAdvancedActionIds.Clear();
         if (editProfileDefaults) BeginProfileDefaultsEdit(profile);
         else ShowAdvancedSharedDefaults(clearSelection: false);
@@ -1712,10 +1724,70 @@ public partial class MainWindow : Window
     private void RenameProfile_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is not AutomationProfile profile) return;
-        var name = Microsoft.VisualBasic.Interaction.InputBox("Enter a new profile name:", "Rename profile", profile.Name);
-        if (string.IsNullOrWhiteSpace(name)) return;
-        profile.Name = name.Trim();
+        var dialog = new ProfileNameWindow("Rename profile", "Choose a new name for this profile.", profile.Name) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+        profile.Name = UniqueProfileName(dialog.ProfileName, profile.Id);
         MarkProfilesDirty();
+    }
+
+    // Behavior values are stored at the level currently being edited. Global Advanced values persist independently
+    // from Simple-mode defaults; profile and hotkey edits continue to use their existing inheritance models.
+    private void CommitBehaviorChange(AutomationBehaviorOverride aspect)
+    {
+        if (applyingDefaults) return;
+        if (!advancedMode)
+        {
+            MarkProfileDefaultsEdited();
+            return;
+        }
+
+        if (editingProfileDefaultsId == ActiveProfile()?.Id)
+        {
+            MarkProfileDefaultsEdited();
+            return;
+        }
+
+        if (IsEditingAdvancedAction())
+        {
+            CaptureCurrentActionToProfile();
+            return;
+        }
+
+        var defaults = LoadSavedDefaults();
+        var updated = defaults.Clone();
+        CopyBehaviorOverride(CreateCurrentDefaults(), updated, aspect);
+        if (JsonSerializer.Serialize(defaults) == JsonSerializer.Serialize(updated)) return;
+        if (!WriteDefaults(GlobalDefaultsPath, updated))
+            Status("Could not save the global Advanced default.", ThemeManager.Brush("ErrorBrush"));
+    }
+
+    private void ProfileContextMenu_Opened(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ContextMenu menu || menu.PlacementTarget is not FrameworkElement { Tag: AutomationProfile profile }) return;
+        var canDelete = profile.Id != ActiveProfile()?.Id;
+        foreach (var item in menu.Items.OfType<FrameworkElement>())
+        {
+            if (item.Name is "DeleteProfileMenuItem" or "DeleteProfileSeparator")
+                item.Visibility = canDelete ? Visibility.Visible : Visibility.Collapsed;
+        }
+    }
+
+    private void DeleteProfile_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not AutomationProfile profile || profile.Id == ActiveProfile()?.Id) return;
+        if (profilesDirty)
+        {
+            Status("Save or discard current profile changes before deleting another profile.", ThemeManager.Brush("WarningBrush"));
+            return;
+        }
+
+        var confirmation = new ConfirmationWindow("Delete profile", $"Delete {profile.Name}? This cannot be undone.", "Delete", destructive: true) { Owner = this };
+        if (confirmation.ShowDialog() != true) return;
+        automationProfiles.Profiles.RemoveAll(item => item.Id == profile.Id);
+        automationProfiles.RecentProfileIds.Remove(profile.Id);
+        PersistAutomationProfiles();
+        RefreshAdvancedFooterUi();
+        Status($"{profile.Name} deleted.", ThemeManager.Brush("SuccessBrush"));
     }
 
     private void DuplicateProfile_Click(object sender, RoutedEventArgs e)
@@ -2120,7 +2192,7 @@ public partial class MainWindow : Window
             return;
         }
         CaptureCurrentActionToProfile();
-        var action = new AutomationAction { Settings = CreateCurrentDefaults(), UsesSharedBehaviorDefaults = true };
+        var action = new AutomationAction { Settings = CreateUnconfiguredActionDefaults(), UsesSharedBehaviorDefaults = true };
         // A new assignment is intentionally unbound until the capture prompt receives a key.
         action.Settings.Hotkey = 0;
         action.Settings.HotkeyModifiers = 0;
@@ -2149,9 +2221,9 @@ public partial class MainWindow : Window
         if (!HotkeyFormatter.IsConfigured(action.Settings.Hotkey, action.Settings.HotkeyTrigger) || profileRuns.ContainsKey(action.Id)) return;
         var effectiveSettings = ResolveActionSettings(action);
         var input = string.IsNullOrWhiteSpace(effectiveSettings.Input) ? effectiveSettings.MouseButton : effectiveSettings.Input;
-        if (input == "Pick" || input == "Custom" && effectiveSettings.CustomKey == 0 || input == "Sequence" && (effectiveSettings.CustomSequence?.Count ?? 0) < 2)
+        if (!InputRules.IsConfiguredAction(input, effectiveSettings.CustomKey, effectiveSettings.CustomSequence?.Count ?? 0))
         {
-            Status($"Configure {action.DisplayName} before starting it.", ThemeManager.Brush("WarningBrush"));
+            Status($"Set an action for {HotkeyFormatter.Format(action.Settings.Hotkey, action.Settings.HotkeyModifiers, action.Settings.HotkeyTrigger)} before starting it.", ThemeManager.Brush("WarningBrush"));
             return;
         }
         if (InputRules.IsHoldAction(effectiveSettings.ClickType) && effectiveSettings.TargetWindowEnabled && !string.IsNullOrWhiteSpace(effectiveSettings.TargetExecutable))
@@ -2221,19 +2293,9 @@ public partial class MainWindow : Window
             return;
         }
         var input = Selected(ButtonCombo);
-        if (input == "Pick")
+        if (!InputRules.IsConfiguredAction(input, customSpamVirtualKey, customSequence.Count))
         {
-            Status("Choose a key to repeat first.", ThemeManager.Brush("WarningBrush"));
-            return;
-        }
-        if (input == "Custom" && customSpamVirtualKey == 0)
-        {
-            Status("Choose a custom key to repeat first.", ThemeManager.Brush("WarningBrush"));
-            return;
-        }
-        if (input == "Sequence" && customSequence.Count < 2)
-        {
-            Status("Add at least two actions to the custom sequence first.", ThemeManager.Brush("WarningBrush"));
+            Status("Set an action before starting.", ThemeManager.Brush("WarningBrush"));
             return;
         }
         if (InputRules.IsHoldAction(Selected(TypeCombo)) && EnableTargetWindowCheckBox.IsChecked == true && !string.IsNullOrWhiteSpace(TargetExecutableBox.Text))
@@ -2965,7 +3027,7 @@ public partial class MainWindow : Window
         if (hold) UntilStoppedRadio.IsChecked = true;
         CountRadio.IsEnabled = !hold;
         CountBox.IsEnabled = !hold && CountRadio.IsChecked == true;
-        MarkProfileDefaultsEdited();
+        CommitBehaviorChange(AutomationBehaviorOverride.Repeat);
     }
 
     private void TypeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -2978,10 +3040,11 @@ public partial class MainWindow : Window
     private void PositionMode_Changed(object sender, RoutedEventArgs e)
     {
         UpdatePositionInputEnabled();
-        MarkProfileDefaultsEdited();
+        CommitBehaviorChange(AutomationBehaviorOverride.Position);
     }
 
-    private void ProfileDefaultFieldChanged(object sender, TextChangedEventArgs e) => MarkProfileDefaultsEdited();
+    private void RepeatDefaultFieldChanged(object sender, TextChangedEventArgs e) => CommitBehaviorChange(AutomationBehaviorOverride.Repeat);
+    private void PositionDefaultFieldChanged(object sender, TextChangedEventArgs e) => CommitBehaviorChange(AutomationBehaviorOverride.Position);
 
     private void PickPositionButton_Click(object sender, RoutedEventArgs e)
     {
@@ -3099,7 +3162,7 @@ public partial class MainWindow : Window
         CrashRecovery.UpdateEnabled(rgbSettings.CrashRecoveryEnabled);
         Topmost = false;
         compactMode = false;
-        rgbLightingTipSeen = false;
+        quickStartSeen = false;
         UpdatePinUi();
         ApplyCompactMode();
         SaveUiPreferences();
@@ -3124,6 +3187,16 @@ public partial class MainWindow : Window
     {
         var interval = NormalizeIntervalBoxes();
         return new AppDefaults { Hours = interval.Hours, Minutes = interval.Minutes, Seconds = interval.Seconds, Milliseconds = interval.Milliseconds, MouseButton = Selected(ButtonCombo), Input = Selected(ButtonCombo), CustomKey = customSpamVirtualKey, CustomSequence = customSequence.Select(step => step.Clone()).ToList(), CustomSequenceUsesGlobalInputPulse = customSequenceUsesGlobalInputPulse, ClickType = Selected(TypeCombo), RepeatUntilStopped = UntilStoppedRadio.IsChecked == true, RepeatCount = Read(CountBox, 1, 999999), FixedPosition = FixedPositionRadio.IsChecked == true, X = Read(XBox, -32768, 32767), Y = Read(YBox, -32768, 32767), InputPulseMilliseconds = inputPulseMilliseconds, InputJitterMaximumMilliseconds = inputJitterMaximumMilliseconds, TargetExecutable = TargetExecutableBox.Text.Trim(), TargetWindowTitle = targetWindowTitle, TargetWindowEnabled = EnableTargetWindowCheckBox.IsChecked == true, Hotkey = hotkey, HotkeyModifiers = hotkeyModifiers, HotkeyTrigger = hotkeyTrigger, Rgb = rgbSettings };
+    }
+
+    private AppDefaults CreateUnconfiguredActionDefaults()
+    {
+        var settings = CreateCurrentDefaults();
+        settings.Input = "Unset";
+        settings.MouseButton = "Unset";
+        settings.CustomKey = 0;
+        settings.CustomSequence = [];
+        return settings;
     }
 
     private string? ExportFullBackup(BackupScope scope, string path)
@@ -3205,7 +3278,7 @@ public partial class MainWindow : Window
         advancedMode = ui.AdvancedMode;
         Topmost = ui.Pinned;
         compactMode = ui.CompactMode;
-        rgbLightingTipSeen = ui.RgbLightingTipSeen;
+        quickStartSeen = ui.QuickStartSeen;
         WriteOrThrow(DefaultsPath, simpleDefaults);
         RestoreAdvancedSettings(advancedDefaults, profiles, refreshUi: false);
         RestoreSequenceLibrary(library);
@@ -3295,7 +3368,7 @@ public partial class MainWindow : Window
         return copy;
     }
 
-    private UiPreferences CurrentUiPreferences() => new() { Pinned = Topmost, CompactMode = compactMode, RgbLightingTipSeen = rgbLightingTipSeen, WorkerPriority = workerPriority.ToString(), CadenceDiagnosticsEnabled = cadenceDiagnosticsEnabled, AdvancedMode = advancedMode };
+    private UiPreferences CurrentUiPreferences() => new() { Pinned = Topmost, CompactMode = compactMode, QuickStartSeen = quickStartSeen, WorkerPriority = workerPriority.ToString(), CadenceDiagnosticsEnabled = cadenceDiagnosticsEnabled, AdvancedMode = advancedMode };
 
     private static void WriteOrThrow(string path, AppDefaults settings)
     {
@@ -3316,30 +3389,35 @@ public partial class MainWindow : Window
 
     private void ApplyDefaults(AppDefaults s)
     {
-        HoursBox.Text = s.Hours.ToString(); MinutesBox.Text = s.Minutes.ToString(); SecondsBox.Text = s.Seconds.ToString(); MillisBox.Text = s.Milliseconds.ToString();
-        customSpamVirtualKey = s.CustomKey;
-        customSequence = s.CustomSequence?.Select(step => step.Clone()).ToList() ?? [];
-        customSequenceUsesGlobalInputPulse = s.CustomSequenceUsesGlobalInputPulse;
-        SequenceItem.Content = "Custom sequence";
-        CustomKeyItem.Content = customSpamVirtualKey != 0 ? $"Key: {FormatInputKey(customSpamVirtualKey)}" : "Custom key";
-        Select(ButtonCombo, string.IsNullOrWhiteSpace(s.Input) ? s.MouseButton : s.Input); Select(TypeCombo, s.ClickType); UntilStoppedRadio.IsChecked = s.RepeatUntilStopped; CountRadio.IsChecked = !s.RepeatUntilStopped; CountBox.Text = s.RepeatCount.ToString();
-        CurrentPositionRadio.IsChecked = !s.FixedPosition; FixedPositionRadio.IsChecked = s.FixedPosition; XBox.Text = s.X.ToString(); YBox.Text = s.Y.ToString();
-        TargetExecutableBox.Text = s.TargetExecutable ?? string.Empty;
-        targetWindowTitle = string.IsNullOrWhiteSpace(s.TargetWindowTitle) ? null : s.TargetWindowTitle;
-        EnableTargetWindowCheckBox.IsChecked = s.TargetWindowEnabled;
-        UpdateTargetWindowUi();
-        inputPulseMilliseconds = InputRules.NormalizeInputPulseMilliseconds(s.InputPulseMilliseconds ?? InputRules.DefaultInputPulseMilliseconds);
-        inputJitterMaximumMilliseconds = InputRules.CreateJitterMaximum(0, s.InputJitterMaximumMilliseconds);
-        UpdateInputPulseButton();
-        UpdateInputJitterButton();
-        hotkeyTrigger = s.HotkeyTrigger;
-        hotkey = hotkeyTrigger == HotkeyTrigger.Keyboard && s.Hotkey <= 0 ? System.Windows.Input.KeyInterop.VirtualKeyFromKey(System.Windows.Input.Key.F6) : s.Hotkey;
-        hotkeyModifiers = s.HotkeyModifiers;
-        if (s.Rgb is not null) rgbSettings = s.Rgb;
-        RepeatMode_Changed(this, new RoutedEventArgs());
-        PositionMode_Changed(this, new RoutedEventArgs());
-        UpdateHotkeyLabel();
-        UpdateSharedBehaviorDefaultsUi();
+        applyingDefaults = true;
+        try
+        {
+            HoursBox.Text = s.Hours.ToString(); MinutesBox.Text = s.Minutes.ToString(); SecondsBox.Text = s.Seconds.ToString(); MillisBox.Text = s.Milliseconds.ToString();
+            customSpamVirtualKey = s.CustomKey;
+            customSequence = s.CustomSequence?.Select(step => step.Clone()).ToList() ?? [];
+            customSequenceUsesGlobalInputPulse = s.CustomSequenceUsesGlobalInputPulse;
+            SequenceItem.Content = "Custom sequence";
+            CustomKeyItem.Content = customSpamVirtualKey != 0 ? $"Key: {FormatInputKey(customSpamVirtualKey)}" : "Custom key";
+            Select(ButtonCombo, string.IsNullOrWhiteSpace(s.Input) ? s.MouseButton : s.Input); Select(TypeCombo, s.ClickType); UntilStoppedRadio.IsChecked = s.RepeatUntilStopped; CountRadio.IsChecked = !s.RepeatUntilStopped; CountBox.Text = s.RepeatCount.ToString();
+            CurrentPositionRadio.IsChecked = !s.FixedPosition; FixedPositionRadio.IsChecked = s.FixedPosition; XBox.Text = s.X.ToString(); YBox.Text = s.Y.ToString();
+            TargetExecutableBox.Text = s.TargetExecutable ?? string.Empty;
+            targetWindowTitle = string.IsNullOrWhiteSpace(s.TargetWindowTitle) ? null : s.TargetWindowTitle;
+            EnableTargetWindowCheckBox.IsChecked = s.TargetWindowEnabled;
+            UpdateTargetWindowUi();
+            inputPulseMilliseconds = InputRules.NormalizeInputPulseMilliseconds(s.InputPulseMilliseconds ?? InputRules.DefaultInputPulseMilliseconds);
+            inputJitterMaximumMilliseconds = InputRules.CreateJitterMaximum(0, s.InputJitterMaximumMilliseconds);
+            UpdateInputPulseButton();
+            UpdateInputJitterButton();
+            hotkeyTrigger = s.HotkeyTrigger;
+            hotkey = hotkeyTrigger == HotkeyTrigger.Keyboard && s.Hotkey <= 0 ? System.Windows.Input.KeyInterop.VirtualKeyFromKey(System.Windows.Input.Key.F6) : s.Hotkey;
+            hotkeyModifiers = s.HotkeyModifiers;
+            if (s.Rgb is not null) rgbSettings = s.Rgb;
+            RepeatMode_Changed(this, new RoutedEventArgs());
+            PositionMode_Changed(this, new RoutedEventArgs());
+            UpdateHotkeyLabel();
+            UpdateSharedBehaviorDefaultsUi();
+        }
+        finally { applyingDefaults = false; }
     }
 
     private void SaveRgbSettings()
@@ -3398,7 +3476,7 @@ public partial class MainWindow : Window
         var preferences = UiPreferencesStore.Load(UiPreferencesPath);
         Topmost = preferences.Pinned;
         compactMode = preferences.CompactMode;
-        rgbLightingTipSeen = preferences.RgbLightingTipSeen;
+        quickStartSeen = preferences.QuickStartSeen;
         workerPriority = WorkerPriorityRules.Normalize(preferences.WorkerPriority);
         cadenceDiagnosticsEnabled = preferences.CadenceDiagnosticsEnabled;
         advancedMode = preferences.AdvancedMode;
@@ -3410,7 +3488,7 @@ public partial class MainWindow : Window
 
     private void SaveUiPreferences()
     {
-        try { UiPreferencesStore.Save(UiPreferencesPath, new UiPreferences { Pinned = Topmost, CompactMode = compactMode, RgbLightingTipSeen = rgbLightingTipSeen, WorkerPriority = workerPriority.ToString(), CadenceDiagnosticsEnabled = cadenceDiagnosticsEnabled, AdvancedMode = advancedMode }); }
+        try { UiPreferencesStore.Save(UiPreferencesPath, new UiPreferences { Pinned = Topmost, CompactMode = compactMode, QuickStartSeen = quickStartSeen, WorkerPriority = workerPriority.ToString(), CadenceDiagnosticsEnabled = cadenceDiagnosticsEnabled, AdvancedMode = advancedMode }); }
         catch { }
     }
 
@@ -3773,7 +3851,10 @@ public sealed class AdvancedActionTile
     public bool IsMultiSelection { get; }
     public bool ShowInlineActionControls { get; }
     public bool CanEdit => !IsManagementLocked;
-    public bool CanStart => !IsRunning && !IsManagementLocked;
+    public bool CanStart => !IsRunning && !IsManagementLocked && InputRules.IsConfiguredAction(
+        string.IsNullOrWhiteSpace(Action.Settings.Input) ? Action.Settings.MouseButton : Action.Settings.Input,
+        Action.Settings.CustomKey,
+        Action.Settings.CustomSequence?.Count ?? 0);
     public bool CanStop => IsRunning;
     public Visibility InlineActionControlsVisibility => ShowInlineActionControls ? Visibility.Visible : Visibility.Collapsed;
     public int ActionLabelColumnSpan => ShowInlineActionControls ? 1 : 3;

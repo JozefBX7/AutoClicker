@@ -1,0 +1,11 @@
+# Keep Windows project files consistent in every checkout.
+*.cs text eol=crlf
+*.xaml text eol=crlf
+*.csproj text eol=crlf
+*.sln text eol=crlf
+*.props text eol=crlf
+*.targets text eol=crlf
+*.json text eol=crlf
+
+# Documentation renders consistently with LF on every platform.
+*.md text eol=lf

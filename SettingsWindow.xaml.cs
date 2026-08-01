@@ -76,6 +76,8 @@ public partial class SettingsWindow : Window
         dialog.ShowDialog();
     }
 
+    private void QuickStartButton_Click(object sender, RoutedEventArgs e) => new QuickStartWindow { Owner = this }.ShowDialog();
+
     private void FindKeyboards_Click(object sender, RoutedEventArgs e) => RefreshKeyboards();
 
     private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
@@ -269,8 +271,7 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        TestRgbButton.IsEnabled = false;
-        TestEffectButton.IsEnabled = false;
+        SetLightingTestControlsEnabled(false);
         ConnectionStatus.Text = "Flashing the selected keyboard three times…";
         ConnectionStatus.Foreground = ThemeManager.Brush("SuccessBrush");
         try
@@ -295,8 +296,7 @@ public partial class SettingsWindow : Window
         }
         finally
         {
-            TestRgbButton.IsEnabled = true;
-            TestEffectButton.IsEnabled = true;
+            SetLightingTestControlsEnabled(true);
         }
     }
 
@@ -327,6 +327,7 @@ public partial class SettingsWindow : Window
         }
 
         TestRgbButton.IsEnabled = false;
+        ClearStuckLightingButton.IsEnabled = false;
         effectTestCancellation = new CancellationTokenSource();
         TestEffectButton.Content = "Stop effect test";
         TestEffectButton.ToolTip = "Stop the current keyboard effect test and restore its previous colours.";
@@ -408,13 +409,73 @@ public partial class SettingsWindow : Window
             effectTestCancellation = null;
             if (!isClosing)
             {
-                TestRgbButton.IsEnabled = true;
-                TestEffectButton.IsEnabled = true;
+                SetLightingTestControlsEnabled(true);
                 TestEffectButton.Content = "Test keyboard effect";
                 TestEffectButton.ToolTip = "Shows the selected lighting effect across the keyboard, then restores its previous colours. Click again to stop it early.";
             }
             if (restart) TestEffectButton_Click(this, new RoutedEventArgs());
         }
+    }
+
+    private async void ClearStuckLightingButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (Owner is MainWindow { IsClicking: true })
+        {
+            ConnectionStatus.Text = "Stop AutoClicker before clearing keyboard lighting.";
+            ConnectionStatus.Foreground = ThemeManager.Brush("WarningBrush");
+            return;
+        }
+        if (effectTestCancellation is not null || !TestRgbButton.IsEnabled)
+        {
+            ConnectionStatus.Text = "Finish the current keyboard lighting test before clearing lighting.";
+            ConnectionStatus.Foreground = ThemeManager.Brush("WarningBrush");
+            return;
+        }
+        if (KeyboardCombo.SelectedItem is not KeyboardDevice keyboard)
+        {
+            ConnectionStatus.Text = "Select a keyboard before clearing stuck lighting.";
+            ConnectionStatus.Foreground = ThemeManager.Brush("WarningBrush");
+            return;
+        }
+
+        SetLightingTestControlsEnabled(false);
+        ConnectionStatus.Text = "Refreshing the selected keyboard's colours…";
+        ConnectionStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+        try
+        {
+            var settings = new RgbSettings
+            {
+                Enabled = true,
+                DeviceIndex = keyboard.Index,
+                DeviceName = keyboard.Name,
+                AutoStart = AutoStartOpenRgb.IsChecked == true,
+                StopAutoStartedOnExit = StopAutoStartedOpenRgb.IsChecked == true
+            };
+            var availability = await OpenRgbHighlighter.EnsureSdkAsync(settings);
+            if (!availability.IsAvailable)
+            {
+                ConnectionStatus.Text = availability.Message ?? "OpenRGB's SDK server is unavailable.";
+                ConnectionStatus.Foreground = ThemeManager.Brush("ErrorBrush");
+                return;
+            }
+
+            var error = await Task.Run(() => OpenRgbHighlighter.ClearStuckKeyboardLighting(settings));
+            ConnectionStatus.Text = error is null
+                ? "Refreshed the selected keyboard colours to clear any stuck lighting."
+                : error;
+            ConnectionStatus.Foreground = error is null ? ThemeManager.Brush("SuccessBrush") : ThemeManager.Brush("ErrorBrush");
+        }
+        finally
+        {
+            if (!isClosing) SetLightingTestControlsEnabled(true);
+        }
+    }
+
+    private void SetLightingTestControlsEnabled(bool enabled)
+    {
+        TestRgbButton.IsEnabled = enabled;
+        TestEffectButton.IsEnabled = enabled;
+        ClearStuckLightingButton.IsEnabled = enabled;
     }
 
     private bool TryCreateLightingSettings(out RgbSettings settings, out string error)

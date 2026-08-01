@@ -35,6 +35,42 @@ internal static class AutomationProfileLimits
     }
 }
 
+// Profile names are user-facing identifiers, so all creation, import, and migration paths share one case-insensitive rule.
+internal static class AutomationProfileNameRules
+{
+    internal static string MakeUnique(string? preferredName, IEnumerable<AutomationProfile> profiles, string? excludedProfileId = null) =>
+        MakeUnique(preferredName, profiles.Where(profile => profile.Id != excludedProfileId).Select(profile => profile.Name));
+
+    internal static bool EnsureUnique(IEnumerable<AutomationProfile> profiles)
+    {
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var changed = false;
+        foreach (var profile in profiles)
+        {
+            var unique = MakeUnique(profile.Name, used);
+            if (!string.Equals(profile.Name, unique, StringComparison.Ordinal))
+            {
+                profile.Name = unique;
+                changed = true;
+            }
+            used.Add(unique);
+        }
+        return changed;
+    }
+
+    private static string MakeUnique(string? preferredName, IEnumerable<string> existingNames)
+    {
+        var baseName = string.IsNullOrWhiteSpace(preferredName) ? "Profile" : preferredName.Trim();
+        var used = new HashSet<string>(existingNames.Where(name => !string.IsNullOrWhiteSpace(name)), StringComparer.OrdinalIgnoreCase);
+        if (!used.Contains(baseName)) return baseName;
+        for (var suffix = 2; ; suffix++)
+        {
+            var candidate = $"{baseName} ({suffix})";
+            if (!used.Contains(candidate)) return candidate;
+        }
+    }
+}
+
 // A profile is a named set of independently toggleable automation actions.
 public sealed class AutomationProfile
 {
@@ -82,16 +118,18 @@ public sealed class AutomationAction
     {
         var input = settings.Input switch
         {
+            "Unset" => "Set action",
             "Space" => "Space",
             "Enter" => "Enter",
             "Custom" when settings.CustomKey != 0 => System.Windows.Input.KeyInterop.KeyFromVirtualKey(settings.CustomKey).ToString(),
             "Sequence" => "Custom sequence",
             "Right" => "Right click",
             "Middle" => "Middle click",
-            _ => "Left click"
+            "Left" => "Left click",
+            _ => string.IsNullOrWhiteSpace(settings.MouseButton) || settings.MouseButton == "Unset" ? "Set action" : settings.MouseButton + " click"
         };
         var typedInput = input.EndsWith(" click", StringComparison.Ordinal) ? char.ToLowerInvariant(input[0]) + input[1..] : input;
-        return settings.Input == "Sequence" ? input : settings.ClickType switch
+        return input == "Set action" || settings.Input == "Sequence" ? input : settings.ClickType switch
         {
             "Double" => $"Double {typedInput}",
             "Hold" => $"Hold {typedInput}",
@@ -125,6 +163,7 @@ internal static class AutomationProfileStore
             document.Profiles = document.Profiles.Where(profile => !string.IsNullOrWhiteSpace(profile.Id) && !string.IsNullOrWhiteSpace(profile.Name))
                 .Select(profile => new AutomationProfile { Id = profile.Id, Name = profile.Name.Trim(), BehaviorDefaults = profile.BehaviorDefaults?.Clone(), UsesSharedBehaviorDefaults = profile.UsesSharedBehaviorDefaults, BehaviorOverrides = profile.BehaviorOverrides, LightingDefaults = profile.LightingDefaults?.Clone(), Actions = profile.Actions.Where(action => !string.IsNullOrWhiteSpace(action.Id)).Select(action => action.Clone()).ToList() }).ToList();
             if (document.Profiles.Count == 0) return CreateInitial(fallback);
+            AutomationProfileNameRules.EnsureUnique(document.Profiles);
             document.RecentProfileIds = document.RecentProfileIds
                 .Where(id => document.Profiles.Any(profile => profile.Id == id)).Distinct().ToList();
             if (!string.IsNullOrWhiteSpace(document.ActiveProfileId))

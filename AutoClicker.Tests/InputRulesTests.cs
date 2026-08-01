@@ -101,6 +101,16 @@ public sealed class InputRulesTests
         Assert.AreEqual(expected, InputRules.IsKeyboardAction(action));
 
     [DataTestMethod]
+    [DataRow("Unset", 0, 0, false)]
+    [DataRow("Left", 0, 0, true)]
+    [DataRow("Custom", 0, 0, false)]
+    [DataRow("Custom", 0x41, 0, true)]
+    [DataRow("Sequence", 0, 1, false)]
+    [DataRow("Sequence", 0, 2, true)]
+    public void IsConfiguredAction_RequiresACompleteAction(string action, int customVirtualKey, int sequenceSteps, bool expected) =>
+        Assert.AreEqual(expected, InputRules.IsConfiguredAction(action, customVirtualKey, sequenceSteps));
+
+    [DataTestMethod]
     [DataRow("Hold", true)]
     [DataRow("Single", false)]
     [DataRow("Double", false)]
@@ -115,7 +125,7 @@ public sealed class InputRulesTests
     [DataRow("Space", 0, "Space")]
     [DataRow("Enter", 0, "Enter")]
     [DataRow("Sequence", 0, "Custom sequence")]
-    [DataRow("Unknown", 0, "Selected action")]
+    [DataRow("Unknown", 0, "Set action")]
     public void DescribeAction_ProducesConsistentLabels(string action, int virtualKey, string expected) =>
         Assert.AreEqual(expected, InputRules.DescribeAction(action, virtualKey));
 

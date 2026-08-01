@@ -137,4 +137,14 @@ public sealed class RgbSettingsTests
 
         Assert.IsNull(selected);
     }
+
+    [TestMethod]
+    public void StuckLightingRecovery_RefreshesEveryCurrentLedColour()
+    {
+        var current = new[] { new OpenRGB.NET.Color(1, 2, 3), new OpenRGB.NET.Color(4, 5, 6) };
+        var refreshed = OpenRgbHighlighter.CreateRecoveryColors(current);
+
+        CollectionAssert.AreEqual(current, refreshed);
+        Assert.AreNotSame(current, refreshed);
+    }
 }

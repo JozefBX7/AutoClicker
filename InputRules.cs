@@ -58,6 +58,14 @@ internal static class InputRules
 
     internal static bool IsKeyboardAction(string? action) => action is "Space" or "Enter" or "Custom";
 
+    internal static bool IsConfiguredAction(string? action, int customVirtualKey, int sequenceStepCount) => action switch
+    {
+        "Left" or "Right" or "Middle" or "Space" or "Enter" => true,
+        "Custom" => customVirtualKey != 0,
+        "Sequence" => sequenceStepCount >= 2,
+        _ => false
+    };
+
     internal static bool IsHoldAction(string? actionType) => string.Equals(actionType, "Hold", StringComparison.Ordinal);
 
     internal static string DescribeAction(string? action, int customVirtualKey) => action switch
@@ -69,7 +77,7 @@ internal static class InputRules
         "Enter" => "Enter",
         "Custom" when customVirtualKey != 0 => DescribeVirtualKey(customVirtualKey),
         "Sequence" => "Custom sequence",
-        _ => "Selected action"
+        _ => "Set action"
     };
 
     private static string DescribeVirtualKey(int virtualKey) => System.Windows.Input.KeyInterop.KeyFromVirtualKey(virtualKey) switch

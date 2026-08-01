@@ -252,6 +252,34 @@ public static class OpenRgbHighlighter
         }
     }
 
+    /// <summary>
+    /// Re-sends the keyboard's complete current colour buffer to clear any
+    /// per-key highlight that was left behind by a transient direct LED update.
+    /// </summary>
+    public static string? ClearStuckKeyboardLighting(RgbSettings settings)
+    {
+        try
+        {
+            using var client = new OpenRgbClient(name: "AutoClicker");
+            var keyboard = client.GetControllerData(settings.DeviceIndex);
+            if (keyboard.Colors.Length == 0)
+                return $"{keyboard.Name} does not expose colours that OpenRGB can refresh.";
+
+            client.SetCustomMode(keyboard.Index);
+            client.UpdateLeds(keyboard.Index, CreateRecoveryColors(keyboard.Colors));
+
+            AppLog.Info($"Refreshed keyboard colours to clear stuck OpenRGB lighting | Device={keyboard.Name}");
+            return null;
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error("OpenRGB stuck lighting recovery failed", exception);
+            return $"OpenRGB could not clear the keyboard lighting: {exception.Message}";
+        }
+    }
+
+    internal static Color[] CreateRecoveryColors(IReadOnlyCollection<Color> currentColors) => currentColors.ToArray();
+
     public static void RestoreIndicator(RgbLightingSnapshot snapshot)
     {
         try
