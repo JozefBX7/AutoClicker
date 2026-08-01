@@ -273,7 +273,9 @@ public sealed class AutomationProfileTests
                 TargetWindowTitle = "Profile target",
                 TargetWindowEnabled = false,
                 InputPulseMilliseconds = 3,
-                InputJitterMaximumMilliseconds = 7
+                InputJitterMaximumMilliseconds = 7,
+                Hours = 1,
+                Milliseconds = 25
             }
         };
         var action = new AutomationAction
