@@ -8,8 +8,31 @@
             <Border Background="{DynamicResource PanelBrush}" CornerRadius="13,13,0,0" MouseLeftButtonDown="Header_MouseLeftButtonDown">
                 <Grid Margin="20,0"><TextBlock Text="Settings" FontSize="18" FontWeight="SemiBold" Foreground="{DynamicResource TextStrongBrush}" VerticalAlignment="Center" /><StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center"><Button Content="i" Click="AboutButton_Click" ToolTip="About AutoClicker" Style="{StaticResource PinButton}" Foreground="{DynamicResource TextAccentBrush}" FontWeight="Bold" FontSize="14" /><Button Click="CloseButton_Click" ToolTip="Close settings" Style="{StaticResource CloseButton}" Foreground="{DynamicResource TextMutedBrush}" Margin="8,0,0,0"><Viewbox Width="12" Height="12"><Viewbox.RenderTransform><TranslateTransform X="-1" /></Viewbox.RenderTransform><Path Data="M 2 2 L 10 10 M 10 2 L 2 10" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" /></Viewbox></Button></StackPanel></Grid>
             </Border>
-            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <StackPanel Margin="22,14">
+            <ScrollViewer x:Name="SettingsScroller" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalOnly">
+                <ScrollViewer.Template>
+                    <ControlTemplate TargetType="ScrollViewer">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <ScrollContentPresenter x:Name="PART_ScrollContentPresenter"
+                                                    Content="{TemplateBinding Content}"
+                                                    ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                    CanContentScroll="{TemplateBinding CanContentScroll}" />
+                            <ScrollBar x:Name="PART_VerticalScrollBar"
+                                       Grid.Column="1"
+                                       Width="10"
+                                       Margin="4,8,5,8"
+                                       Orientation="Vertical"
+                                       SmallChange="28"
+                                       LargeChange="260"
+                                       Maximum="{TemplateBinding ScrollableHeight}"
+                                       ViewportSize="{TemplateBinding ViewportHeight}"
+                                       Value="{TemplateBinding VerticalOffset}"
+                                       ValueChanged="SettingsScrollBar_ValueChanged"
+                                       Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}" />
+                        </Grid>
+                    </ControlTemplate>
+                </ScrollViewer.Template>
+                <StackPanel Margin="22,14,14,20">
                     <Border Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1" CornerRadius="7" Padding="10,8" Margin="0,0,0,12">
                         <StackPanel>
                             <TextBlock Text="Interface mode" Style="{StaticResource SectionTitle}" />

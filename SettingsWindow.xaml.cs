@@ -68,6 +68,13 @@ public partial class SettingsWindow : Window
         if (e.LeftButton == System.Windows.Input.MouseButtonState.Pressed) DragMove();
     }
 
+    private void SettingsScrollBar_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        // The explicit settings template keeps scrolling reliable even with the themed scrollbar chrome.
+        if (SettingsScroller is not null && Math.Abs(SettingsScroller.VerticalOffset - e.NewValue) > 0.1)
+            SettingsScroller.ScrollToVerticalOffset(e.NewValue);
+    }
+
     private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
 
     private void AboutButton_Click(object sender, RoutedEventArgs e)
