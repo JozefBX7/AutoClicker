@@ -9,3 +9,4 @@
 
 # Documentation renders consistently with LF on every platform.
 *.md text eol=lf
+.gitattributes text eol=lf
