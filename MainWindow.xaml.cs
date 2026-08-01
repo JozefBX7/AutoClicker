@@ -616,7 +616,42 @@ public partial class MainWindow : Window
         RefreshAdvancedFooterUi();
     }
 
-    private void IntervalBox_LostKeyboardFocus(object sender, System.Windows.Input.KeyboardFocusChangedEventArgs e) => NormalizeIntervalBoxes();
+    private void IntervalBox_LostKeyboardFocus(object sender, System.Windows.Input.KeyboardFocusChangedEventArgs e)
+    {
+        NormalizeIntervalBoxes();
+        if (!applyingDefaults) CommitIntervalChange();
+    }
+
+    private void CommitIntervalChange()
+    {
+        var interval = CreateCurrentDefaults();
+        if (!advancedMode)
+        {
+            SaveDefaults();
+            return;
+        }
+        if (editingProfileDefaultsId == ActiveProfile()?.Id && ActiveProfile() is { } profile)
+        {
+            var local = profile.BehaviorDefaults?.Clone() ?? LoadSavedDefaults();
+            CopyBehaviorOverride(interval, local, AutomationBehaviorOverride.Interval);
+            profile.BehaviorDefaults = local;
+            profile.UsesSharedBehaviorDefaults = true;
+            profile.BehaviorOverrides |= AutomationBehaviorOverride.Interval;
+            MarkProfilesDirty();
+            return;
+        }
+        if (IsEditingAdvancedAction() && ActiveProfileAction() is { } action)
+        {
+            CopyBehaviorOverride(interval, action.Settings, AutomationBehaviorOverride.Interval);
+            action.UsesSharedBehaviorDefaults = true;
+            action.BehaviorOverrides |= AutomationBehaviorOverride.Interval;
+            MarkProfilesDirty();
+            return;
+        }
+        var defaults = LoadSavedDefaults();
+        CopyBehaviorOverride(interval, defaults, AutomationBehaviorOverride.Interval);
+        WriteDefaults(GlobalDefaultsPath, defaults);
+    }
 
     private InputRules.IntervalParts NormalizeIntervalBoxes()
     {
@@ -1143,6 +1178,13 @@ public partial class MainWindow : Window
 
     private static void CopyBehaviorOverride(AppDefaults source, AppDefaults destination, AutomationBehaviorOverride aspect)
     {
+        if (aspect.HasFlag(AutomationBehaviorOverride.Interval))
+        {
+            destination.Hours = source.Hours;
+            destination.Minutes = source.Minutes;
+            destination.Seconds = source.Seconds;
+            destination.Milliseconds = source.Milliseconds;
+        }
         if (aspect.HasFlag(AutomationBehaviorOverride.Repeat))
         {
             destination.RepeatUntilStopped = source.RepeatUntilStopped;
@@ -1168,6 +1210,7 @@ public partial class MainWindow : Window
     {
         var labels = new List<string>();
         if (aspects.HasFlag(AutomationBehaviorOverride.Repeat)) labels.Add("repeat");
+        if (aspects.HasFlag(AutomationBehaviorOverride.Interval)) labels.Add("interval");
         if (aspects.HasFlag(AutomationBehaviorOverride.Position)) labels.Add("position");
         if (aspects.HasFlag(AutomationBehaviorOverride.TargetWindow)) labels.Add("target window");
         if (aspects.HasFlag(AutomationBehaviorOverride.InputJitter)) labels.Add("input jitter");
@@ -1325,6 +1368,7 @@ public partial class MainWindow : Window
         if (RepeatCard is null || RepeatContent is null || PositionCard is null || PositionContent is null || TargetWindowCard is null || TargetWindowContent is null) return;
         var locked = IsClicking;
         var editingProfileDefaults = advancedMode && editingProfileDefaultsId == ActiveProfile()?.Id;
+        var editingSharedDefaults = advancedMode && !IsEditingAdvancedAction();
         var profile = ActiveProfile();
         var action = advancedMode && IsEditingAdvancedAction() ? ActiveProfileAction() : null;
         var sharedRepeat = editingProfileDefaults ? profile?.UsesSharedBehavior(AutomationBehaviorOverride.Repeat) == true : action?.UsesSharedBehavior(AutomationBehaviorOverride.Repeat) == true;
@@ -1332,11 +1376,11 @@ public partial class MainWindow : Window
         var sharedTarget = editingProfileDefaults ? profile?.UsesSharedBehavior(AutomationBehaviorOverride.TargetWindow) == true : action?.UsesSharedBehavior(AutomationBehaviorOverride.TargetWindow) == true;
         var sharedJitter = editingProfileDefaults ? profile?.UsesSharedBehavior(AutomationBehaviorOverride.InputJitter) == true : action?.UsesSharedBehavior(AutomationBehaviorOverride.InputJitter) == true;
         var sharedPulse = editingProfileDefaults ? profile?.UsesSharedBehavior(AutomationBehaviorOverride.InputPulse) == true : action?.UsesSharedBehavior(AutomationBehaviorOverride.InputPulse) == true;
-        var positionAvailable = editingProfileDefaults || (!IsKeyboardInputSelected() && Selected(ButtonCombo) != "Sequence");
-        IntervalCard.IsEnabled = !locked && !editingProfileDefaults;
+        var positionAvailable = editingSharedDefaults || (!IsKeyboardInputSelected() && Selected(ButtonCombo) != "Sequence");
+        IntervalCard.IsEnabled = !locked;
         ActionCard.IsEnabled = !locked;
-        ButtonCombo.IsEnabled = !locked && !editingProfileDefaults;
-        TypeCombo.IsEnabled = !locked && !editingProfileDefaults;
+        ButtonCombo.IsEnabled = !locked && !editingSharedDefaults;
+        TypeCombo.IsEnabled = !locked && !editingSharedDefaults;
         RepeatCard.IsEnabled = !locked;
         PositionCard.IsEnabled = !locked && positionAvailable;
         TargetWindowCard.IsEnabled = !locked;

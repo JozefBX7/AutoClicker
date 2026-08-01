@@ -13,7 +13,8 @@ public enum AutomationBehaviorOverride
     TargetWindow = 4,
     InputJitter = 8,
     InputPulse = 16,
-    All = Repeat | Position | TargetWindow | InputJitter | InputPulse
+    Interval = 32,
+    All = Repeat | Position | TargetWindow | InputJitter | InputPulse | Interval
 }
 
 // Keep capacity and compact-footer thresholds together so every import and edit path follows one rule.
@@ -225,13 +226,20 @@ internal static class AutomationProfileActionOrder
     }
 }
 
-// Only behavior is inherited. Input identity, interval, and the hotkey remain properties of each action.
+// Input identity and the hotkey remain properties of each action; behavior and interval can inherit.
 internal static class AutomationBehaviorSettingsResolver
 {
     internal static AppDefaults ResolveProfileDefaults(AppDefaults globalDefaults, AutomationProfile? profile)
     {
         var settings = globalDefaults.Clone();
         if (profile?.BehaviorDefaults is not { } local) return settings;
+        if (!profile.UsesSharedBehavior(AutomationBehaviorOverride.Interval))
+        {
+            settings.Hours = local.Hours;
+            settings.Minutes = local.Minutes;
+            settings.Seconds = local.Seconds;
+            settings.Milliseconds = local.Milliseconds;
+        }
         if (!profile.UsesSharedBehavior(AutomationBehaviorOverride.Repeat))
         {
             settings.RepeatUntilStopped = local.RepeatUntilStopped;
@@ -259,6 +267,13 @@ internal static class AutomationBehaviorSettingsResolver
         var settings = action.Settings.Clone();
         var inherited = ResolveProfileDefaults(globalDefaults, profile);
 
+        if (action.UsesSharedBehavior(AutomationBehaviorOverride.Interval))
+        {
+            settings.Hours = inherited.Hours;
+            settings.Minutes = inherited.Minutes;
+            settings.Seconds = inherited.Seconds;
+            settings.Milliseconds = inherited.Milliseconds;
+        }
         if (action.UsesSharedBehavior(AutomationBehaviorOverride.Repeat))
         {
             settings.RepeatUntilStopped = inherited.RepeatUntilStopped;

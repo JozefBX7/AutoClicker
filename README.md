@@ -9,7 +9,7 @@ Detailed guides are available in the [AutoClicker Wiki](https://github.com/Jozef
 ## Choose a mode
 
 - **Simple mode** keeps one action and one global hotkey visible—ideal for a quick clicker or key spammer.
-- **Advanced mode** keeps named profiles of hotkeys. Actions may run concurrently, can be enabled or disabled individually, and inherit repeat, position, targeting, jitter, pulse, and lighting from profile or Advanced defaults until overridden.
+- **Advanced mode** keeps named profiles of hotkeys. Actions may run concurrently, can be enabled or disabled individually, and inherit interval, repeat, position, targeting, jitter, pulse, and lighting from profile or Advanced defaults until overridden.
 
 Profiles are saved deliberately, so experimenting does not overwrite a saved setup. They can be duplicated, reordered, imported/exported individually, or copied into another profile.
 
