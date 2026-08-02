@@ -539,7 +539,7 @@ public partial class MainWindow : Window
 
     private bool IsAdvancedEditorDeadSpace(DependencyObject? source)
     {
-        if (!IsWithin(source, SettingsContent) || IsWithinSharedBehaviorSurface(source)) return false;
+        if (!IsWithin(source, SettingsContent) || IsWithin(source, ActionCard) || IsWithin(source, IntervalCard) || IsWithinSharedBehaviorSurface(source)) return false;
         for (var current = source; current is not null && !ReferenceEquals(current, SettingsContent);)
         {
             if (current is Button or TextBox or ComboBox or RadioButton or CheckBox or Slider or System.Windows.Controls.Primitives.ScrollBar) return false;
@@ -1634,6 +1634,12 @@ public partial class MainWindow : Window
 
     private void SelectAdvancedAction(AutomationAction action, bool startHotkeyCapture = false)
     {
+        if (editingProfileDefaultsId == ActiveProfile()?.Id)
+        {
+            CaptureProfileDefaults();
+            editingProfileDefaultsId = null;
+            profileDefaultsEditingDirty = false;
+        }
         if (action.Id != automationProfiles.ActiveActionId || !IsEditingAdvancedAction())
         {
             CaptureCurrentActionToProfile();
@@ -1645,6 +1651,7 @@ public partial class MainWindow : Window
         selectedAdvancedActionIds.Clear();
         selectedAdvancedActionIds.Add(action.Id);
         RefreshAdvancedFooterUi();
+        UpdateSharedBehaviorDefaultsUi();
         UpdateActionEditorHint();
         Status($"Editing {action.DisplayName}.", ThemeManager.Brush("SuccessBrush"));
         if (startHotkeyCapture) BeginHotkeyCapture();
@@ -1873,7 +1880,6 @@ public partial class MainWindow : Window
         }
         if (IsEditingAdvancedAction() && action.Id == automationProfiles.ActiveActionId)
         {
-            ShowAdvancedSharedDefaults(announce: true);
             return;
         }
         SelectAdvancedAction(action);
@@ -2410,6 +2416,17 @@ public partial class MainWindow : Window
                 // Send the down packet once; finally always sends the matching up packet.
                 heldRelease = [actionInputs[1]];
                 SendNativeInput(1, [actionInputs[0]]);
+                if (settings.KeyboardVirtualKey is not null)
+                {
+                    var repeatAt = Stopwatch.GetTimestamp() + Stopwatch.Frequency / 2;
+                    while (!cancellation.IsCancellationRequested)
+                    {
+                        if (!WaitUntilGuiIsHealthy(timer, repeatAt, cancellation, ref watchdogExpired)) break;
+                        SendNativeInput(1, [actionInputs[0]]);
+                        repeatAt = Stopwatch.GetTimestamp() + Stopwatch.Frequency / 30;
+                    }
+                    return;
+                }
                 while (!cancellation.IsCancellationRequested)
                     if (!WaitUntilGuiIsHealthy(timer, Stopwatch.GetTimestamp() + Stopwatch.Frequency, cancellation, ref watchdogExpired)) break;
                 return;
@@ -2537,6 +2554,17 @@ public partial class MainWindow : Window
                 if (settings.FixedPosition && settings.KeyboardVirtualKey is null) SetCursorPos(settings.X, settings.Y);
                 heldRelease = [actionInputs[1]];
                 SendNativeInput(1, [actionInputs[0]]);
+                if (settings.KeyboardVirtualKey is not null)
+                {
+                    var repeatAt = Stopwatch.GetTimestamp() + Stopwatch.Frequency / 2;
+                    while (!cancellation.IsCancellationRequested)
+                    {
+                        if (!WaitUntilGuiIsHealthy(timer, repeatAt, cancellation, ref watchdogExpired)) break;
+                        SendNativeInput(1, [actionInputs[0]]);
+                        repeatAt = Stopwatch.GetTimestamp() + Stopwatch.Frequency / 30;
+                    }
+                    return;
+                }
                 while (!cancellation.IsCancellationRequested)
                     if (!WaitUntilGuiIsHealthy(timer, Stopwatch.GetTimestamp() + Stopwatch.Frequency, cancellation, ref watchdogExpired)) break;
                 return;
@@ -3661,11 +3689,14 @@ public partial class MainWindow : Window
     }
     private static Input[] CreateKeyInputs(int virtualKey)
     {
-        var flags = IsExtendedKey(virtualKey) ? KeyboardFlags.ExtendedKey : KeyboardFlags.None;
+        var scanCode = MapVirtualKey((uint)virtualKey, 0);
+        var flags = (IsExtendedKey(virtualKey) ? KeyboardFlags.ExtendedKey : KeyboardFlags.None) | (scanCode != 0 ? KeyboardFlags.ScanCode : KeyboardFlags.None);
+        var key = scanCode != 0 ? (ushort)0 : (ushort)virtualKey;
+        var scan = (ushort)scanCode;
         return
         [
-            new() { Type = 1, Data = new InputUnion { Keyboard = new KeyboardInput { VirtualKey = (ushort)virtualKey, Flags = flags } } },
-            new() { Type = 1, Data = new InputUnion { Keyboard = new KeyboardInput { VirtualKey = (ushort)virtualKey, Flags = flags | KeyboardFlags.KeyUp } } }
+            new() { Type = 1, Data = new InputUnion { Keyboard = new KeyboardInput { VirtualKey = key, ScanCode = scan, Flags = flags } } },
+            new() { Type = 1, Data = new InputUnion { Keyboard = new KeyboardInput { VirtualKey = key, ScanCode = scan, Flags = flags | KeyboardFlags.KeyUp } } }
         ];
     }
     // Build native input packets once per run.
@@ -3846,7 +3877,7 @@ public partial class MainWindow : Window
     }
 
     [Flags] private enum MouseFlags : uint { LeftDown = 2, LeftUp = 4, RightDown = 8, RightUp = 16, MiddleDown = 32, MiddleUp = 64 }
-    [Flags] private enum KeyboardFlags : uint { None = 0, ExtendedKey = 1, KeyUp = 2 }
+    [Flags] private enum KeyboardFlags : uint { None = 0, ExtendedKey = 1, KeyUp = 2, ScanCode = 8 }
     [StructLayout(LayoutKind.Sequential)] private struct Input { public uint Type; public InputUnion Data; }
     [StructLayout(LayoutKind.Explicit)] private struct InputUnion { [FieldOffset(0)] public MouseInput Mouse; [FieldOffset(0)] public KeyboardInput Keyboard; }
     [StructLayout(LayoutKind.Sequential)] private struct MouseInput { public int Dx, Dy; public uint MouseData; public MouseFlags Flags; public uint Time; public nint ExtraInfo; }
@@ -3867,6 +3898,7 @@ public partial class MainWindow : Window
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern nint GetModuleHandle(string? moduleName);
     [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] private static extern uint SendInput(uint count, Input[] inputs, int size);
+    [DllImport("user32.dll")] private static extern uint MapVirtualKey(uint code, uint mapType);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern nint CreateWaitableTimerEx(nint attributes, string? name, uint flags, uint desiredAccess);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern nint CreateWaitableTimer(nint attributes, bool manualReset, string? name);
     [DllImport("kernel32.dll", SetLastError = true)] private static extern bool SetWaitableTimer(nint timer, ref long dueTime, int period, nint completionRoutine, nint argument, bool resume);
