@@ -438,6 +438,7 @@ public partial class MainWindow : Window
             CustomKeyItem.Content = $"Key: {FormatInputKey(virtualKey)}";
             capturingSpamKey = false;
             Select(ButtonCombo, "Custom");
+            if (!CommitSelectedActionChange()) ShowReadyActionStatus();
             Status($"Ready — {FormatInputKey(virtualKey)} will be repeated.", ThemeManager.Brush("SuccessBrush"));
             return;
         }
@@ -724,8 +725,9 @@ public partial class MainWindow : Window
 
     private void ActionCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (applyingDefaults || updatingActionSelection || ButtonCombo is null || PickKeyItem is null) return;
+        if (applyingDefaults || updatingActionSelection || ButtonCombo is null) return;
         var selectedAction = Selected(ButtonCombo);
+        UpdateActionPlaceholder();
         if (selectedAction.StartsWith("SequencePreset:", StringComparison.Ordinal))
         {
             var preset = sequenceLibrary.FirstOrDefault(item => item.Id == selectedAction["SequencePreset:".Length..]);
@@ -734,6 +736,7 @@ public partial class MainWindow : Window
         }
         if (selectedAction == "Sequence")
         {
+            if (Selected(TypeCombo) == "Hold") Select(TypeCombo, "Single");
             SequenceItem.Content = "Custom sequence";
             UpdateLiveInputMode();
             if (!CommitSelectedActionChange()) ShowReadyActionStatus();
@@ -762,7 +765,7 @@ public partial class MainWindow : Window
             if (!accepted || !CommitSelectedActionChange()) ShowReadyActionStatus();
             return;
         }
-        if (Selected(ButtonCombo) != "Pick")
+        if (Selected(ButtonCombo) != "Custom")
         {
             UpdateLiveInputMode();
             if (!CommitSelectedActionChange()) ShowReadyActionStatus();
@@ -1383,8 +1386,9 @@ public partial class MainWindow : Window
         var sharedTarget = editingProfileDefaults ? profile?.UsesSharedBehavior(AutomationBehaviorOverride.TargetWindow) == true : action?.UsesSharedBehavior(AutomationBehaviorOverride.TargetWindow) == true;
         var sharedJitter = editingProfileDefaults ? profile?.UsesSharedBehavior(AutomationBehaviorOverride.InputJitter) == true : action?.UsesSharedBehavior(AutomationBehaviorOverride.InputJitter) == true;
         var sharedPulse = editingProfileDefaults ? profile?.UsesSharedBehavior(AutomationBehaviorOverride.InputPulse) == true : action?.UsesSharedBehavior(AutomationBehaviorOverride.InputPulse) == true;
+        var holdingHotkey = action is not null && InputRules.IsHoldAction(Selected(TypeCombo));
         var positionAvailable = editingSharedDefaults || (!IsKeyboardInputSelected() && Selected(ButtonCombo) != "Sequence");
-        IntervalCard.IsEnabled = !locked;
+        IntervalCard.IsEnabled = !locked && !holdingHotkey;
         ActionCard.IsEnabled = !locked;
         ButtonCombo.IsEnabled = !locked && !editingSharedDefaults;
         TypeCombo.IsEnabled = !locked && !editingSharedDefaults;
@@ -1828,7 +1832,19 @@ public partial class MainWindow : Window
         {
             if (item.Name is "DeleteProfileMenuItem" or "DeleteProfileSeparator")
                 item.Visibility = canDelete ? Visibility.Visible : Visibility.Collapsed;
+            if (item.Name == "DiscardProfileChangesMenuItem")
+                item.Visibility = profile.Id == ActiveProfile()?.Id && profilesDirty ? Visibility.Visible : Visibility.Collapsed;
         }
+    }
+
+    private void DiscardProfileChanges_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not AutomationProfile profile || profile.Id != ActiveProfile()?.Id || !profilesDirty) return;
+        if (!DiscardUnsavedProfileChanges()) return;
+        ShowAdvancedSharedDefaults(clearSelection: false);
+        RegisterConfiguredHotkey();
+        RefreshAdvancedFooterUi();
+        Status($"{profile.Name} restored to its last saved state.", ThemeManager.Brush("SuccessBrush"));
     }
 
     private void DeleteProfile_Click(object sender, RoutedEventArgs e)
@@ -3478,7 +3494,7 @@ public partial class MainWindow : Window
             customSequenceUsesGlobalInputPulse = s.CustomSequenceUsesGlobalInputPulse;
             SequenceItem.Content = "Custom sequence";
             CustomKeyItem.Content = customSpamVirtualKey != 0 ? $"Key: {FormatInputKey(customSpamVirtualKey)}" : "Custom key";
-            Select(ButtonCombo, string.IsNullOrWhiteSpace(s.Input) ? s.MouseButton : s.Input); Select(TypeCombo, s.ClickType); UntilStoppedRadio.IsChecked = s.RepeatUntilStopped; CountRadio.IsChecked = !s.RepeatUntilStopped; CountBox.Text = s.RepeatCount.ToString();
+            Select(ButtonCombo, string.IsNullOrWhiteSpace(s.Input) ? s.MouseButton : s.Input); UpdateActionPlaceholder(); Select(TypeCombo, s.ClickType); UntilStoppedRadio.IsChecked = s.RepeatUntilStopped; CountRadio.IsChecked = !s.RepeatUntilStopped; CountBox.Text = s.RepeatCount.ToString();
             CurrentPositionRadio.IsChecked = !s.FixedPosition; FixedPositionRadio.IsChecked = s.FixedPosition; XBox.Text = s.X.ToString(); YBox.Text = s.Y.ToString();
             TargetExecutableBox.Text = s.TargetExecutable ?? string.Empty;
             targetWindowTitle = string.IsNullOrWhiteSpace(s.TargetWindowTitle) ? null : s.TargetWindowTitle;
@@ -3498,6 +3514,12 @@ public partial class MainWindow : Window
             UpdateSharedBehaviorDefaultsUi();
         }
         finally { applyingDefaults = false; }
+    }
+
+    private void UpdateActionPlaceholder()
+    {
+        if (ActionPlaceholder is not null)
+            ActionPlaceholder.Visibility = ButtonCombo?.SelectedItem is null ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void SaveRgbSettings()
@@ -3587,11 +3609,16 @@ public partial class MainWindow : Window
     private static int Read(TextBox box, int min, int max) => InputRules.ParseClamped(box.Text, min, max);
     private static string Selected(ComboBox combo)
     {
-        var item = (ComboBoxItem)combo.SelectedItem;
+        if (combo.SelectedItem is not ComboBoxItem item) return "Unset";
         return item.Tag?.ToString() ?? item.Content.ToString()!;
     }
     private static void Select(ComboBox combo, string value)
     {
+        if (value == "Unset")
+        {
+            combo.SelectedItem = null;
+            return;
+        }
         foreach (var item in combo.Items.OfType<ComboBoxItem>())
             if (string.Equals(item.Tag?.ToString() ?? item.Content?.ToString(), value, StringComparison.Ordinal))
             {
