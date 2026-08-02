@@ -632,6 +632,7 @@ public partial class MainWindow : Window
         }
         if (editingProfileDefaultsId == ActiveProfile()?.Id && ActiveProfile() is { } profile)
         {
+            if (HasSameInterval(interval, AutomationBehaviorSettingsResolver.ResolveProfileDefaults(LoadSavedDefaults(), profile))) return;
             var local = profile.BehaviorDefaults?.Clone() ?? LoadSavedDefaults();
             CopyBehaviorOverride(interval, local, AutomationBehaviorOverride.Interval);
             profile.BehaviorDefaults = local;
@@ -642,6 +643,7 @@ public partial class MainWindow : Window
         }
         if (IsEditingAdvancedAction() && ActiveProfileAction() is { } action)
         {
+            if (HasSameInterval(interval, ResolveActionSettings(action))) return;
             CopyBehaviorOverride(interval, action.Settings, AutomationBehaviorOverride.Interval);
             action.UsesSharedBehaviorDefaults = true;
             action.BehaviorOverrides |= AutomationBehaviorOverride.Interval;
@@ -649,9 +651,13 @@ public partial class MainWindow : Window
             return;
         }
         var defaults = LoadSavedDefaults();
+        if (HasSameInterval(interval, defaults)) return;
         CopyBehaviorOverride(interval, defaults, AutomationBehaviorOverride.Interval);
         WriteDefaults(GlobalDefaultsPath, defaults);
     }
+
+    private static bool HasSameInterval(AppDefaults left, AppDefaults right) =>
+        left.Hours == right.Hours && left.Minutes == right.Minutes && left.Seconds == right.Seconds && left.Milliseconds == right.Milliseconds;
 
     private InputRules.IntervalParts NormalizeIntervalBoxes()
     {
@@ -972,7 +978,8 @@ public partial class MainWindow : Window
         var action = ActiveProfileAction();
         if (action is null) return;
         var settings = CreateCurrentDefaults();
-        if (JsonSerializer.Serialize(action.Settings) == JsonSerializer.Serialize(settings)) return;
+        var current = advancedMode ? ResolveActionSettings(action) : action.Settings;
+        if (JsonSerializer.Serialize(current) == JsonSerializer.Serialize(settings)) return;
         action.Settings = settings;
         if (advancedMode) MarkProfilesDirty();
     }
