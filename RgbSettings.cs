@@ -554,6 +554,8 @@ public static class OpenRgbHighlighter
 
         ActiveIndicators.Remove(snapshot.DeviceIndex);
         using var client = new OpenRgbClient(name: "AutoClicker");
+        client.SetCustomMode(snapshot.DeviceIndex);
+        client.UpdateLeds(snapshot.DeviceIndex, state.Colors);
         RestoreMode(client, snapshot.DeviceIndex, state.Mode);
     }
 
