@@ -23,6 +23,8 @@ Choose left, middle, or right clicks; Space, Enter, or a picked key; or a custom
 
 Settings can export or restore **Everything**, **Simple mode**, **Advanced mode and profiles**, or **Custom sequences**. Full backups are versioned for future compatibility, while profile export makes it easy to share one named setup.
 
+OpenRGB keyboard lighting can also keep an optional idle OpenRGB profile selection in full backups and full resets.
+
 ## Download
 
 Get AutoClicker from the [latest release](../../releases/latest).

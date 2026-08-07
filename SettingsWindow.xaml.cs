@@ -547,6 +547,7 @@ public partial class SettingsWindow : Window
     private void SetIdleProfileOptions(IEnumerable<string> discoveredProfiles, bool clearMissingWhenKeyboardConnected)
     {
         var remembered = (Settings.IdleProfileName ?? string.Empty).Trim();
+        var rememberedKey = NormalizeProfileNameForCompare(remembered);
         var profiles = discoveredProfiles
             .Where(profile => !string.IsNullOrWhiteSpace(profile))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -555,7 +556,7 @@ public partial class SettingsWindow : Window
 
         var options = new List<string> { NoIdleProfileOption };
         options.AddRange(profiles);
-        if (remembered.Length > 0 && !profiles.Contains(remembered, StringComparer.OrdinalIgnoreCase)) options.Add(remembered);
+        if (remembered.Length > 0 && !profiles.Any(profile => string.Equals(NormalizeProfileNameForCompare(profile), rememberedKey, StringComparison.OrdinalIgnoreCase))) options.Add(remembered);
 
         OpenRgbProfileCombo.ItemsSource = options;
         if (remembered.Length == 0)
@@ -564,7 +565,7 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        var discovered = profiles.FirstOrDefault(profile => string.Equals(profile, remembered, StringComparison.OrdinalIgnoreCase));
+        var discovered = profiles.FirstOrDefault(profile => string.Equals(NormalizeProfileNameForCompare(profile), rememberedKey, StringComparison.OrdinalIgnoreCase));
         if (discovered is not null)
         {
             OpenRgbProfileCombo.SelectedItem = discovered;
@@ -581,6 +582,14 @@ public partial class SettingsWindow : Window
         }
 
         OpenRgbProfileCombo.SelectedItem = remembered;
+    }
+
+    private static string NormalizeProfileNameForCompare(string profileName)
+    {
+        var value = profileName.Trim();
+        return value.EndsWith(".orp", StringComparison.OrdinalIgnoreCase)
+            ? value[..^4]
+            : value;
     }
 
     private async void TestProfileButton_Click(object sender, RoutedEventArgs e)

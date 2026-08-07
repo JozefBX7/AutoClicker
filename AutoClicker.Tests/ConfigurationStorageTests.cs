@@ -131,6 +131,28 @@ public sealed class ConfigurationStorageTests
     }
 
     [TestMethod]
+    public void FullBackup_RoundTripsRgbIdleProfileName()
+    {
+        var path = TemporaryPath("backup-rgb.json");
+        try
+        {
+            ConfigBackupStore.Write(path, new ConfigBackupDocument
+            {
+                Scope = BackupScope.Everything,
+                DefaultsJson = "{}",
+                RgbJson = "{\"IdleProfileName\":\"Dark White\"}"
+            });
+
+            var backup = ConfigBackupStore.Read(path);
+            var rgb = System.Text.Json.JsonSerializer.Deserialize<RgbSettings>(backup.RgbJson);
+
+            Assert.IsNotNull(rgb);
+            Assert.AreEqual("Dark White", rgb.IdleProfileName);
+        }
+        finally { DeleteTemporaryDirectory(path); }
+    }
+
+    [TestMethod]
     public void FocusedBackup_RoundTripsWithoutUnrelatedSettings()
     {
         var path = TemporaryPath("advanced-backup.json");
