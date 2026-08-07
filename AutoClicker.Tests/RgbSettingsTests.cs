@@ -33,6 +33,7 @@ public sealed class RgbSettingsTests
         var settings = new RgbSettings();
         Assert.IsTrue(settings.CrashRecoveryEnabled);
         Assert.IsTrue(settings.StopAutoStartedOnExit);
+        Assert.AreEqual(string.Empty, settings.IdleProfileName);
         Assert.IsFalse(settings.IsPulse);
 
         settings.LightingEffect = "pUlSe";
@@ -41,6 +42,16 @@ public sealed class RgbSettingsTests
 
         settings.LightingEffect = "Fade";
         Assert.IsTrue(settings.IsPulse);
+    }
+
+    [TestMethod]
+    public void RgbSettings_ClonePreservesIdleProfileName()
+    {
+        var source = new RgbSettings { IdleProfileName = "Dark White" };
+
+        var clone = source.Clone();
+
+        Assert.AreEqual("Dark White", clone.IdleProfileName);
     }
 
     [DataTestMethod]

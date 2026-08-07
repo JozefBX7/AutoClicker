@@ -15,6 +15,7 @@ public sealed class RgbSettings
     public bool AutoStart { get; set; }
     public bool StopAutoStartedOnExit { get; set; } = true;
     public bool CrashRecoveryEnabled { get; set; } = true;
+    public string IdleProfileName { get; set; } = string.Empty;
     public string IndicatorColor { get; set; } = "#22D3EE";
     public string LightingEffect { get; set; } = "Constant";
     public int PulseSpeedMilliseconds { get; set; } = 450;
@@ -33,6 +34,7 @@ public sealed class RgbSettings
         AutoStart = AutoStart,
         StopAutoStartedOnExit = StopAutoStartedOnExit,
         CrashRecoveryEnabled = CrashRecoveryEnabled,
+        IdleProfileName = IdleProfileName,
         IndicatorColor = IndicatorColor,
         LightingEffect = LightingEffect,
         PulseSpeedMilliseconds = PulseSpeedMilliseconds
@@ -134,6 +136,43 @@ public static class OpenRgbHighlighter
             AppLog.Error("Could not stop the OpenRGB process started by AutoClicker", exception);
         }
         finally { process.Dispose(); }
+    }
+
+    public static string[] GetProfiles()
+    {
+        using var client = new OpenRgbClient(name: "AutoClicker");
+        return client.GetProfiles()
+            .Where(profile => !string.IsNullOrWhiteSpace(profile))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(profile => profile, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    public static bool TryLoadProfile(string? profileName, out string? error)
+    {
+        error = null;
+        var name = (profileName ?? string.Empty).Trim();
+        if (name.Length == 0)
+        {
+            error = "Choose an OpenRGB profile first.";
+            return false;
+        }
+        try
+        {
+            lock (IndicatorWriteLock)
+            {
+                using var client = new OpenRgbClient(name: "AutoClicker");
+                client.LoadProfile(name);
+                ActiveIndicators.Clear();
+            }
+            return true;
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error($"OpenRGB profile load failed: {name}", exception);
+            error = $"OpenRGB could not load profile '{name}': {exception.Message}";
+            return false;
+        }
     }
 
     private static async Task<bool> IsSdkAvailableAsync()
@@ -504,6 +543,8 @@ public static class OpenRgbHighlighter
         try
         {
             using var client = new OpenRgbClient(name: "AutoClicker");
+            client.SetCustomMode(snapshot.DeviceIndex);
+            client.UpdateLeds(snapshot.DeviceIndex, snapshot.Colors);
             RestoreMode(client, snapshot.DeviceIndex, snapshot.Mode);
         }
         catch (Exception exception) { AppLog.Error("OpenRGB keyboard test restore failed", exception); }

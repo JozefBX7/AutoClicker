@@ -2922,6 +2922,8 @@ public partial class MainWindow : Window
     {
         // OpenRGB can only address keyboard LEDs; a mouse binding deliberately has no key to illuminate.
         if (!source.Enabled || string.IsNullOrWhiteSpace(keyName)) return;
+        const int openRgbStartupRetryWindowMilliseconds = 10000;
+        const int openRgbStartupRetryDelayMilliseconds = 300;
         var updateSharedDevice = ReferenceEquals(source, rgbSettings);
         StopRgbIndicator(indicatorId);
         // Work from a copy because Settings may change while OpenRGB is resolving.
@@ -2933,42 +2935,67 @@ public partial class MainWindow : Window
         session.Task = Task.Run(async () =>
         {
             RgbLightingSnapshot? snapshot = null;
+            string? indicatorError = null;
             try
             {
-                var availability = await OpenRgbHighlighter.EnsureSdkAsync(settings);
-                if (!availability.IsAvailable)
+                var retryDeadline = Stopwatch.GetTimestamp() + openRgbStartupRetryWindowMilliseconds * Stopwatch.Frequency / 1000d;
+                while (!cancellation.IsCancellationRequested && !isClosing && !Dispatcher.HasShutdownStarted)
                 {
-                    ShowOpenRgbWarning(availability.Message ?? "OpenRGB's SDK server is unavailable.");
+                    var availability = await OpenRgbHighlighter.EnsureSdkAsync(settings);
+                    if (!availability.IsAvailable)
+                    {
+                        indicatorError = availability.Message ?? "OpenRGB's SDK server is unavailable.";
+                        if (!settings.AutoStart || Stopwatch.GetTimestamp() >= retryDeadline) break;
+                        await Task.Delay(openRgbStartupRetryDelayMilliseconds, cancellation.Token);
+                        continue;
+                    }
+
+                    ClearOpenRgbWarning();
+                    if (availability.Message is not null && !Dispatcher.HasShutdownStarted)
+                        _ = Dispatcher.BeginInvoke(ShowOpenRgbStartedStatus);
+                    // Resolve by saved name where possible, then keep the resolved device details.
+                    var keyboard = OpenRgbHighlighter.ResolveKeyboard(settings);
+                    if (keyboard is null)
+                    {
+                        indicatorError = "No matching OpenRGB keyboard found. Open Settings to choose one.";
+                        if (!settings.AutoStart || Stopwatch.GetTimestamp() >= retryDeadline) break;
+                        await Task.Delay(openRgbStartupRetryDelayMilliseconds, cancellation.Token);
+                        continue;
+                    }
+
+                    settings.DeviceIndex = keyboard.Index;
+                    settings.DeviceName = keyboard.Name;
+                    snapshot = OpenRgbHighlighter.EnableKeyIndicator(settings, keyName, out indicatorError, lightImmediately: false);
+                    if (snapshot is not null) break;
+                    if (!settings.AutoStart || Stopwatch.GetTimestamp() >= retryDeadline) break;
+                    await Task.Delay(openRgbStartupRetryDelayMilliseconds, cancellation.Token);
+                }
+
+                if (snapshot is null)
+                {
+                    if (cancellation.IsCancellationRequested || isClosing || Dispatcher.HasShutdownStarted) return;
+                    if (indicatorError is not null)
+                    {
+                        ShowOpenRgbWarning(indicatorError);
+                        if (!Dispatcher.HasShutdownStarted)
+                            Dispatcher.BeginInvoke(() => Status(indicatorError, ThemeManager.Brush("ErrorBrush")));
+                    }
                     return;
                 }
-                ClearOpenRgbWarning();
-                if (availability.Message is not null && !Dispatcher.HasShutdownStarted)
-                    _ = Dispatcher.BeginInvoke(ShowOpenRgbStartedStatus);
-                // Resolve by saved name where possible, then keep the resolved device details.
-                var keyboard = OpenRgbHighlighter.ResolveKeyboard(settings);
-                if (keyboard is null)
+
+                OpenRgbHighlighter.LightIndicator(snapshot);
+                if (settings.IsBlink)
+                    await OpenRgbHighlighter.BlinkIndicatorAsync(snapshot, settings.PulseSpeedMilliseconds, cancellation.Token);
+                else if (settings.IsPulse)
+                    await OpenRgbHighlighter.FadePulseIndicatorAsync(snapshot, settings.PulseSpeedMilliseconds, cancellation.Token);
+                else
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellation.Token);
+                if (updateSharedDevice && !Dispatcher.HasShutdownStarted && (settings.DeviceIndex != rgbSettings.DeviceIndex || !string.Equals(settings.DeviceName, rgbSettings.DeviceName, StringComparison.Ordinal)))
+                    Dispatcher.BeginInvoke(() => { rgbSettings = settings; SaveRgbSettings(); });
+                if (indicatorError is not null && !Dispatcher.HasShutdownStarted)
                 {
-                    if (!Dispatcher.HasShutdownStarted) 
-Dispatcher.BeginInvoke(() => Status("No matching OpenRGB keyboard found. Open Settings to choose one.", ThemeManager.Brush("ErrorBrush")));
-                    return;
+                    Dispatcher.BeginInvoke(() => Status(indicatorError, ThemeManager.Brush("ErrorBrush")));
                 }
-                settings.DeviceIndex = keyboard.Index;
-                settings.DeviceName = keyboard.Name;
-                snapshot = OpenRgbHighlighter.EnableKeyIndicator(settings, keyName, out var error, lightImmediately: false);
-                if (snapshot is not null)
-                {
-                    OpenRgbHighlighter.LightIndicator(snapshot);
-                    if (settings.IsBlink)
-                        await OpenRgbHighlighter.BlinkIndicatorAsync(snapshot, settings.PulseSpeedMilliseconds, cancellation.Token);
-                    else if (settings.IsPulse)
-                        await OpenRgbHighlighter.FadePulseIndicatorAsync(snapshot, settings.PulseSpeedMilliseconds, cancellation.Token);
-                    else
-                        await Task.Delay(Timeout.InfiniteTimeSpan, cancellation.Token);
-                    if (updateSharedDevice && !Dispatcher.HasShutdownStarted && (settings.DeviceIndex != rgbSettings.DeviceIndex || !string.Equals(settings.DeviceName, rgbSettings.DeviceName, StringComparison.Ordinal)))
-                        Dispatcher.BeginInvoke(() => { rgbSettings = settings; SaveRgbSettings(); });
-                }
-                if (error is not null && !Dispatcher.HasShutdownStarted)
-                    Dispatcher.BeginInvoke(() => Status(error, ThemeManager.Brush("ErrorBrush")));
             }
             catch (OperationCanceledException) { }
             catch (Exception exception) when (!Dispatcher.HasShutdownStarted)
@@ -2979,15 +3006,51 @@ Dispatcher.BeginInvoke(() => Status("No matching OpenRGB keyboard found. Open Se
             finally
             {
                 var shouldClear = true;
+                var shouldApplyIdleProfile = false;
                 lock (rgbLock)
                 {
                     if (rgbIndicators.TryGetValue(indicatorId, out var current) && ReferenceEquals(current, session))
+                    {
                         rgbIndicators.Remove(indicatorId);
+                        shouldApplyIdleProfile = rgbIndicators.Count == 0;
+                    }
                     else if (rgbIndicators.ContainsKey(indicatorId))
                         shouldClear = false;
                 }
                 if (shouldClear && snapshot is not null) OpenRgbHighlighter.ClearIndicator(snapshot);
+                if (shouldApplyIdleProfile) ApplyIdleOpenRgbProfile();
                 cancellation.Dispose();
+            }
+        });
+    }
+
+    private void ApplyIdleOpenRgbProfile()
+    {
+        var profileName = (rgbSettings.IdleProfileName ?? string.Empty).Trim();
+        if (profileName.Length == 0) return;
+
+        var settings = CloneLighting(rgbSettings);
+        settings.Enabled = true;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var availability = await OpenRgbHighlighter.EnsureSdkAsync(settings);
+                if (!availability.IsAvailable)
+                {
+                    AppLog.Info($"Could not apply idle OpenRGB profile '{profileName}': {availability.Message}");
+                    return;
+                }
+
+                if (!OpenRgbHighlighter.TryLoadProfile(profileName, out var error))
+                {
+                    if (error is not null) AppLog.Info(error);
+                    return;
+                }
+            }
+            catch (Exception exception)
+            {
+                AppLog.Error($"Could not apply idle OpenRGB profile '{profileName}'", exception);
             }
         });
     }
@@ -3074,7 +3137,12 @@ Dispatcher.BeginInvoke(() => Status("No matching OpenRGB keyboard found. Open Se
                 var error = await OpenRgbHighlighter.FlashKeyAsync(settings, keyName);
                 if (error is not null) AppLog.Info($"Could not flash newly selected hotkey: {error}");
                 else if (settings.DeviceIndex != rgbSettings.DeviceIndex || !string.Equals(settings.DeviceName, rgbSettings.DeviceName, StringComparison.Ordinal))
-                    _ = Dispatcher.BeginInvoke(() => { rgbSettings = settings; SaveRgbSettings(); });
+                    _ = Dispatcher.BeginInvoke(() =>
+                    {
+                        rgbSettings.DeviceIndex = settings.DeviceIndex;
+                        rgbSettings.DeviceName = settings.DeviceName;
+                        SaveRgbSettings();
+                    });
             }
             catch (Exception exception)
             {
@@ -3502,7 +3570,14 @@ Dispatcher.BeginInvoke(() => Status("No matching OpenRGB keyboard found. Open Se
             hotkeyTrigger = s.HotkeyTrigger;
             hotkey = hotkeyTrigger == HotkeyTrigger.Keyboard && s.Hotkey <= 0 ? System.Windows.Input.KeyInterop.VirtualKeyFromKey(System.Windows.Input.Key.F6) : s.Hotkey;
             hotkeyModifiers = s.HotkeyModifiers;
-            if (s.Rgb is not null) rgbSettings = s.Rgb;
+            if (s.Rgb is not null)
+            {
+                var idleProfileName = string.IsNullOrWhiteSpace(s.Rgb.IdleProfileName)
+                    ? rgbSettings.IdleProfileName
+                    : s.Rgb.IdleProfileName;
+                rgbSettings = s.Rgb;
+                rgbSettings.IdleProfileName = idleProfileName;
+            }
             RepeatMode_Changed(this, new RoutedEventArgs());
             PositionMode_Changed(this, new RoutedEventArgs());
             UpdateHotkeyLabel();
@@ -3708,6 +3783,7 @@ Dispatcher.BeginInvoke(() => Status("No matching OpenRGB keyboard found. Open Se
         try { Task.WaitAll(runningProfileTasks, TimeSpan.FromSeconds(2)); } catch (Exception exception) { AppLog.Error("Error while waiting for profile worker shutdown", exception); }
         var rgbTasks = StopAllRgbIndicators();
         try { Task.WaitAll(rgbTasks, TimeSpan.FromSeconds(2)); } catch (Exception exception) { AppLog.Error("Error while restoring OpenRGB lighting", exception); }
+        ApplyIdleOpenRgbProfile();
         if (rgbSettings.StopAutoStartedOnExit) OpenRgbHighlighter.StopAutoStartedServer();
         // Release UI timers and the Windows hotkey hook last.
         resetTimer.Stop(); flashTimer.Stop(); guiHeartbeatTimer.Stop(); if (hotkeyRegistered) UnregisterHotKey(hwnd, HotkeyId); foreach (var id in additionalHotkeys.Keys) UnregisterHotKey(hwnd, id); mouseHotkeys.Clear(); UpdateMouseHook(); if (hwndSource is not null) hwndSource.RemoveHook(WndProc);

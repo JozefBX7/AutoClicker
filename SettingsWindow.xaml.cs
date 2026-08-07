@@ -7,6 +7,9 @@ namespace AutoClicker;
 
 public partial class SettingsWindow : Window
 {
+    private const string NoIdleProfileOption = "(None)";
+    private const int OpenRgbProfileRetryWindowMilliseconds = 10_000;
+    private const int OpenRgbProfileRetryDelayMilliseconds = 300;
     public RgbSettings Settings { get; }
     public WorkerPriorityOption WorkerPriority { get; private set; }
     public bool CadenceDiagnosticsEnabled { get; private set; }
@@ -31,7 +34,7 @@ public partial class SettingsWindow : Window
         this.importBackup = importBackup;
         effectPreviewRestartTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
         effectPreviewRestartTimer.Tick += EffectPreviewRestartTimer_Tick;
-        Settings = new RgbSettings { Enabled = current.Enabled, DeviceIndex = current.DeviceIndex, DeviceName = current.DeviceName, AutoStart = current.AutoStart, StopAutoStartedOnExit = current.StopAutoStartedOnExit, CrashRecoveryEnabled = current.CrashRecoveryEnabled, IndicatorColor = current.IndicatorColor, LightingEffect = current.LightingEffect, PulseSpeedMilliseconds = current.PulseSpeedMilliseconds };
+        Settings = new RgbSettings { Enabled = current.Enabled, DeviceIndex = current.DeviceIndex, DeviceName = current.DeviceName, AutoStart = current.AutoStart, StopAutoStartedOnExit = current.StopAutoStartedOnExit, CrashRecoveryEnabled = current.CrashRecoveryEnabled, IdleProfileName = current.IdleProfileName, IndicatorColor = current.IndicatorColor, LightingEffect = current.LightingEffect, PulseSpeedMilliseconds = current.PulseSpeedMilliseconds };
         WorkerPriority = workerPriority;
         WorkerPriorityCombo.SelectedItem = WorkerPriorityCombo.Items.OfType<ComboBoxItem>().First(item => string.Equals(item.Tag?.ToString(), WorkerPriority.ToString(), StringComparison.OrdinalIgnoreCase));
         CadenceDiagnosticsEnabled = cadenceDiagnosticsEnabled;
@@ -41,6 +44,7 @@ public partial class SettingsWindow : Window
         EnableOpenRgb.IsChecked = Settings.Enabled;
         AutoStartOpenRgb.IsChecked = Settings.AutoStart;
         StopAutoStartedOpenRgb.IsChecked = Settings.StopAutoStartedOnExit;
+        SetIdleProfileOptions([], clearMissingWhenKeyboardConnected: false);
         EnableCrashRecovery.IsChecked = Settings.CrashRecoveryEnabled;
         IndicatorColorBox.Text = Settings.IndicatorColor;
         UpdateColorPreview();
@@ -50,7 +54,11 @@ public partial class SettingsWindow : Window
         HotkeyLightingHint.Text = hotkeyKeyName is null
             ? "OpenRGB lighting applies to keyboard hotkeys. Select a keyboard hotkey to light one."
             : $"When AutoClicker is active, OpenRGB will light {hotkeyName}.";
-        Loaded += (_, _) => RefreshKeyboards();
+        Loaded += (_, _) =>
+        {
+            RefreshKeyboards();
+            RefreshProfiles();
+        };
     }
 
     protected override void OnClosed(EventArgs e)
@@ -86,6 +94,7 @@ public partial class SettingsWindow : Window
     private void QuickStartButton_Click(object sender, RoutedEventArgs e) => new QuickStartWindow { Owner = this }.ShowDialog();
 
     private void FindKeyboards_Click(object sender, RoutedEventArgs e) => RefreshKeyboards();
+    private void RefreshProfiles_Click(object sender, RoutedEventArgs e) => RefreshProfiles();
 
     private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
     {
@@ -243,6 +252,7 @@ public partial class SettingsWindow : Window
             DeviceName = keyboard.Name,
             AutoStart = AutoStartOpenRgb.IsChecked == true,
             StopAutoStartedOnExit = StopAutoStartedOpenRgb.IsChecked == true,
+            IdleProfileName = SelectedIdleProfileName(),
             IndicatorColor = color
         };
         var availability = await OpenRgbHighlighter.EnsureSdkAsync(settings);
@@ -289,7 +299,7 @@ public partial class SettingsWindow : Window
                 ConnectionStatus.Foreground = ThemeManager.Brush("ErrorBrush");
                 return;
             }
-            var settings = new RgbSettings { Enabled = true, DeviceIndex = keyboard.Index, DeviceName = keyboard.Name, AutoStart = AutoStartOpenRgb.IsChecked == true, StopAutoStartedOnExit = StopAutoStartedOpenRgb.IsChecked == true, IndicatorColor = color, LightingEffect = SelectedEffect(), PulseSpeedMilliseconds = ReadPulseSpeed() };
+            var settings = new RgbSettings { Enabled = true, DeviceIndex = keyboard.Index, DeviceName = keyboard.Name, AutoStart = AutoStartOpenRgb.IsChecked == true, StopAutoStartedOnExit = StopAutoStartedOpenRgb.IsChecked == true, IdleProfileName = SelectedIdleProfileName(), IndicatorColor = color, LightingEffect = SelectedEffect(), PulseSpeedMilliseconds = ReadPulseSpeed() };
             var availability = await OpenRgbHighlighter.EnsureSdkAsync(settings);
             if (!availability.IsAvailable)
             {
@@ -456,7 +466,8 @@ public partial class SettingsWindow : Window
                 DeviceIndex = keyboard.Index,
                 DeviceName = keyboard.Name,
                 AutoStart = AutoStartOpenRgb.IsChecked == true,
-                StopAutoStartedOnExit = StopAutoStartedOpenRgb.IsChecked == true
+                StopAutoStartedOnExit = StopAutoStartedOpenRgb.IsChecked == true,
+                IdleProfileName = SelectedIdleProfileName()
             };
             var availability = await OpenRgbHighlighter.EnsureSdkAsync(settings);
             if (!availability.IsAvailable)
@@ -483,6 +494,7 @@ public partial class SettingsWindow : Window
         TestRgbButton.IsEnabled = enabled;
         TestEffectButton.IsEnabled = enabled;
         ClearStuckLightingButton.IsEnabled = enabled;
+        TestProfileButton.IsEnabled = enabled;
     }
 
     private bool TryCreateLightingSettings(out RgbSettings settings, out string error)
@@ -499,8 +511,121 @@ public partial class SettingsWindow : Window
             error = "Enter a colour as a hex value, for example #22D3EE.";
             return false;
         }
-        settings = new RgbSettings { Enabled = true, DeviceIndex = keyboard.Index, DeviceName = keyboard.Name, AutoStart = AutoStartOpenRgb.IsChecked == true, StopAutoStartedOnExit = StopAutoStartedOpenRgb.IsChecked == true, IndicatorColor = color, LightingEffect = SelectedEffect(), PulseSpeedMilliseconds = ReadPulseSpeed() };
+        settings = new RgbSettings { Enabled = true, DeviceIndex = keyboard.Index, DeviceName = keyboard.Name, AutoStart = AutoStartOpenRgb.IsChecked == true, StopAutoStartedOnExit = StopAutoStartedOpenRgb.IsChecked == true, IdleProfileName = SelectedIdleProfileName(), IndicatorColor = color, LightingEffect = SelectedEffect(), PulseSpeedMilliseconds = ReadPulseSpeed() };
         return true;
+    }
+
+    private async void RefreshProfiles()
+    {
+        try
+        {
+            var autoStart = AutoStartOpenRgb.IsChecked == true;
+            var retryDeadline = Stopwatch.GetTimestamp() + OpenRgbProfileRetryWindowMilliseconds * Stopwatch.Frequency / 1000d;
+            while (!isClosing)
+            {
+                Settings.AutoStart = autoStart;
+                var availability = await OpenRgbHighlighter.EnsureSdkAsync(Settings);
+                if (!availability.IsAvailable)
+                {
+                    if (!autoStart || Stopwatch.GetTimestamp() >= retryDeadline)
+                    {
+                        SetIdleProfileOptions([], clearMissingWhenKeyboardConnected: false);
+                        return;
+                    }
+                    await Task.Delay(OpenRgbProfileRetryDelayMilliseconds);
+                    continue;
+                }
+
+                var profiles = OpenRgbHighlighter.GetProfiles();
+                SetIdleProfileOptions(profiles, clearMissingWhenKeyboardConnected: KeyboardCombo.SelectedItem is KeyboardDevice);
+                return;
+            }
+        }
+        catch { }
+    }
+
+    private void SetIdleProfileOptions(IEnumerable<string> discoveredProfiles, bool clearMissingWhenKeyboardConnected)
+    {
+        var remembered = (Settings.IdleProfileName ?? string.Empty).Trim();
+        var profiles = discoveredProfiles
+            .Where(profile => !string.IsNullOrWhiteSpace(profile))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(profile => profile, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var options = new List<string> { NoIdleProfileOption };
+        options.AddRange(profiles);
+        if (remembered.Length > 0 && !profiles.Contains(remembered, StringComparer.OrdinalIgnoreCase)) options.Add(remembered);
+
+        OpenRgbProfileCombo.ItemsSource = options;
+        if (remembered.Length == 0)
+        {
+            OpenRgbProfileCombo.SelectedItem = NoIdleProfileOption;
+            return;
+        }
+
+        var discovered = profiles.FirstOrDefault(profile => string.Equals(profile, remembered, StringComparison.OrdinalIgnoreCase));
+        if (discovered is not null)
+        {
+            OpenRgbProfileCombo.SelectedItem = discovered;
+            return;
+        }
+
+        if (clearMissingWhenKeyboardConnected && profiles.Count > 0)
+        {
+            Settings.IdleProfileName = string.Empty;
+            OpenRgbProfileCombo.SelectedItem = NoIdleProfileOption;
+            ConnectionStatus.Text = $"Saved idle profile '{remembered}' was not found. Idle profile was set to none.";
+            ConnectionStatus.Foreground = ThemeManager.Brush("WarningBrush");
+            return;
+        }
+
+        OpenRgbProfileCombo.SelectedItem = remembered;
+    }
+
+    private async void TestProfileButton_Click(object sender, RoutedEventArgs e)
+    {
+        var profileName = SelectedIdleProfileName();
+        if (string.IsNullOrWhiteSpace(profileName))
+        {
+            ConnectionStatus.Text = "Choose an OpenRGB profile before testing.";
+            ConnectionStatus.Foreground = ThemeManager.Brush("WarningBrush");
+            return;
+        }
+
+        SetLightingTestControlsEnabled(false);
+        ConnectionStatus.Text = $"Applying OpenRGB profile '{profileName}'…";
+        ConnectionStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+        try
+        {
+            var settings = new RgbSettings { Enabled = true, AutoStart = AutoStartOpenRgb.IsChecked == true };
+            var availability = await OpenRgbHighlighter.EnsureSdkAsync(settings);
+            if (!availability.IsAvailable)
+            {
+                ConnectionStatus.Text = availability.Message ?? "OpenRGB's SDK server is unavailable.";
+                ConnectionStatus.Foreground = ThemeManager.Brush("ErrorBrush");
+                return;
+            }
+            if (!OpenRgbHighlighter.TryLoadProfile(profileName, out var error))
+            {
+                ConnectionStatus.Text = error ?? "OpenRGB profile load failed.";
+                ConnectionStatus.Foreground = ThemeManager.Brush("ErrorBrush");
+                return;
+            }
+
+            ConnectionStatus.Text = $"Applied OpenRGB profile '{profileName}'.";
+            ConnectionStatus.Foreground = ThemeManager.Brush("SuccessBrush");
+        }
+        finally
+        {
+            if (!isClosing) SetLightingTestControlsEnabled(true);
+        }
+    }
+
+    private string SelectedIdleProfileName()
+    {
+        var selected = (OpenRgbProfileCombo.SelectedItem as string ?? OpenRgbProfileCombo.Text ?? string.Empty).Trim();
+        return string.Equals(selected, NoIdleProfileOption, StringComparison.Ordinal) ? string.Empty : selected;
     }
 
     private async void RefreshKeyboards()
@@ -546,6 +671,7 @@ public partial class SettingsWindow : Window
         Settings.AutoStart = AutoStartOpenRgb.IsChecked == true;
         Settings.StopAutoStartedOnExit = StopAutoStartedOpenRgb.IsChecked == true;
         Settings.CrashRecoveryEnabled = EnableCrashRecovery.IsChecked == true;
+        Settings.IdleProfileName = SelectedIdleProfileName();
         if (!OpenRgbHighlighter.TryNormalizeIndicatorColor(IndicatorColorBox.Text, out var color))
         {
             ConnectionStatus.Text = "Enter a colour as a hex value, for example #22D3EE.";
