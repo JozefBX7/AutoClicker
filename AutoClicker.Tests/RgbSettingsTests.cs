@@ -147,4 +147,16 @@ public sealed class RgbSettingsTests
         CollectionAssert.AreEqual(current, refreshed);
         Assert.AreNotSame(current, refreshed);
     }
+
+    [TestMethod]
+    public void RestoreIndicatorColor_ReplacesTheTemporaryKeyColourWithItsCapturedColour()
+    {
+        var original = new[] { new OpenRGB.NET.Color(1, 2, 3), new OpenRGB.NET.Color(4, 5, 6) };
+        var mode = new RgbDeviceModeSnapshot(0, null, null, []);
+        var snapshot = new RgbLightingSnapshot(1, original, mode, 1, new OpenRGB.NET.Color(34, 211, 238));
+
+        var restored = OpenRgbHighlighter.RestoreIndicatorColor([original[0], snapshot.IndicatorColor], snapshot);
+
+        CollectionAssert.AreEqual(original, restored);
+    }
 }

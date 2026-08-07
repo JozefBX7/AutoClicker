@@ -55,6 +55,8 @@ public static class OpenRgbHighlighter
     // Never stop an OpenRGB instance we did not start.
     private static readonly object StartedProcessLock = new();
     private static readonly SemaphoreSlim SdkStartupLock = new(1, 1);
+    private static readonly object IndicatorWriteLock = new();
+    private static readonly Dictionary<int, IndicatorDeviceState> ActiveIndicators = [];
     private static Process? processStartedByAutoClicker;
 
     internal static bool ShouldStartOnApplicationLaunch(RgbSettings settings) => settings.Enabled && settings.AutoStart;
@@ -208,14 +210,8 @@ public static class OpenRgbHighlighter
             if (keyboard.Colors.Length != keyboard.Leds.Length) { error = "This keyboard does not expose per-key colours to OpenRGB."; return null; }
 
             // Restore the original keyboard colours when finished.
-            var snapshot = new RgbLightingSnapshot(keyboard.Index, keyboard.Colors.ToArray(), led.Index, IndicatorColor(settings));
-            if (lightImmediately)
-            {
-                var colors = snapshot.Colors.ToArray();
-                colors[snapshot.KeyIndex] = snapshot.IndicatorColor;
-                client.SetCustomMode(snapshot.DeviceIndex);
-                client.UpdateLeds(snapshot.DeviceIndex, colors);
-            }
+            var snapshot = new RgbLightingSnapshot(keyboard.Index, keyboard.Colors.ToArray(), CaptureMode(keyboard), led.Index, IndicatorColor(settings));
+            if (lightImmediately) LightIndicator(snapshot);
             return snapshot;
         }
         catch (Exception exception)
@@ -284,11 +280,17 @@ public static class OpenRgbHighlighter
     {
         try
         {
-            using var client = new OpenRgbClient(name: "AutoClicker");
-            client.SetCustomMode(snapshot.DeviceIndex);
-            client.UpdateLeds(snapshot.DeviceIndex, snapshot.Colors);
+            lock (IndicatorWriteLock)
+            {
+                ClearIndicatorCore(snapshot);
+            }
         }
         catch (Exception exception) { AppLog.Error("OpenRGB indicator restore failed", exception); }
+    }
+
+    public static void ClearIndicator(RgbLightingSnapshot snapshot)
+    {
+        RestoreIndicator(snapshot);
     }
 
     public static async Task BlinkIndicatorAsync(RgbLightingSnapshot snapshot, int halfCycleMilliseconds, CancellationToken cancellation)
@@ -300,7 +302,7 @@ public static class OpenRgbHighlighter
             while (true)
             {
                 await Task.Delay(halfCycle, cancellation);
-                if (lit) RestoreKey(snapshot); else LightIndicator(snapshot);
+                if (lit) ClearIndicatorFrame(snapshot); else LightIndicator(snapshot);
                 lit = !lit;
             }
         }
@@ -458,11 +460,14 @@ public static class OpenRgbHighlighter
         }
     }
 
-    private static void LightIndicator(RgbLightingSnapshot snapshot)
+    public static void LightIndicator(RgbLightingSnapshot snapshot)
     {
-        using var client = new OpenRgbClient(name: "AutoClicker");
-        client.SetCustomMode(snapshot.DeviceIndex);
-        client.UpdateSingleLed(snapshot.DeviceIndex, snapshot.KeyIndex, snapshot.IndicatorColor);
+        lock (IndicatorWriteLock) WriteKey(snapshot, snapshot.IndicatorColor);
+    }
+
+    private static void WriteKey(RgbLightingSnapshot snapshot, Color color)
+    {
+        SetIndicatorColor(snapshot, color);
     }
 
     private static RgbKeyboardSnapshot? CaptureKeyboardForTest(RgbSettings settings, out string? error)
@@ -477,7 +482,7 @@ public static class OpenRgbHighlighter
                 error = $"{keyboard.Name} does not expose colours that OpenRGB can test.";
                 return null;
             }
-            return new RgbKeyboardSnapshot(keyboard.Index, keyboard.Colors.ToArray(), IndicatorColor(settings));
+            return new RgbKeyboardSnapshot(keyboard.Index, keyboard.Colors.ToArray(), CaptureMode(keyboard), IndicatorColor(settings));
         }
         catch (Exception exception)
         {
@@ -499,24 +504,88 @@ public static class OpenRgbHighlighter
         try
         {
             using var client = new OpenRgbClient(name: "AutoClicker");
-            client.SetCustomMode(snapshot.DeviceIndex);
-            client.UpdateLeds(snapshot.DeviceIndex, snapshot.Colors);
+            RestoreMode(client, snapshot.DeviceIndex, snapshot.Mode);
         }
         catch (Exception exception) { AppLog.Error("OpenRGB keyboard test restore failed", exception); }
     }
 
     private static void RestoreKey(RgbLightingSnapshot snapshot)
     {
-        using var client = new OpenRgbClient(name: "AutoClicker");
-        client.SetCustomMode(snapshot.DeviceIndex);
-        client.UpdateSingleLed(snapshot.DeviceIndex, snapshot.KeyIndex, snapshot.Colors[snapshot.KeyIndex]);
+        lock (IndicatorWriteLock) WriteKey(snapshot, snapshot.Colors[snapshot.KeyIndex]);
+    }
+
+    private static void ClearKey(RgbLightingSnapshot snapshot)
+    {
+        lock (IndicatorWriteLock) WriteKey(snapshot, snapshot.Colors[snapshot.KeyIndex]);
+    }
+
+    private static void ClearIndicatorFrame(RgbLightingSnapshot snapshot)
+    {
+        lock (IndicatorWriteLock) WriteKey(snapshot, new Color(0, 0, 0));
     }
 
     private static void SetIndicatorBlend(RgbLightingSnapshot snapshot, double strength)
     {
+        lock (IndicatorWriteLock) WriteKey(snapshot, BlendColor(new Color(0, 0, 0), snapshot.IndicatorColor, strength));
+    }
+
+    private static void SetIndicatorColor(RgbLightingSnapshot snapshot, Color color)
+    {
+        if (!ActiveIndicators.TryGetValue(snapshot.DeviceIndex, out var state))
+        {
+            state = new IndicatorDeviceState(snapshot.Colors.ToArray(), snapshot.Mode);
+            ActiveIndicators.Add(snapshot.DeviceIndex, state);
+        }
+        state.IndicatorIds.Add(snapshot.Id);
+        state.Colors[snapshot.KeyIndex] = color;
+        PublishIndicators(snapshot.DeviceIndex);
+    }
+
+    private static void ClearIndicatorCore(RgbLightingSnapshot snapshot)
+    {
+        if (!ActiveIndicators.TryGetValue(snapshot.DeviceIndex, out var state)) return;
+        RestoreIndicatorColor(state.Colors, snapshot).CopyTo(state.Colors, 0);
+        state.IndicatorIds.Remove(snapshot.Id);
+        if (state.IndicatorIds.Count > 0)
+        {
+            PublishIndicators(snapshot.DeviceIndex);
+            return;
+        }
+
+        ActiveIndicators.Remove(snapshot.DeviceIndex);
         using var client = new OpenRgbClient(name: "AutoClicker");
-        client.SetCustomMode(snapshot.DeviceIndex);
-        client.UpdateSingleLed(snapshot.DeviceIndex, snapshot.KeyIndex, BlendColor(snapshot.Colors[snapshot.KeyIndex], snapshot.IndicatorColor, strength));
+        RestoreMode(client, snapshot.DeviceIndex, state.Mode);
+    }
+
+    internal static Color[] RestoreIndicatorColor(IReadOnlyCollection<Color> currentColors, RgbLightingSnapshot snapshot)
+    {
+        var restored = currentColors.ToArray();
+        restored[snapshot.KeyIndex] = snapshot.Colors[snapshot.KeyIndex];
+        return restored;
+    }
+
+    private static void PublishIndicators(int deviceIndex)
+    {
+        if (!ActiveIndicators.TryGetValue(deviceIndex, out var state)) return;
+        using var client = new OpenRgbClient(name: "AutoClicker");
+        client.SetCustomMode(deviceIndex);
+        client.UpdateLeds(deviceIndex, state.Colors);
+    }
+
+    private static RgbDeviceModeSnapshot CaptureMode(Device keyboard)
+    {
+        var mode = keyboard.ActiveMode;
+        return new RgbDeviceModeSnapshot(keyboard.ActiveModeIndex, mode.SupportsSpeed ? mode.Speed : null, mode.SupportsDirection ? mode.Direction : null, mode.Colors.ToArray());
+    }
+
+    private static void RestoreMode(OpenRgbClient client, int deviceIndex, RgbDeviceModeSnapshot mode) =>
+        client.UpdateMode(deviceIndex, mode.Index, mode.Speed, mode.Direction, mode.Colors);
+
+    private sealed class IndicatorDeviceState(Color[] colors, RgbDeviceModeSnapshot mode)
+    {
+        public Color[] Colors { get; } = colors;
+        public RgbDeviceModeSnapshot Mode { get; } = mode;
+        public HashSet<Guid> IndicatorIds { get; } = [];
     }
 
     internal static Color BlendColor(Color baseColor, Color indicatorColor, double strength)
@@ -648,6 +717,10 @@ public static class OpenRgbHighlighter
     }
 }
 
-public sealed record RgbLightingSnapshot(int DeviceIndex, Color[] Colors, int KeyIndex, Color IndicatorColor);
-public sealed record RgbKeyboardSnapshot(int DeviceIndex, Color[] Colors, Color IndicatorColor);
+public sealed record RgbDeviceModeSnapshot(int Index, uint? Speed, Direction? Direction, Color[] Colors);
+public sealed record RgbLightingSnapshot(int DeviceIndex, Color[] Colors, RgbDeviceModeSnapshot Mode, int KeyIndex, Color IndicatorColor)
+{
+    public Guid Id { get; } = Guid.NewGuid();
+}
+public sealed record RgbKeyboardSnapshot(int DeviceIndex, Color[] Colors, RgbDeviceModeSnapshot Mode, Color IndicatorColor);
 public sealed record OpenRgbAvailability(bool IsAvailable, string? Message);

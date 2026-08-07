@@ -58,16 +58,14 @@ public partial class MainWindow : Window
     private HotkeyTrigger hotkeyTrigger = HotkeyTrigger.Keyboard;
     private int liveClickCount;
     private DateTime lastLiveClick;
+    private int lastLiveClickTimestamp;
     private int liveKeyPressCount;
     private DateTime lastLiveKey;
     private volatile bool isClosing;
     private RgbSettings rgbSettings = new();
     private readonly object rgbLock = new();
-    private RgbLightingSnapshot? rgbSnapshot;
-    private CancellationTokenSource? rgbPulseCancellation;
-    private Task? rgbPulseTask;
-    // Rejects stale RGB work from an earlier run or hotkey.
-    private int rgbIndicatorGeneration;
+    private readonly Dictionary<string, RgbIndicatorSession> rgbIndicators = [];
+    private const string SimpleRgbIndicatorId = "simple";
     private long lastGuiHeartbeat;
     private int statusRevision;
     private string statusBrushKey = "SuccessBrush";
@@ -2322,7 +2320,7 @@ public partial class MainWindow : Window
         SetTaskbarIcon(running: true);
         RefreshAdvancedFooterUi();
         UpdateSharedBehaviorDefaultsUi();
-        StartRgbIndicator(ResolveLighting(action), LightingKeyName(action.Settings));
+        StartRgbIndicator(action.Id, ResolveLighting(action), LightingKeyName(action.Settings));
         RestoreLiveArea();
         UpdateLiveInputMode();
     }
@@ -2336,9 +2334,7 @@ public partial class MainWindow : Window
         if (clickCancellation is null && profileRuns.Count == 0) { SetTaskbarIcon(running: false); CollapseButton.IsEnabled = true; }
         RefreshAdvancedFooterUi();
         UpdateSharedBehaviorDefaultsUi();
-        StopRgbIndicator();
-        if (profileRuns.Count == 1 && ActiveProfile()?.Actions.FirstOrDefault(action => action.Id == profileRuns.Keys.First()) is { } remaining)
-            StartRgbIndicator(ResolveLighting(remaining), LightingKeyName(remaining.Settings));
+        StopRgbIndicator(actionId);
         RestoreLiveArea();
         UpdateLiveInputMode();
     }
@@ -2656,9 +2652,7 @@ public partial class MainWindow : Window
                     if (clickCancellation is null && profileRuns.Count == 0) { SetTaskbarIcon(running: false); CollapseButton.IsEnabled = true; }
                     RefreshAdvancedFooterUi();
                     UpdateSharedBehaviorDefaultsUi();
-                    StopRgbIndicator();
-                    if (profileRuns.Count == 1 && ActiveProfile()?.Actions.FirstOrDefault(action => action.Id == profileRuns.Keys.First()) is { } remaining)
-                        StartRgbIndicator(ResolveLighting(remaining), LightingKeyName(remaining.Settings));
+                    StopRgbIndicator(actionId);
                     RestoreLiveArea();
                     UpdateLiveInputMode();
                 }
@@ -2684,7 +2678,7 @@ public partial class MainWindow : Window
         UpdateLiveInputMode();
         Status($"Ready — press {FormatHotkey()} to start or stop.", ThemeManager.Brush("SuccessBrush"));
         SetTaskbarIcon(running: profileRuns.Count > 0);
-        StopRgbIndicator();
+        StopRgbIndicator(SimpleRgbIndicatorId);
     }
 
     private bool WaitUntilGuiIsHealthy(PrecisionTimer timer, double targetTimestamp, CancellationTokenSource cancellation, ref bool watchdogExpired)
@@ -2740,8 +2734,8 @@ public partial class MainWindow : Window
     {
         if (!IsTestAreaRunning || HasMultipleActiveProfileActions || IsKeyboardInputSelectedForTest()) return;
         var now = DateTime.UtcNow;
-        var interval = liveClickCount > 0 ? now - lastLiveClick : (TimeSpan?)null;
-        liveClickCount++; lastLiveClick = now;
+        var interval = liveClickCount > 0 ? InputEventTimestamp.Elapsed(lastLiveClickTimestamp, e.Timestamp) : (TimeSpan?)null;
+        liveClickCount++; lastLiveClick = now; lastLiveClickTimestamp = e.Timestamp;
         LiveCountLabel.Text = $"{liveClickCount:N0} clicks";
         LiveIntervalLabel.Text = interval is null ? "Waiting for next click" : $"Last interval: ~{FormatInterval(interval.Value)}";
         // Keep live feedback visible without changing label colours.
@@ -2922,23 +2916,26 @@ public partial class MainWindow : Window
 
     private static string FormatKeyPressCount(int count) => count == 1 ? "1 key press" : $"{count:N0} key presses";
 
-    private void StartRgbIndicator() => StartRgbIndicator(rgbSettings, HotkeyKeyName());
+    private void StartRgbIndicator() => StartRgbIndicator(SimpleRgbIndicatorId, rgbSettings, HotkeyKeyName());
 
-    private void StartRgbIndicator(RgbSettings source, string? keyName)
+    private void StartRgbIndicator(string indicatorId, RgbSettings source, string? keyName)
     {
         // OpenRGB can only address keyboard LEDs; a mouse binding deliberately has no key to illuminate.
         if (!source.Enabled || string.IsNullOrWhiteSpace(keyName)) return;
         var updateSharedDevice = ReferenceEquals(source, rgbSettings);
-        // Prevent an old OpenRGB request from lighting a key after stop.
-        var generation = Interlocked.Increment(ref rgbIndicatorGeneration);
+        StopRgbIndicator(indicatorId);
         // Work from a copy because Settings may change while OpenRGB is resolving.
         var settings = CloneLighting(source);
         settings.Enabled = true;
-        _ = Task.Run(() =>
+        var cancellation = new CancellationTokenSource();
+        var session = new RgbIndicatorSession(cancellation);
+        lock (rgbLock) rgbIndicators[indicatorId] = session;
+        session.Task = Task.Run(async () =>
         {
+            RgbLightingSnapshot? snapshot = null;
             try
             {
-                var availability = OpenRgbHighlighter.EnsureSdkAsync(settings).GetAwaiter().GetResult();
+                var availability = await OpenRgbHighlighter.EnsureSdkAsync(settings);
                 if (!availability.IsAvailable)
                 {
                     ShowOpenRgbWarning(availability.Message ?? "OpenRGB's SDK server is unavailable.");
@@ -2946,49 +2943,51 @@ public partial class MainWindow : Window
                 }
                 ClearOpenRgbWarning();
                 if (availability.Message is not null && !Dispatcher.HasShutdownStarted)
-                    _ = Dispatcher.BeginInvoke(() => ShowOpenRgbStartedStatus(generation));
+                    _ = Dispatcher.BeginInvoke(ShowOpenRgbStartedStatus);
                 // Resolve by saved name where possible, then keep the resolved device details.
                 var keyboard = OpenRgbHighlighter.ResolveKeyboard(settings);
                 if (keyboard is null)
                 {
-                    if (!Dispatcher.HasShutdownStarted) Dispatcher.BeginInvoke(() => Status("No matching OpenRGB keyboard found. Open Settings to choose one.", ThemeManager.Brush("ErrorBrush")));
+                    if (!Dispatcher.HasShutdownStarted) 
+Dispatcher.BeginInvoke(() => Status("No matching OpenRGB keyboard found. Open Settings to choose one.", ThemeManager.Brush("ErrorBrush")));
                     return;
                 }
                 settings.DeviceIndex = keyboard.Index;
                 settings.DeviceName = keyboard.Name;
-                // Pulse starts from the existing LED colour; Constant and Blink light immediately.
-                var snapshot = OpenRgbHighlighter.EnableKeyIndicator(settings, keyName, out var error, lightImmediately: !settings.IsPulse);
+                snapshot = OpenRgbHighlighter.EnableKeyIndicator(settings, keyName, out var error, lightImmediately: false);
                 if (snapshot is not null)
                 {
-                    // Publish the snapshot only if this is still the current run.
-                    var restoreImmediately = false;
-                    lock (rgbLock)
-                    {
-                        if (generation == rgbIndicatorGeneration)
-                        {
-                            rgbSnapshot = snapshot;
-                            if (settings.IsBlink || settings.IsPulse)
-                            {
-                                var pulseCancellation = new CancellationTokenSource();
-                                rgbPulseCancellation = pulseCancellation;
-                                rgbPulseTask = Task.Run(() => settings.IsBlink
-                                    ? OpenRgbHighlighter.BlinkIndicatorAsync(snapshot, settings.PulseSpeedMilliseconds, pulseCancellation.Token)
-                                    : OpenRgbHighlighter.FadePulseIndicatorAsync(snapshot, settings.PulseSpeedMilliseconds, pulseCancellation.Token));
-                            }
-                        }
-                        else restoreImmediately = true;
-                    }
-                    if (restoreImmediately) OpenRgbHighlighter.RestoreIndicator(snapshot);
+                    OpenRgbHighlighter.LightIndicator(snapshot);
+                    if (settings.IsBlink)
+                        await OpenRgbHighlighter.BlinkIndicatorAsync(snapshot, settings.PulseSpeedMilliseconds, cancellation.Token);
+                    else if (settings.IsPulse)
+                        await OpenRgbHighlighter.FadePulseIndicatorAsync(snapshot, settings.PulseSpeedMilliseconds, cancellation.Token);
+                    else
+                        await Task.Delay(Timeout.InfiniteTimeSpan, cancellation.Token);
                     if (updateSharedDevice && !Dispatcher.HasShutdownStarted && (settings.DeviceIndex != rgbSettings.DeviceIndex || !string.Equals(settings.DeviceName, rgbSettings.DeviceName, StringComparison.Ordinal)))
                         Dispatcher.BeginInvoke(() => { rgbSettings = settings; SaveRgbSettings(); });
                 }
                 if (error is not null && !Dispatcher.HasShutdownStarted)
                     Dispatcher.BeginInvoke(() => Status(error, ThemeManager.Brush("ErrorBrush")));
             }
+            catch (OperationCanceledException) { }
             catch (Exception exception) when (!Dispatcher.HasShutdownStarted)
             {
                 AppLog.Error("OpenRGB hotkey indicator failed", exception);
                 Dispatcher.BeginInvoke(() => Status($"OpenRGB unavailable: {exception.Message}", ThemeManager.Brush("ErrorBrush")));
+            }
+            finally
+            {
+                var shouldClear = true;
+                lock (rgbLock)
+                {
+                    if (rgbIndicators.TryGetValue(indicatorId, out var current) && ReferenceEquals(current, session))
+                        rgbIndicators.Remove(indicatorId);
+                    else if (rgbIndicators.ContainsKey(indicatorId))
+                        shouldClear = false;
+                }
+                if (shouldClear && snapshot is not null) OpenRgbHighlighter.ClearIndicator(snapshot);
+                cancellation.Dispose();
             }
         });
     }
@@ -3084,36 +3083,32 @@ public partial class MainWindow : Window
         });
     }
 
-    private void StopRgbIndicator()
+    private void StopRgbIndicator(string indicatorId)
     {
-        // Invalidate pending OpenRGB startup work.
-        Interlocked.Increment(ref rgbIndicatorGeneration);
-        RgbLightingSnapshot? snapshot;
-        CancellationTokenSource? pulseCancellation;
-        Task? pulseTask;
+        RgbIndicatorSession? session;
         lock (rgbLock)
         {
-            // Detach shared state before awaiting the effect task.
-            snapshot = rgbSnapshot;
-            rgbSnapshot = null;
-            pulseCancellation = rgbPulseCancellation;
-            rgbPulseCancellation = null;
-            pulseTask = rgbPulseTask;
-            rgbPulseTask = null;
+            if (!rgbIndicators.Remove(indicatorId, out session)) return;
         }
-        pulseCancellation?.Cancel();
-        if (snapshot is null) return;
-        // Restore after a blink/pulse task has released the LED.
-        _ = Task.Run(async () =>
+        session.Cancellation.Cancel();
+    }
+
+    private Task[] StopAllRgbIndicators()
+    {
+        RgbIndicatorSession[] sessions;
+        lock (rgbLock)
         {
-            try { if (pulseTask is not null) await pulseTask; }
-            catch (Exception exception) { AppLog.Error("OpenRGB pulse cleanup failed", exception); }
-            finally
-            {
-                pulseCancellation?.Dispose();
-                OpenRgbHighlighter.RestoreIndicator(snapshot);
-            }
-        });
+            sessions = rgbIndicators.Values.ToArray();
+            rgbIndicators.Clear();
+        }
+        foreach (var session in sessions) session.Cancellation.Cancel();
+        return sessions.Where(session => session.Task is not null).Select(session => session.Task!).ToArray();
+    }
+
+    private sealed class RgbIndicatorSession(CancellationTokenSource cancellation)
+    {
+        public CancellationTokenSource Cancellation { get; } = cancellation;
+        public Task? Task { get; set; }
     }
 
     private void RepeatMode_Changed(object sender, RoutedEventArgs e)
@@ -3678,9 +3673,9 @@ public partial class MainWindow : Window
         return revision;
     }
 
-    private void ShowOpenRgbStartedStatus(int generation)
+    private void ShowOpenRgbStartedStatus()
     {
-        if (generation != rgbIndicatorGeneration || !IsClicking) return;
+        if (!IsClicking) return;
         var revision = Status("OpenRGB started automatically.", ThemeManager.Brush("SuccessBrush"));
         _ = Task.Run(async () =>
         {
@@ -3688,7 +3683,7 @@ public partial class MainWindow : Window
             if (!Dispatcher.HasShutdownStarted)
                 _ = Dispatcher.BeginInvoke(() =>
                 {
-                    if (generation == rgbIndicatorGeneration && IsClicking && statusRevision == revision)
+                    if (IsClicking && statusRevision == revision)
                         Status($"{ActivityVerb()} — press {FormatHotkey()} to stop.", ThemeManager.Brush("ErrorBrush"));
                 });
         });
@@ -3711,6 +3706,8 @@ public partial class MainWindow : Window
         var runningProfileTasks = profileTasks.Values.ToArray();
         try { activeTask?.Wait(TimeSpan.FromSeconds(2)); } catch (Exception exception) { AppLog.Error("Error while waiting for worker shutdown", exception); }
         try { Task.WaitAll(runningProfileTasks, TimeSpan.FromSeconds(2)); } catch (Exception exception) { AppLog.Error("Error while waiting for profile worker shutdown", exception); }
+        var rgbTasks = StopAllRgbIndicators();
+        try { Task.WaitAll(rgbTasks, TimeSpan.FromSeconds(2)); } catch (Exception exception) { AppLog.Error("Error while restoring OpenRGB lighting", exception); }
         if (rgbSettings.StopAutoStartedOnExit) OpenRgbHighlighter.StopAutoStartedServer();
         // Release UI timers and the Windows hotkey hook last.
         resetTimer.Stop(); flashTimer.Stop(); guiHeartbeatTimer.Stop(); if (hotkeyRegistered) UnregisterHotKey(hwnd, HotkeyId); foreach (var id in additionalHotkeys.Keys) UnregisterHotKey(hwnd, id); mouseHotkeys.Clear(); UpdateMouseHook(); if (hwndSource is not null) hwndSource.RemoveHook(WndProc);
