@@ -2300,7 +2300,7 @@ public partial class MainWindow : Window
         }
         if (InputRules.IsHoldAction(effectiveSettings.ClickType) && effectiveSettings.TargetWindowEnabled && !string.IsNullOrWhiteSpace(effectiveSettings.TargetExecutable))
         {
-            Status("Target-window mode does not support held input.", ThemeManager.Brush("WarningBrush"));
+            Status("Target-window mode does not support held input. Override target window on the hotkey if desired.", ThemeManager.Brush("WarningBrush"));
             return;
         }
         var repeatedKey = input switch { "Space" => 0x20, "Enter" => 0x0D, "Custom" => effectiveSettings.CustomKey, _ => 0 };
@@ -2734,10 +2734,31 @@ public partial class MainWindow : Window
     {
         if (!IsTestAreaRunning || HasMultipleActiveProfileActions || IsKeyboardInputSelectedForTest()) return;
         var now = DateTime.UtcNow;
-        var interval = liveClickCount > 0 ? InputEventTimestamp.Elapsed(lastLiveClickTimestamp, e.Timestamp) : (TimeSpan?)null;
-        liveClickCount++; lastLiveClick = now; lastLiveClickTimestamp = e.Timestamp;
+        var doubleClickMode = string.Equals(TestAreaSettings().ClickType, "Double", StringComparison.OrdinalIgnoreCase);
+        TimeSpan? interval;
+        if (doubleClickMode)
+        {
+            var secondClickInPair = (liveClickCount % 2) == 1;
+            if (secondClickInPair)
+            {
+                interval = liveClickCount > 1 ? InputEventTimestamp.Elapsed(lastLiveClickTimestamp, e.Timestamp) : (TimeSpan?)null;
+                lastLiveClickTimestamp = e.Timestamp;
+            }
+            else
+            {
+                interval = null;
+            }
+        }
+        else
+        {
+            interval = liveClickCount > 0 ? InputEventTimestamp.Elapsed(lastLiveClickTimestamp, e.Timestamp) : (TimeSpan?)null;
+            lastLiveClickTimestamp = e.Timestamp;
+        }
+        liveClickCount++; lastLiveClick = now;
         LiveCountLabel.Text = $"{liveClickCount:N0} clicks";
-        LiveIntervalLabel.Text = interval is null ? "Waiting for next click" : $"Last interval: ~{FormatInterval(interval.Value)}";
+        LiveIntervalLabel.Text = interval is null
+            ? (doubleClickMode ? "Waiting for next double click" : "Waiting for next click")
+            : $"Last interval: ~{FormatInterval(interval.Value)}";
         // Keep live feedback visible without changing label colours.
         LiveArea.Background = ThemeManager.Brush("LiveFlashBrush");
         LiveArea.BorderBrush = ThemeManager.Brush("LiveFlashBorderBrush");
