@@ -2946,17 +2946,24 @@ public partial class MainWindow : Window
         const int openRgbStartupRetryWindowMilliseconds = 10000;
         const int openRgbStartupRetryDelayMilliseconds = 300;
         var updateSharedDevice = ReferenceEquals(source, rgbSettings);
-        StopRgbIndicator(indicatorId);
+        StopRgbIndicator(indicatorId, applyIdleWhenLast: false);
         // Work from a copy because Settings may change while OpenRGB is resolving.
         var settings = CloneLighting(source);
         settings.Enabled = true;
+        var idleProfileName = (settings.IdleProfileName ?? string.Empty).Trim();
         var cancellation = new CancellationTokenSource();
         var session = new RgbIndicatorSession(cancellation);
-        lock (rgbLock) rgbIndicators[indicatorId] = session;
+        var shouldPrimeIdleProfile = false;
+        lock (rgbLock)
+        {
+            shouldPrimeIdleProfile = rgbIndicators.Count == 0;
+            rgbIndicators[indicatorId] = session;
+        }
         session.Task = Task.Run(async () =>
         {
             RgbLightingSnapshot? snapshot = null;
             string? indicatorError = null;
+            var idleProfilePrimed = false;
             try
             {
                 var retryDeadline = Stopwatch.GetTimestamp() + openRgbStartupRetryWindowMilliseconds * Stopwatch.Frequency / 1000d;
@@ -2986,6 +2993,22 @@ public partial class MainWindow : Window
 
                     settings.DeviceIndex = keyboard.Index;
                     settings.DeviceName = keyboard.Name;
+
+                    if (!idleProfilePrimed && shouldPrimeIdleProfile && idleProfileName.Length > 0)
+                    {
+                        if (!OpenRgbHighlighter.TryLoadProfile(idleProfileName, out var idleError))
+                        {
+                            if (idleError is not null) AppLog.Info(idleError);
+                        }
+                        else
+                        {
+                            // Give OpenRGB a brief moment to apply the profile before we snapshot per-key colours.
+                            await Task.Delay(120, cancellation.Token);
+                        }
+
+                        idleProfilePrimed = true;
+                    }
+
                     snapshot = OpenRgbHighlighter.EnableKeyIndicator(settings, keyName, out indicatorError, lightImmediately: false);
                     if (snapshot is not null) break;
                     if (!settings.AutoStart || Stopwatch.GetTimestamp() >= retryDeadline) break;
@@ -3004,7 +3027,7 @@ public partial class MainWindow : Window
                     return;
                 }
 
-                OpenRgbHighlighter.LightIndicator(snapshot);
+                if (!settings.IsPulse) OpenRgbHighlighter.LightIndicator(snapshot);
                 if (settings.IsBlink)
                     await OpenRgbHighlighter.BlinkIndicatorAsync(snapshot, settings.PulseSpeedMilliseconds, cancellation.Token);
                 else if (settings.IsPulse)
@@ -3172,14 +3195,25 @@ public partial class MainWindow : Window
         });
     }
 
-    private void StopRgbIndicator(string indicatorId)
+    private void StopRgbIndicator(string indicatorId, bool applyIdleWhenLast = true)
     {
         RgbIndicatorSession? session;
+        var shouldApplyIdle = false;
         lock (rgbLock)
         {
             if (!rgbIndicators.Remove(indicatorId, out session)) return;
+            shouldApplyIdle = applyIdleWhenLast && rgbIndicators.Count == 0;
         }
         session.Cancellation.Cancel();
+        if (!shouldApplyIdle) return;
+
+        if (session.Task is { } task)
+        {
+            _ = task.ContinueWith(_ => ApplyIdleOpenRgbProfile(), TaskScheduler.Default);
+            return;
+        }
+
+        ApplyIdleOpenRgbProfile();
     }
 
     private Task[] StopAllRgbIndicators()
