@@ -6,6 +6,14 @@ Detailed guides are available in the [AutoClicker Wiki](https://github.com/Jozef
 
 <img width="522" height="580" alt="image" src="https://github.com/user-attachments/assets/5bb348c5-f2d3-42df-85ea-9710cee069eb" />
 
+## Project layout
+
+- `Automation/` contains action, hotkey, profile, sequence, and worker logic.
+- `Configuration/` contains persisted settings, backup, and reset rules.
+- `Services/` contains integrations such as OpenRGB, updates, crash recovery, and window targeting.
+- `Presentation/` and `Views/` contain theming, converters, and WPF dialogs/pickers.
+- `AutoClicker.Tests/` mirrors those responsibilities for unit tests.
+
 ## Choose a mode
 
 - **Simple mode** keeps one action and one global hotkey visible—ideal for a quick clicker or key spammer.
