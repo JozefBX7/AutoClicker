@@ -82,6 +82,7 @@ internal static class InputRules
 
     private static string DescribeVirtualKey(int virtualKey) => System.Windows.Input.KeyInterop.KeyFromVirtualKey(virtualKey) switch
     {
+        var key when virtualKey >= 0x30 && virtualKey <= 0x39 => (virtualKey - 0x30).ToString(),
         System.Windows.Input.Key.Return => "Enter",
         System.Windows.Input.Key.Space => "Space",
         var key => key.ToString()

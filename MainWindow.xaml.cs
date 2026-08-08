@@ -2058,11 +2058,13 @@ public partial class MainWindow : Window
         }
         else menu.Items.Add(new MenuItem { Header = $"{targets.Count} selected hotkeys", IsEnabled = false });
 
+        var hotkeyEnabledState = SharedMenuState(targets.Select(item => (bool?)item.HotkeyEnabled));
         var hotkeyEnabled = new MenuItem
         {
-            Header = "Hotkey enabled",
+            Header = $"{hotkeyEnabledState}Hotkey enabled",
             IsCheckable = true,
-            IsChecked = targets.All(item => item.HotkeyEnabled)
+            IsChecked = targets.All(item => item.HotkeyEnabled),
+            StaysOpenOnClick = false
         };
         hotkeyEnabled.Click += (_, _) => SetHotkeysEnabled(targets, hotkeyEnabled.IsChecked);
         menu.Items.Add(hotkeyEnabled);
@@ -3772,14 +3774,31 @@ public partial class MainWindow : Window
         var asset = running ? "AutoClickerRunningIcon.ico" : "AutoClickerIcon.ico";
         Icon = new BitmapImage(new Uri($"pack://application:,,,/Assets/{asset}", UriKind.Absolute));
     }
-    private string? HotkeyKeyName() => hotkeyTrigger == HotkeyTrigger.Keyboard ? System.Windows.Input.KeyInterop.KeyFromVirtualKey(hotkey).ToString() : null;
+    private string? HotkeyKeyName() => hotkeyTrigger == HotkeyTrigger.Keyboard ? LightingKeyName(hotkey) : null;
     private static string? LightingKeyName(AppDefaults settings) => settings.HotkeyTrigger == HotkeyTrigger.Keyboard
-        ? System.Windows.Input.KeyInterop.KeyFromVirtualKey(settings.Hotkey).ToString()
+        ? LightingKeyName(settings.Hotkey)
         : null;
+
+    private static string LightingKeyName(int virtualKey)
+    {
+        if (virtualKey >= 0x30 && virtualKey <= 0x39) return (virtualKey - 0x30).ToString();
+        if (virtualKey >= 0x60 && virtualKey <= 0x69) return $"NumPad{virtualKey - 0x60}";
+        return virtualKey switch
+        {
+            0x6A => "Multiply",
+            0x6B => "Add",
+            0x6D => "Subtract",
+            0x6E => "Decimal",
+            0x6F => "Divide",
+            0x90 => "NumLock",
+            _ => System.Windows.Input.KeyInterop.KeyFromVirtualKey(virtualKey).ToString()
+        };
+    }
     private string FormatHotkey() => FormatHotkey(hotkey, hotkeyModifiers, hotkeyTrigger);
     private static string FormatHotkey(int key, uint modifiers, HotkeyTrigger trigger = HotkeyTrigger.Keyboard) => HotkeyFormatter.Format(key, modifiers, trigger);
     private static string FormatInputKey(int virtualKey)
     {
+        if (virtualKey >= 0x30 && virtualKey <= 0x39) return (virtualKey - 0x30).ToString();
         var key = System.Windows.Input.KeyInterop.KeyFromVirtualKey(virtualKey);
         return key switch { System.Windows.Input.Key.Return => "Enter", System.Windows.Input.Key.Space => "Space", _ => key.ToString() };
     }

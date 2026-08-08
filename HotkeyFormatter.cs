@@ -33,6 +33,7 @@ internal static class HotkeyFormatter
         HotkeyTrigger.WheelDown => "Wheel down",
         HotkeyTrigger.WheelLeft => "Wheel left",
         HotkeyTrigger.WheelRight => "Wheel right",
+        _ when virtualKey >= 0x30 && virtualKey <= 0x39 => (virtualKey - 0x30).ToString(),
         _ => virtualKey == 0 ? "None" : System.Windows.Input.KeyInterop.KeyFromVirtualKey(virtualKey).ToString()
     };
 

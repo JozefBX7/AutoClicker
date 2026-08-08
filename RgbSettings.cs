@@ -244,12 +244,12 @@ public static class OpenRgbHighlighter
             using var client = new OpenRgbClient(name: "AutoClicker");
             var keyboard = client.GetControllerData(settings.DeviceIndex);
 
-            var led = keyboard.Leds.FirstOrDefault(item => SameKey(item.Name, keyName));
-            if (led is null) { error = $"OpenRGB could not light {keyName} on {keyboard.Name}. Choose a standard keyboard key, then try again."; return null; }
+            var ledIndex = FindLedIndex(keyboard, keyName);
+            if (ledIndex is null) { error = $"OpenRGB could not light {keyName} on {keyboard.Name}. Choose a standard keyboard key, then try again."; return null; }
             if (keyboard.Colors.Length != keyboard.Leds.Length) { error = "This keyboard does not expose per-key colours to OpenRGB."; return null; }
 
             // Restore the original keyboard colours when finished.
-            var snapshot = new RgbLightingSnapshot(keyboard.Index, keyboard.Colors.ToArray(), CaptureMode(keyboard), led.Index, IndicatorColor(settings));
+            var snapshot = new RgbLightingSnapshot(keyboard.Index, keyboard.Colors.ToArray(), CaptureMode(keyboard), ledIndex.Value, IndicatorColor(settings));
             if (lightImmediately) LightIndicator(snapshot);
             return snapshot;
         }
@@ -268,7 +268,7 @@ public static class OpenRgbHighlighter
         {
             using var client = new OpenRgbClient(name: "AutoClicker");
             var keyboard = client.GetControllerData(settings.DeviceIndex);
-            if (!keyboard.Leds.Any(item => SameKey(item.Name, keyName)))
+            if (FindLedIndex(keyboard, keyName) is null)
             {
                 error = $"OpenRGB cannot map {keyName} on {keyboard.Name}. Choose a standard keyboard key to light it.";
                 return false;
@@ -670,6 +670,81 @@ public static class OpenRgbHighlighter
         return KeyAliases(keyName).Select(Normalize).Any(alias => alias == led);
     }
 
+    private static int? FindLedIndex(Device keyboard, string keyName)
+    {
+        static string Normalize(string value)
+        {
+            var cleaned = value.Replace("KEY_", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("KEY:", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("+", " PLUS ", StringComparison.Ordinal)
+                .Replace("-", " MINUS ", StringComparison.Ordinal)
+                .Replace("/", " SLASH ", StringComparison.Ordinal)
+                .Replace("*", " STAR ", StringComparison.Ordinal)
+                .Replace(".", " DOT ", StringComparison.Ordinal)
+                .Replace(" ", string.Empty)
+                .Replace("_", string.Empty);
+            return new string(cleaned.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
+        }
+
+        var aliases = KeyAliases(keyName).Select(Normalize).Distinct(StringComparer.Ordinal).ToArray();
+        for (var aliasIndex = 0; aliasIndex < aliases.Length; aliasIndex++)
+        {
+            var alias = aliases[aliasIndex];
+            var bestIndex = -1;
+            var bestScore = int.MinValue;
+            for (var index = 0; index < keyboard.Leds.Length; index++)
+            {
+                var ledTokens = LedNameAliases(keyboard.Leds[index].Name).Select(Normalize).Distinct(StringComparer.Ordinal);
+                if (!ledTokens.Contains(alias, StringComparer.Ordinal)) continue;
+
+                var score = NumpadHintScore(keyboard.Leds[index].Name)
+                    + ((aliases.Length - aliasIndex) * 100)
+                    + alias.Length;
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestIndex = index;
+                }
+            }
+
+            if (bestIndex >= 0) return bestIndex;
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> LedNameAliases(string ledName)
+    {
+        yield return ledName;
+        var parts = ledName.Split(['/', '\\', '|', '-', '(', ')', '[', ']'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        foreach (var part in parts)
+        {
+            if (string.IsNullOrWhiteSpace(part)) continue;
+            yield return part;
+
+            var containsKeypadHint = part.Contains("keypad", StringComparison.OrdinalIgnoreCase)
+                || part.Contains("numpad", StringComparison.OrdinalIgnoreCase)
+                || part.Contains("num", StringComparison.OrdinalIgnoreCase)
+                || part.Contains("kp", StringComparison.OrdinalIgnoreCase);
+            if (!containsKeypadHint || !part.Contains("And", StringComparison.OrdinalIgnoreCase)) continue;
+
+            foreach (var split in part.Split("And", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                if (!string.IsNullOrWhiteSpace(split))
+                    yield return split;
+        }
+    }
+
+    private static int NumpadHintScore(string ledName)
+    {
+        var value = ledName.Replace("_", " ", StringComparison.Ordinal).Trim();
+        var score = 0;
+        if (value.Contains("numpad", StringComparison.OrdinalIgnoreCase)) score += 4;
+        if (value.Contains("keypad", StringComparison.OrdinalIgnoreCase)) score += 4;
+        if (value.Contains("num ", StringComparison.OrdinalIgnoreCase)) score += 3;
+        if (value.Contains("kp", StringComparison.OrdinalIgnoreCase)) score += 2;
+        return score;
+    }
+
     private static IEnumerable<string> KeyAliases(string keyName)
     {
         yield return keyName;
@@ -684,7 +759,7 @@ public static class OpenRgbHighlighter
             "RIGHTSHIFT" => new[] { "Right Shift", "R Shift", "RShift" },
             "LEFTALT" => new[] { "Left Alt", "L Alt", "LAlt", "Alt Left" },
             "RIGHTALT" => new[] { "Right Alt", "R Alt", "RAlt", "Alt Gr", "AltGr" },
-            "RETURN" => new[] { "Enter", "Return" },
+            "RETURN" => new[] { "Enter", "Return", "Number Pad Enter", "Num Enter", "Numpad Enter", "NumpadEnter", "Keypad Enter", "KeypadEnter", "KP Enter", "KPEnter" },
             "ESCAPE" => new[] { "Esc", "Escape" },
             "BACK" => new[] { "Backspace", "Back" },
             "TAB" => new[] { "Tab" },
@@ -703,21 +778,31 @@ public static class OpenRgbHighlighter
             "SCROLL" => new[] { "Scroll Lock", "ScrollLock", "ScrLk" },
             "PAUSE" => new[] { "Pause", "Pause Break", "Pause/Break", "Break" },
             "NUMLOCK" => new[] { "Num Lock", "NumLock" },
-            "DIVIDE" => new[] { "Num /", "Numpad /", "Keypad /" },
-            "MULTIPLY" => new[] { "Num *", "Numpad *", "Keypad *" },
-            "SUBTRACT" => new[] { "Num -", "Numpad -", "Keypad -" },
-            "ADD" => new[] { "Num +", "Numpad +", "Keypad +" },
-            "DECIMAL" => new[] { "Num .", "Numpad .", "Keypad ." },
-            "NUMPAD0" => new[] { "Num 0", "Numpad 0", "Keypad 0" },
-            "NUMPAD1" => new[] { "Num 1", "Numpad 1", "Keypad 1" },
-            "NUMPAD2" => new[] { "Num 2", "Numpad 2", "Keypad 2" },
-            "NUMPAD3" => new[] { "Num 3", "Numpad 3", "Keypad 3" },
-            "NUMPAD4" => new[] { "Num 4", "Numpad 4", "Keypad 4" },
-            "NUMPAD5" => new[] { "Num 5", "Numpad 5", "Keypad 5" },
-            "NUMPAD6" => new[] { "Num 6", "Numpad 6", "Keypad 6" },
-            "NUMPAD7" => new[] { "Num 7", "Numpad 7", "Keypad 7" },
-            "NUMPAD8" => new[] { "Num 8", "Numpad 8", "Keypad 8" },
-            "NUMPAD9" => new[] { "Num 9", "Numpad 9", "Keypad 9" },
+            "DIVIDE" => new[] { "Number Pad /", "Num /", "Numpad /", "Keypad /", "KP /" },
+            "MULTIPLY" => new[] { "Number Pad *", "Num *", "Numpad *", "Keypad *", "KP *" },
+            "SUBTRACT" => new[] { "Number Pad -", "Num -", "Numpad -", "Keypad -", "KP -" },
+            "ADD" => new[] { "Number Pad +", "Num +", "Numpad +", "Keypad +", "KP +" },
+            "DECIMAL" => new[] { "Number Pad .", "Num .", "Numpad .", "Keypad .", "KP ." },
+            "NUMPAD0" => new[] { "Number Pad 0", "Num 0", "Numpad 0", "Keypad 0" },
+            "NUMPAD1" => new[] { "Number Pad 1", "Num 1", "Numpad 1", "Keypad 1" },
+            "NUMPAD2" => new[] { "Number Pad 2", "Num 2", "Numpad 2", "Keypad 2" },
+            "NUMPAD3" => new[] { "Number Pad 3", "Num 3", "Numpad 3", "Keypad 3" },
+            "NUMPAD4" => new[] { "Number Pad 4", "Num 4", "Numpad 4", "Keypad 4" },
+            "NUMPAD5" => new[] { "Number Pad 5", "Num 5", "Numpad 5", "Keypad 5" },
+            "NUMPAD6" => new[] { "Number Pad 6", "Num 6", "Numpad 6", "Keypad 6" },
+            "NUMPAD7" => new[] { "Number Pad 7", "Num 7", "Numpad 7", "Keypad 7" },
+            "NUMPAD8" => new[] { "Number Pad 8", "Num 8", "Numpad 8", "Keypad 8" },
+            "NUMPAD9" => new[] { "Number Pad 9", "Num 9", "Numpad 9", "Keypad 9" },
+            "D0" => new[] { "0" },
+            "D1" => new[] { "1" },
+            "D2" => new[] { "2" },
+            "D3" => new[] { "3" },
+            "D4" => new[] { "4" },
+            "D5" => new[] { "5" },
+            "D6" => new[] { "6" },
+            "D7" => new[] { "7" },
+            "D8" => new[] { "8" },
+            "D9" => new[] { "9" },
             "OEMTILDE" => new[] { "Grave", "Backtick", "Tilde", "`" },
             "OEMMINUS" => new[] { "Minus", "Hyphen", "-" },
             "OEMPLUS" => new[] { "Equal", "Equals", "+" },
@@ -748,6 +833,10 @@ public static class OpenRgbHighlighter
             yield return $"Num {digit}";
             yield return $"Numpad {digit}";
             yield return $"Keypad {digit}";
+            yield return $"KP {digit}";
+            yield return $"KP{digit}";
+            yield return $"Numpad{digit}";
+            yield return $"NUMPAD{digit}";
         }
     }
 

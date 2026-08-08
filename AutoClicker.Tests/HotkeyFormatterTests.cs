@@ -24,6 +24,13 @@ public sealed class HotkeyFormatterTests
     }
 
     [TestMethod]
+    public void Format_UsesNumericLabelsForTopRowDigitHotkeys()
+    {
+        Assert.AreEqual("9", HotkeyFormatter.Format(0x39, 0));
+        Assert.AreEqual("Ctrl + 0", HotkeyFormatter.Format(0x30, 2));
+    }
+
+    [TestMethod]
     public void IsConfigured_RecognizesMouseBindingsWithoutVirtualKeys()
     {
         Assert.IsFalse(HotkeyFormatter.IsConfigured(0, HotkeyTrigger.Keyboard));
