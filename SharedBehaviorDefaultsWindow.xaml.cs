@@ -25,6 +25,7 @@ public partial class SharedBehaviorDefaultsWindow : Window
 
     private void SetSelected(AutomationBehaviorOverride selected)
     {
+        IntervalCheck.IsChecked = selected.HasFlag(AutomationBehaviorOverride.Interval);
         RepeatCheck.IsChecked = selected.HasFlag(AutomationBehaviorOverride.Repeat);
         PositionCheck.IsChecked = selected.HasFlag(AutomationBehaviorOverride.Position);
         TargetWindowCheck.IsChecked = selected.HasFlag(AutomationBehaviorOverride.TargetWindow);
@@ -33,6 +34,7 @@ public partial class SharedBehaviorDefaultsWindow : Window
     }
 
     private AutomationBehaviorOverride ReadSelected() =>
+        (IntervalCheck.IsChecked == true ? AutomationBehaviorOverride.Interval : AutomationBehaviorOverride.None) |
         (RepeatCheck.IsChecked == true ? AutomationBehaviorOverride.Repeat : AutomationBehaviorOverride.None) |
         (PositionCheck.IsChecked == true ? AutomationBehaviorOverride.Position : AutomationBehaviorOverride.None) |
         (TargetWindowCheck.IsChecked == true ? AutomationBehaviorOverride.TargetWindow : AutomationBehaviorOverride.None) |

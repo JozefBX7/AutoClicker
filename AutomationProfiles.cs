@@ -295,6 +295,53 @@ internal static class AutomationBehaviorSettingsResolver
         if (action.UsesSharedBehavior(AutomationBehaviorOverride.InputPulse)) settings.InputPulseMilliseconds = inherited.InputPulseMilliseconds;
         return settings;
     }
+
+    // Inherited aspects must also be restored in the stored settings. Otherwise an old, inactive local value
+    // makes the profile look dirty after a user overrides a value and then immediately reverts it.
+    internal static void RevertActionBehaviorToInherited(AppDefaults globalDefaults, AutomationProfile? profile, AutomationAction action, AutomationBehaviorOverride reverted)
+    {
+        var existingOverrides = action.ActiveBehaviorOverrides;
+        var restored = existingOverrides & reverted;
+        if (restored == AutomationBehaviorOverride.None) return;
+        var preview = action.Clone();
+        preview.UsesSharedBehaviorDefaults = true;
+        preview.BehaviorOverrides = existingOverrides & ~restored;
+        var inherited = Resolve(globalDefaults, profile, preview);
+
+        CopyBehaviorAspects(inherited, action.Settings, restored);
+        action.UsesSharedBehaviorDefaults = true;
+        action.BehaviorOverrides = existingOverrides & ~restored;
+    }
+
+    private static void CopyBehaviorAspects(AppDefaults source, AppDefaults destination, AutomationBehaviorOverride aspects)
+    {
+        if (aspects.HasFlag(AutomationBehaviorOverride.Interval))
+        {
+            destination.Hours = source.Hours;
+            destination.Minutes = source.Minutes;
+            destination.Seconds = source.Seconds;
+            destination.Milliseconds = source.Milliseconds;
+        }
+        if (aspects.HasFlag(AutomationBehaviorOverride.Repeat))
+        {
+            destination.RepeatUntilStopped = source.RepeatUntilStopped;
+            destination.RepeatCount = source.RepeatCount;
+        }
+        if (aspects.HasFlag(AutomationBehaviorOverride.Position))
+        {
+            destination.FixedPosition = source.FixedPosition;
+            destination.X = source.X;
+            destination.Y = source.Y;
+        }
+        if (aspects.HasFlag(AutomationBehaviorOverride.TargetWindow))
+        {
+            destination.TargetExecutable = source.TargetExecutable;
+            destination.TargetWindowTitle = source.TargetWindowTitle;
+            destination.TargetWindowEnabled = source.TargetWindowEnabled;
+        }
+        if (aspects.HasFlag(AutomationBehaviorOverride.InputJitter)) destination.InputJitterMaximumMilliseconds = source.InputJitterMaximumMilliseconds;
+        if (aspects.HasFlag(AutomationBehaviorOverride.InputPulse)) destination.InputPulseMilliseconds = source.InputPulseMilliseconds;
+    }
 }
 
 internal static class AutomationLightingSettingsResolver

@@ -6,7 +6,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
+using System.Windows.Shell;
 using System.Windows.Threading;
 
 namespace AutoClicker;
@@ -1167,9 +1167,7 @@ public partial class MainWindow : Window
             if (reverted == AutomationBehaviorOverride.None) return;
             foreach (var action in targets)
             {
-                var existingOverrides = action.ActiveBehaviorOverrides;
-                action.UsesSharedBehaviorDefaults = true;
-                action.BehaviorOverrides = existingOverrides & ~reverted;
+                AutomationBehaviorSettingsResolver.RevertActionBehaviorToInherited(LoadSavedDefaults(), ActiveProfile(), action, reverted);
             }
             RefreshAdvancedEditorAfterActionChange();
             MarkProfilesDirty();
@@ -1197,6 +1195,12 @@ public partial class MainWindow : Window
         if (aspect == AutomationBehaviorOverride.Position && IsKeyboardInputSelected())
         {
             Status("Position settings apply to mouse actions only.", ThemeManager.Brush("TextMutedBrush"));
+            e.Handled = true;
+            return;
+        }
+        if (aspect == AutomationBehaviorOverride.Interval && IsEditingAdvancedAction() && ActiveProfileAction() is { } activeAction && InputRules.IsHoldAction(activeAction.Settings.ClickType))
+        {
+            Status("Hold hotkeys do not use an interval.", ThemeManager.Brush("TextMutedBrush"));
             e.Handled = true;
             return;
         }
@@ -1251,6 +1255,7 @@ public partial class MainWindow : Window
 
     private Border SharedBehaviorOverlay(AutomationBehaviorOverride aspect) => aspect switch
     {
+        AutomationBehaviorOverride.Interval => IntervalSharedOverlay,
         AutomationBehaviorOverride.Repeat => RepeatSharedOverlay,
         AutomationBehaviorOverride.Position => PositionSharedOverlay,
         AutomationBehaviorOverride.TargetWindow => TargetWindowSharedOverlay,
@@ -1454,12 +1459,14 @@ public partial class MainWindow : Window
         var editingSharedDefaults = advancedMode && !IsEditingAdvancedAction();
         var profile = ActiveProfile();
         var action = advancedMode && IsEditingAdvancedAction() ? ActiveProfileAction() : null;
+        var holdingHotkey = action is not null && InputRules.IsHoldAction(action.Settings.ClickType);
+        // Hold actions run continuously until stopped, so an interval is neither used nor configurable for them.
+        var sharedInterval = !holdingHotkey && (editingProfileDefaults ? profile?.UsesSharedBehavior(AutomationBehaviorOverride.Interval) == true : action?.UsesSharedBehavior(AutomationBehaviorOverride.Interval) == true);
         var sharedRepeat = editingProfileDefaults ? profile?.UsesSharedBehavior(AutomationBehaviorOverride.Repeat) == true : action?.UsesSharedBehavior(AutomationBehaviorOverride.Repeat) == true;
         var sharedPosition = editingProfileDefaults ? profile?.UsesSharedBehavior(AutomationBehaviorOverride.Position) == true : action?.UsesSharedBehavior(AutomationBehaviorOverride.Position) == true;
         var sharedTarget = editingProfileDefaults ? profile?.UsesSharedBehavior(AutomationBehaviorOverride.TargetWindow) == true : action?.UsesSharedBehavior(AutomationBehaviorOverride.TargetWindow) == true;
         var sharedJitter = editingProfileDefaults ? profile?.UsesSharedBehavior(AutomationBehaviorOverride.InputJitter) == true : action?.UsesSharedBehavior(AutomationBehaviorOverride.InputJitter) == true;
         var sharedPulse = editingProfileDefaults ? profile?.UsesSharedBehavior(AutomationBehaviorOverride.InputPulse) == true : action?.UsesSharedBehavior(AutomationBehaviorOverride.InputPulse) == true;
-        var holdingHotkey = action is not null && InputRules.IsHoldAction(Selected(TypeCombo));
         var positionAvailable = editingSharedDefaults || (!IsKeyboardInputSelected() && Selected(ButtonCombo) != "Sequence");
         IntervalCard.IsEnabled = !locked && !holdingHotkey;
         ActionCard.IsEnabled = !locked;
@@ -1474,14 +1481,24 @@ public partial class MainWindow : Window
         InputJitterButton.IsEnabled = !locked && !sharedJitter;
         InputPulseButton.IsEnabled = !locked && !sharedPulse;
         var overrideScope = editingProfileDefaults ? "profile" : "hotkey";
+        UpdateSharedBehaviorSurface(IntervalCard, sharedInterval, "interval", overrideScope);
+        if (holdingHotkey)
+        {
+            IntervalCard.ToolTip = "Interval is unavailable for Hold actions.";
+            IntervalCard.Cursor = System.Windows.Input.Cursors.Arrow;
+        }
         UpdateSharedBehaviorSurface(RepeatCard, sharedRepeat, "repeat", overrideScope);
         UpdateSharedBehaviorSurface(PositionCard, sharedPosition, "position", overrideScope);
         UpdateSharedBehaviorSurface(TargetWindowCard, sharedTarget, "target window", overrideScope);
+        IntervalSharedOverlayLabel.Text = holdingHotkey
+            ? "Interval is unavailable\nfor Hold actions"
+            : $"Click to override interval for this {overrideScope}";
         RepeatSharedOverlayLabel.Text = $"Click to override repeat for this {overrideScope}";
         PositionSharedOverlayLabel.Text = $"Click to override position for this {overrideScope}";
         TargetWindowSharedOverlayLabel.Text = $"Click to override target window for this {overrideScope}";
         UpdateSharedBehaviorSurface(InputJitterOverrideHost, sharedJitter, "input jitter", overrideScope);
         UpdateSharedBehaviorSurface(InputPulseOverrideHost, sharedPulse, "input pulse", overrideScope);
+        IntervalSharedOverlay.Visibility = sharedInterval || holdingHotkey ? Visibility.Visible : Visibility.Collapsed;
         RepeatSharedOverlay.Visibility = sharedRepeat ? Visibility.Visible : Visibility.Collapsed;
         PositionSharedOverlay.Visibility = sharedPosition ? Visibility.Visible : Visibility.Collapsed;
         TargetWindowSharedOverlay.Visibility = sharedTarget ? Visibility.Visible : Visibility.Collapsed;
@@ -2138,7 +2155,8 @@ public partial class MainWindow : Window
         {
             Header = $"{hotkeyEnabledState}Hotkey enabled",
             IsCheckable = true,
-            IsChecked = targets.All(item => item.HotkeyEnabled)
+            IsChecked = targets.All(item => item.HotkeyEnabled),
+            StaysOpenOnClick = false
         };
         hotkeyEnabled.Click += (_, _) => SetHotkeysEnabled(targets, hotkeyEnabled.IsChecked);
         menu.Items.Add(hotkeyEnabled);
@@ -2393,7 +2411,7 @@ public partial class MainWindow : Window
         profileTasks[action.Id] = AutomationWorkerScheduler.Start(() => ProfileClickLoop(action.Id, interval, settings, cancellation));
         CollapseButton.IsEnabled = false;
         Status($"{action.DisplayName} active.", ThemeManager.Brush("ErrorBrush"));
-        SetTaskbarIcon(running: true);
+        RefreshTaskbarActivityIndicator();
         RefreshAdvancedFooterUi();
         UpdateSharedBehaviorDefaultsUi();
         StartRgbIndicator(action.Id, ResolveLighting(action), LightingKeyName(action.Settings));
@@ -2407,7 +2425,8 @@ public partial class MainWindow : Window
         cancellation.Cancel();
         profileTasks.Remove(actionId);
         Status("Profile hotkey stopped.", ThemeManager.Brush("SuccessBrush"));
-        if (clickCancellation is null && profileRuns.Count == 0) { SetTaskbarIcon(running: false); CollapseButton.IsEnabled = true; }
+        if (clickCancellation is null && profileRuns.Count == 0) CollapseButton.IsEnabled = true;
+        RefreshTaskbarActivityIndicator();
         RefreshAdvancedFooterUi();
         UpdateSharedBehaviorDefaultsUi();
         StopRgbIndicator(actionId);
@@ -2480,7 +2499,7 @@ public partial class MainWindow : Window
         LiveCountLabel.Text = liveClickCount == 0 ? "0 clicks" : $"{liveClickCount:N0} clicks";
         UpdateLiveInputMode();
         Status($"{ActivityVerb()} — press {FormatHotkey()} to stop.", ThemeManager.Brush("ErrorBrush"));
-        SetTaskbarIcon(running: true);
+        RefreshTaskbarActivityIndicator();
         StartRgbIndicator();
         clickTask = AutomationWorkerScheduler.Start(() => ClickLoop(delay, settings, cancellation));
     }
@@ -2725,7 +2744,8 @@ public partial class MainWindow : Window
                     profileRuns.Remove(actionId);
                     profileTasks.Remove(actionId);
                     if (!isClosing) Status(watchdogExpired ? "A profile hotkey stopped because the GUI heartbeat timed out." : "Profile hotkey stopped.", ThemeManager.Brush(watchdogExpired ? "WarningBrush" : "SuccessBrush"));
-                    if (clickCancellation is null && profileRuns.Count == 0) { SetTaskbarIcon(running: false); CollapseButton.IsEnabled = true; }
+                    if (clickCancellation is null && profileRuns.Count == 0) CollapseButton.IsEnabled = true;
+                    RefreshTaskbarActivityIndicator();
                     RefreshAdvancedFooterUi();
                     UpdateSharedBehaviorDefaultsUi();
                     StopRgbIndicator(actionId);
@@ -2753,7 +2773,7 @@ public partial class MainWindow : Window
         if (liveClickCount == 0) LiveCountLabel.Text = "Start to test";
         UpdateLiveInputMode();
         Status($"Ready — press {FormatHotkey()} to start or stop.", ThemeManager.Brush("SuccessBrush"));
-        SetTaskbarIcon(running: profileRuns.Count > 0);
+        RefreshTaskbarActivityIndicator();
         StopRgbIndicator(SimpleRgbIndicatorId);
     }
 
@@ -3326,6 +3346,20 @@ public partial class MainWindow : Window
         RepeatMode_Changed(sender, e);
         UpdateLiveInputMode();
         CommitSelectedActionChange();
+        RemoveIntervalOverrideFromHoldHotkey();
+        UpdateSharedBehaviorDefaultsUi();
+    }
+
+    private void RemoveIntervalOverrideFromHoldHotkey()
+    {
+        if (!advancedMode || !IsEditingAdvancedAction() || ActiveProfileAction() is not { } action || !InputRules.IsHoldAction(action.Settings.ClickType)) return;
+        var overrides = action.ActiveBehaviorOverrides;
+        if (!overrides.HasFlag(AutomationBehaviorOverride.Interval)) return;
+
+        // Preserve every other local behavior value while returning the unused interval to inheritance.
+        action.UsesSharedBehaviorDefaults = true;
+        action.BehaviorOverrides = overrides & ~AutomationBehaviorOverride.Interval;
+        MarkProfilesDirty();
     }
     private void PositionMode_Changed(object sender, RoutedEventArgs e)
     {
@@ -3844,19 +3878,37 @@ public partial class MainWindow : Window
         if (StatusLabel is not null) StatusLabel.Foreground = color;
         if (AdvancedStatusLabel is not null) AdvancedStatusLabel.Foreground = color;
     }
-    private void SetTaskbarIcon(bool running)
+    private void RefreshTaskbarActivityIndicator()
     {
-        var asset = running ? "AutoClickerRunningIcon.ico" : "AutoClickerIcon.ico";
-        Icon = new BitmapImage(new Uri($"pack://application:,,,/Assets/{asset}", UriKind.Absolute));
+        var running = AutomationActivityState.IsActive(clickCancellation is not null, profileRuns.Count);
+        TaskbarActivityIndicator.ProgressState = running ? TaskbarItemProgressState.Indeterminate : TaskbarItemProgressState.None;
+        TaskbarActivityIndicator.Description = running ? "AutoClicker active" : "AutoClicker";
     }
-    private string? HotkeyKeyName() => hotkeyTrigger == HotkeyTrigger.Keyboard ? System.Windows.Input.KeyInterop.KeyFromVirtualKey(hotkey).ToString() : null;
+    private string? HotkeyKeyName() => hotkeyTrigger == HotkeyTrigger.Keyboard ? LightingKeyName(hotkey) : null;
     private static string? LightingKeyName(AppDefaults settings) => settings.HotkeyTrigger == HotkeyTrigger.Keyboard
-        ? System.Windows.Input.KeyInterop.KeyFromVirtualKey(settings.Hotkey).ToString()
+        ? LightingKeyName(settings.Hotkey)
         : null;
+
+    private static string LightingKeyName(int virtualKey)
+    {
+        if (virtualKey >= 0x30 && virtualKey <= 0x39) return (virtualKey - 0x30).ToString();
+        if (virtualKey >= 0x60 && virtualKey <= 0x69) return $"NumPad{virtualKey - 0x60}";
+        return virtualKey switch
+        {
+            0x6A => "Multiply",
+            0x6B => "Add",
+            0x6D => "Subtract",
+            0x6E => "Decimal",
+            0x6F => "Divide",
+            0x90 => "NumLock",
+            _ => System.Windows.Input.KeyInterop.KeyFromVirtualKey(virtualKey).ToString()
+        };
+    }
     private string FormatHotkey() => FormatHotkey(hotkey, hotkeyModifiers, hotkeyTrigger);
     private static string FormatHotkey(int key, uint modifiers, HotkeyTrigger trigger = HotkeyTrigger.Keyboard) => HotkeyFormatter.Format(key, modifiers, trigger);
     private static string FormatInputKey(int virtualKey)
     {
+        if (virtualKey >= 0x30 && virtualKey <= 0x39) return (virtualKey - 0x30).ToString();
         var key = System.Windows.Input.KeyInterop.KeyFromVirtualKey(virtualKey);
         return key switch { System.Windows.Input.Key.Return => "Enter", System.Windows.Input.Key.Space => "Space", _ => key.ToString() };
     }

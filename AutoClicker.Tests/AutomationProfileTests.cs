@@ -303,6 +303,116 @@ public sealed class AutomationProfileTests
     }
 
     [TestMethod]
+    public void HotkeyIntervalOverride_TakesPrecedenceOverTheProfileInterval()
+    {
+        var global = new AppDefaults { Milliseconds = 100 };
+        var profile = new AutomationProfile
+        {
+            BehaviorDefaults = new AppDefaults { Seconds = 2, Milliseconds = 0 }
+        };
+        var action = new AutomationAction
+        {
+            UsesSharedBehaviorDefaults = true,
+            BehaviorOverrides = AutomationBehaviorOverride.Interval,
+            Settings = new AppDefaults { Milliseconds = 250 }
+        };
+
+        var resolved = AutomationBehaviorSettingsResolver.Resolve(global, profile, action);
+
+        Assert.AreEqual(0, resolved.Seconds);
+        Assert.AreEqual(250, resolved.Milliseconds);
+    }
+
+    [TestMethod]
+    public void AllBehaviorOverrides_IncludeIntervalForResetOperations()
+    {
+        Assert.IsTrue(AutomationBehaviorOverride.All.HasFlag(AutomationBehaviorOverride.Interval));
+    }
+
+    [TestMethod]
+    public void RevertingHotkeyIntervalOverride_RestoresTheStoredInheritedValue()
+    {
+        var global = new AppDefaults { Milliseconds = 100 };
+        var action = new AutomationAction { UsesSharedBehaviorDefaults = true, Settings = new AppDefaults { Milliseconds = 150 } };
+        var profile = new AutomationProfile { BehaviorDefaults = new AppDefaults { Milliseconds = 150 }, Actions = [action] };
+        var baseline = AutomationProfileConfiguration.Fingerprint(new AutomationProfileDocument { Profiles = [profile.Clone()] });
+
+        action.Settings.Milliseconds = 250;
+        action.BehaviorOverrides = AutomationBehaviorOverride.Interval;
+        AutomationBehaviorSettingsResolver.RevertActionBehaviorToInherited(global, profile, action, AutomationBehaviorOverride.Interval);
+
+        var reverted = AutomationProfileConfiguration.Fingerprint(new AutomationProfileDocument { Profiles = [profile.Clone()] });
+        Assert.AreEqual(150, action.Settings.Milliseconds);
+        Assert.AreEqual(AutomationBehaviorOverride.None, action.BehaviorOverrides);
+        Assert.AreEqual(baseline, reverted);
+    }
+
+    [TestMethod]
+    public void RevertingSelectedHotkeyBehaviorAspects_RestoresOnlyThoseInheritedValues()
+    {
+        var global = new AppDefaults
+        {
+            Seconds = 1, Milliseconds = 100, RepeatUntilStopped = true, RepeatCount = 2,
+            FixedPosition = false, X = 10, Y = 20, TargetExecutable = "global.exe",
+            TargetWindowTitle = "Global", TargetWindowEnabled = false, InputJitterMaximumMilliseconds = 3, InputPulseMilliseconds = 4
+        };
+        var profile = new AutomationProfile
+        {
+            BehaviorDefaults = new AppDefaults
+            {
+                Seconds = 2, Milliseconds = 250, RepeatUntilStopped = false, RepeatCount = 7,
+                FixedPosition = true, X = 30, Y = 40, TargetExecutable = "profile.exe",
+                TargetWindowTitle = "Profile", TargetWindowEnabled = true, InputJitterMaximumMilliseconds = 8, InputPulseMilliseconds = 9
+            }
+        };
+        var action = new AutomationAction
+        {
+            Settings = new AppDefaults
+            {
+                Seconds = 3, Milliseconds = 500, RepeatUntilStopped = true, RepeatCount = 11,
+                FixedPosition = false, X = 50, Y = 60, TargetExecutable = "hotkey.exe",
+                TargetWindowTitle = "Hotkey", TargetWindowEnabled = false, InputJitterMaximumMilliseconds = 12, InputPulseMilliseconds = 13
+            }
+        };
+
+        var reverted = AutomationBehaviorOverride.Interval | AutomationBehaviorOverride.Position | AutomationBehaviorOverride.TargetWindow | AutomationBehaviorOverride.InputPulse;
+        AutomationBehaviorSettingsResolver.RevertActionBehaviorToInherited(global, profile, action, reverted);
+
+        Assert.IsTrue(action.UsesSharedBehaviorDefaults);
+        Assert.AreEqual(AutomationBehaviorOverride.Repeat | AutomationBehaviorOverride.InputJitter, action.BehaviorOverrides);
+        Assert.AreEqual(2, action.Settings.Seconds);
+        Assert.AreEqual(250, action.Settings.Milliseconds);
+        Assert.IsTrue(action.Settings.FixedPosition);
+        Assert.AreEqual(30, action.Settings.X);
+        Assert.AreEqual(40, action.Settings.Y);
+        Assert.AreEqual("profile.exe", action.Settings.TargetExecutable);
+        Assert.AreEqual("Profile", action.Settings.TargetWindowTitle);
+        Assert.IsTrue(action.Settings.TargetWindowEnabled);
+        Assert.AreEqual(9, action.Settings.InputPulseMilliseconds);
+        Assert.AreEqual(11, action.Settings.RepeatCount);
+        Assert.AreEqual(12L, action.Settings.InputJitterMaximumMilliseconds);
+    }
+
+    [TestMethod]
+    public void RevertingNonOverriddenHotkeyBehaviorAspect_DoesNotChangeTheAction()
+    {
+        var action = new AutomationAction
+        {
+            UsesSharedBehaviorDefaults = true,
+            BehaviorOverrides = AutomationBehaviorOverride.Repeat,
+            Settings = new AppDefaults { Milliseconds = 250, RepeatCount = 11 }
+        };
+        var before = action.Clone();
+
+        AutomationBehaviorSettingsResolver.RevertActionBehaviorToInherited(new AppDefaults { Milliseconds = 100 }, null, action, AutomationBehaviorOverride.Interval);
+
+        Assert.AreEqual(before.UsesSharedBehaviorDefaults, action.UsesSharedBehaviorDefaults);
+        Assert.AreEqual(before.BehaviorOverrides, action.BehaviorOverrides);
+        Assert.AreEqual(before.Settings.Milliseconds, action.Settings.Milliseconds);
+        Assert.AreEqual(before.Settings.RepeatCount, action.Settings.RepeatCount);
+    }
+
+    [TestMethod]
     public void ProfileBehaviorOverrides_CanOverrideOneSectionWhileOtherSectionsUseGlobalDefaults()
     {
         var global = new AppDefaults { RepeatUntilStopped = true, FixedPosition = false, InputPulseMilliseconds = 1 };

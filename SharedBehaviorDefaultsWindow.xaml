@@ -8,6 +8,7 @@
             <Border Background="{DynamicResource PanelBrush}" CornerRadius="13,13,0,0" MouseLeftButtonDown="Header_MouseLeftButtonDown"><TextBlock x:Name="TitleLabel" Text="Use shared behavior defaults" Margin="20,0" VerticalAlignment="Center" FontSize="17" FontWeight="SemiBold" Foreground="{DynamicResource TextStrongBrush}"/></Border>
             <StackPanel Grid.Row="1" Margin="20,15">
                 <TextBlock x:Name="DescriptionLabel" Text="Choose the settings to return to the inherited defaults: profile defaults first, then global Advanced defaults." Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                <CheckBox x:Name="IntervalCheck" Content="Interval" Margin="0,4"/>
                 <CheckBox x:Name="RepeatCheck" Content="Repeat" Margin="0,4"/>
                 <CheckBox x:Name="PositionCheck" Content="Position" Margin="0,4"/>
                 <CheckBox x:Name="TargetWindowCheck" Content="Target window" Margin="0,4"/>
