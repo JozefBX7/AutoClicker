@@ -4,7 +4,7 @@ A compact Windows auto clicker and keyboard spammer with two ways of working: a 
 
 Detailed guides are available in the [AutoClicker Wiki](https://github.com/JozefBX7/AutoClicker/wiki).
 
-<img width="522" height="580" alt="image" src="https://github.com/user-attachments/assets/6cd3c0e9-2fa0-41a4-be2a-406b61d1d15f" />
+<img width="522" height="580" alt="image" src="https://github.com/user-attachments/assets/5bb348c5-f2d3-42df-85ea-9710cee069eb" />
 
 ## Choose a mode
 
