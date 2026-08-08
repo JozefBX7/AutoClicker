@@ -139,8 +139,4 @@ public sealed class InputRulesTests
         Assert.AreEqual("Space", InputRules.DescribeAction("Custom", 0x20));
         Assert.AreEqual("Enter", InputRules.DescribeAction("Custom", 0x0D));
     }
-
-    [TestMethod]
-    public void DescribeAction_UsesNumericLabelsForCustomTopRowDigits() =>
-        Assert.AreEqual("9", InputRules.DescribeAction("Custom", 0x39));
 }

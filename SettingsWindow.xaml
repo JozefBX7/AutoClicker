@@ -41,6 +41,8 @@
                                 <ComboBoxItem Content="Simple" Tag="Simple" />
                                 <ComboBoxItem Content="Advanced" Tag="Advanced" />
                             </ComboBox>
+                            <CheckBox x:Name="EnableKeyboardHotkeyModifiers" Content="Allow Ctrl/Shift/Alt Modifiers" FontWeight="SemiBold" Margin="0,8,0,0" />
+                            <TextBlock Text="When off (default), keyboard hotkeys ignore Ctrl/Shift so E still toggles while those keys are held. Turn this on only if you need distinct combinations such as Ctrl+E or Ctrl+Shift+E (which can block plain E while held)." Foreground="{DynamicResource TextMutedBrush}" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
                             <Button Content="Open quick start guide" Click="QuickStartButton_Click" ToolTip="Show the Simple and Advanced mode overview" Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Margin="0,8,0,0" Padding="9,5"/>
                         </StackPanel>
                     </Border>

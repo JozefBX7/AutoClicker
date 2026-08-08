@@ -34,6 +34,7 @@ public partial class MainWindow : Window
     private HwndSource? hwndSource;
     private nint hwnd;
     private bool hotkeyRegistered;
+    private readonly List<int> primaryHotkeyIds = [];
     private readonly Dictionary<int, AutomationAction> additionalHotkeys = [];
     private readonly Dictionary<MouseHotkey, AutomationAction?> mouseHotkeys = [];
     private AutomationAction? pendingActionDrag;
@@ -85,6 +86,7 @@ public partial class MainWindow : Window
     private string? pendingRemovalActionId;
     private WorkerPriorityOption workerPriority = WorkerPriorityOption.Normal;
     private bool cadenceDiagnosticsEnabled;
+    private bool keyboardHotkeyModifiersEnabled;
     private AutomationProfileDocument automationProfiles = new();
     private bool advancedMode;
     // The active action still owns global hotkey registration; this set only controls what the editor is showing.
@@ -258,19 +260,39 @@ public partial class MainWindow : Window
     private nint WndProc(nint handle, int msg, nint wParam, nint lParam, ref bool handled)
     {
         // Ignore the global hotkey during key capture.
-        if (!capturingHotkey && !capturingSpamKey && msg == WmHotkey && wParam.ToInt32() == HotkeyId)
+        if (!capturingHotkey && !capturingSpamKey && msg == WmHotkey && primaryHotkeyIds.Contains(wParam.ToInt32()))
         {
+            if (hotkeyTrigger == HotkeyTrigger.Keyboard && !IsKeyboardModifierMatch(hotkeyModifiers)) return 0;
             if (advancedMode && ActiveProfileAction() is { } action) ToggleProfileAction(action);
             else ToggleClicking();
             handled = true;
         }
         else if (!capturingHotkey && !capturingSpamKey && msg == WmHotkey && additionalHotkeys.TryGetValue(wParam.ToInt32(), out var action))
         {
+            if (action.Settings.HotkeyTrigger == HotkeyTrigger.Keyboard && !IsKeyboardModifierMatch(action.Settings.HotkeyModifiers)) return 0;
             ToggleProfileAction(action);
             handled = true;
         }
         return 0;
     }
+
+    private bool IsKeyboardModifierMatch(uint configuredModifiers)
+    {
+        if (!keyboardHotkeyModifiersEnabled) return true;
+        const uint supported = 0x1 | 0x2 | 0x4;
+        return (GetKeyboardModifiers() & supported) == (configuredModifiers & supported);
+    }
+
+    private static uint GetKeyboardModifiers()
+    {
+        var modifiers = 0u;
+        if (IsKeyDown(0x12)) modifiers |= 0x1; // Alt
+        if (IsKeyDown(0x11)) modifiers |= 0x2; // Ctrl
+        if (IsKeyDown(0x10)) modifiers |= 0x4; // Shift
+        return modifiers;
+    }
+
+    private static bool IsKeyDown(int virtualKey) => (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
 
     private void Header_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
@@ -360,15 +382,18 @@ public partial class MainWindow : Window
         }
         if (settingsOpen) return;
         settingsOpen = true;
-        var dialog = new SettingsWindow(rgbSettings, workerPriority, cadenceDiagnosticsEnabled, advancedMode, FormatHotkey(), HotkeyKeyName(), ResetSettings, ExportFullBackup, ImportFullBackup) { Owner = this };
+        var dialog = new SettingsWindow(rgbSettings, workerPriority, cadenceDiagnosticsEnabled, advancedMode, keyboardHotkeyModifiersEnabled, FormatHotkey(), HotkeyKeyName(), ResetSettings, ExportFullBackup, ImportFullBackup) { Owner = this };
         try
         {
             if (dialog.ShowDialog() == true)
             {
+                var modifiersSettingChanged = keyboardHotkeyModifiersEnabled != dialog.KeyboardHotkeyModifiersEnabled;
                 rgbSettings = dialog.Settings;
                 workerPriority = dialog.WorkerPriority;
                 cadenceDiagnosticsEnabled = dialog.CadenceDiagnosticsEnabled;
+                keyboardHotkeyModifiersEnabled = dialog.KeyboardHotkeyModifiersEnabled;
                 if (dialog.AdvancedMode != advancedMode) SetAdvancedMode(dialog.AdvancedMode);
+                if (modifiersSettingChanged) RegisterConfiguredHotkey();
                 SaveRgbSettings();
                 SaveUiPreferences();
                 CrashRecovery.UpdateEnabled(rgbSettings.CrashRecoveryEnabled);
@@ -392,7 +417,7 @@ public partial class MainWindow : Window
     {
         if (capturingHotkey) return;
         var button = ActiveHotkeyButton();
-        if (hotkeyRegistered) { UnregisterHotKey(hwnd, HotkeyId); hotkeyRegistered = false; }
+        if (hotkeyRegistered) UnregisterPrimaryHotkeys();
         if (advancedMode)
         {
             foreach (var registeredId in additionalHotkeys.Keys.ToList()) UnregisterHotKey(hwnd, registeredId);
@@ -453,17 +478,10 @@ public partial class MainWindow : Window
             Status($"{FormatHotkey(candidate, modifiers)} is already assigned in this profile.", ThemeManager.Brush("WarningBrush"));
             return;
         }
-        if (RegisterHotKey(hwnd, HotkeyId, modifiers, (uint)candidate))
-        {
-            hotkeyRegistered = true;
-            CompleteCapturedHotkey(candidate, modifiers, HotkeyTrigger.Keyboard);
-        }
-        else
-        {
-            RegisterConfiguredHotkey();
-            CancelHotkeyCapture(keepStatus: true);
-            Status($"{FormatHotkey(candidate, modifiers, HotkeyTrigger.Keyboard)} is already in use.", ThemeManager.Brush("ErrorBrush"));
-        }
+        CompleteCapturedHotkey(candidate, modifiers, HotkeyTrigger.Keyboard);
+        RegisterConfiguredHotkey();
+        if (!hotkeyRegistered)
+            Status($"{FormatHotkey(candidate, modifiers, HotkeyTrigger.Keyboard)} is in use — choose another key.", ThemeManager.Brush("ErrorBrush"));
     }
 
     private void CompleteCapturedHotkey(int virtualKey, uint modifiers, HotkeyTrigger trigger)
@@ -799,9 +817,10 @@ public partial class MainWindow : Window
     private void RegisterConfiguredHotkey()
     {
         if (hwnd == 0) return;
-        if (hotkeyRegistered) UnregisterHotKey(hwnd, HotkeyId);
+        if (hotkeyRegistered) UnregisterPrimaryHotkeys();
         foreach (var registeredId in additionalHotkeys.Keys.ToList()) UnregisterHotKey(hwnd, registeredId);
         additionalHotkeys.Clear();
+        primaryHotkeyIds.Clear();
         mouseHotkeys.Clear();
         var activeAction = ActiveProfileAction();
         if (advancedMode)
@@ -811,26 +830,82 @@ public partial class MainWindow : Window
             hotkeyTrigger = activeAction?.Settings.HotkeyTrigger ?? HotkeyTrigger.Keyboard;
         }
         var registerActiveHotkey = !advancedMode || activeAction?.HotkeyEnabled == true;
-        hotkeyRegistered = registerActiveHotkey && hotkeyTrigger == HotkeyTrigger.Keyboard && hotkey > 0 && RegisterHotKey(hwnd, HotkeyId, hotkeyModifiers, (uint)hotkey);
-        if (registerActiveHotkey && hotkeyTrigger == HotkeyTrigger.Keyboard && hotkey > 0 && !hotkeyRegistered) Status($"{FormatHotkey()} is in use — choose another key.", ThemeManager.Brush("ErrorBrush"));
+        if (registerActiveHotkey && hotkeyTrigger == HotkeyTrigger.Keyboard && hotkey > 0)
+        {
+            var nextId = RegisterKeyboardHotkeyVariants(HotkeyId, hotkeyModifiers, hotkey, action: null, trackAsPrimary: true);
+            hotkeyRegistered = primaryHotkeyIds.Count > 0;
+            if (!hotkeyRegistered) Status($"{FormatHotkey()} is in use — choose another key.", ThemeManager.Brush("ErrorBrush"));
+            if (nextId > HotkeyId + 1) additionalHotkeys.Clear();
+        }
+        else hotkeyRegistered = false;
         if (registerActiveHotkey && hotkeyTrigger != HotkeyTrigger.Keyboard) RegisterMouseHotkey(new MouseHotkey(hotkeyTrigger, hotkeyModifiers), advancedMode ? activeAction : null);
         if (!advancedMode) { UpdateMouseHook(); return; }
         var profile = ActiveProfile();
         if (profile is null) { UpdateMouseHook(); return; }
-        var additionalId = HotkeyId + 1;
+        var additionalId = Math.Max(HotkeyId + 1, (primaryHotkeyIds.Count == 0 ? HotkeyId + 1 : primaryHotkeyIds.Max() + 1));
         foreach (var action in profile.Actions.Where(action => action.HotkeyEnabled && action.Id != automationProfiles.ActiveActionId && HotkeyFormatter.IsConfigured(action.Settings.Hotkey, action.Settings.HotkeyTrigger)))
         {
-            if (action.Settings.HotkeyTrigger == hotkeyTrigger && action.Settings.Hotkey == hotkey && action.Settings.HotkeyModifiers == hotkeyModifiers) continue;
+            if (action.Settings.HotkeyTrigger == hotkeyTrigger && action.Settings.Hotkey == hotkey && NormalizeKeyboardHotkeyModifiers(action.Settings.HotkeyModifiers) == NormalizeKeyboardHotkeyModifiers(hotkeyModifiers)) continue;
             if (action.Settings.HotkeyTrigger != HotkeyTrigger.Keyboard)
             {
                 RegisterMouseHotkey(new MouseHotkey(action.Settings.HotkeyTrigger, action.Settings.HotkeyModifiers), action);
                 continue;
             }
-            if (RegisterHotKey(hwnd, additionalId, action.Settings.HotkeyModifiers, (uint)action.Settings.Hotkey)) additionalHotkeys[additionalId] = action;
-            else AppLog.Info($"Could not register profile hotkey {action.DisplayName}.");
-            additionalId++;
+            additionalId = RegisterKeyboardHotkeyVariants(additionalId, action.Settings.HotkeyModifiers, action.Settings.Hotkey, action, trackAsPrimary: false);
         }
         UpdateMouseHook();
+    }
+
+    private int RegisterKeyboardHotkeyVariants(int startId, uint modifiers, int virtualKey, AutomationAction? action, bool trackAsPrimary)
+    {
+        var id = startId;
+        foreach (var variantModifiers in KeyboardHotkeyModifierVariants(modifiers))
+        {
+            if (RegisterHotKey(hwnd, id, variantModifiers, (uint)virtualKey))
+            {
+                if (trackAsPrimary) primaryHotkeyIds.Add(id);
+                else if (action is not null) additionalHotkeys[id] = action;
+            }
+            else AppLog.Info($"Could not register {(action is null ? "active" : "profile")} hotkey variant {HotkeyFormatter.Format(virtualKey, variantModifiers)}.");
+            id++;
+        }
+        return id;
+    }
+
+    private IEnumerable<uint> KeyboardHotkeyModifierVariants(uint configuredModifiers) =>
+        KeyboardHotkeyModifierVariants(keyboardHotkeyModifiersEnabled, configuredModifiers);
+
+    internal static IEnumerable<uint> KeyboardHotkeyModifierVariants(bool modifiersEnabled, uint configuredModifiers)
+    {
+        if (modifiersEnabled)
+        {
+            yield return configuredModifiers;
+            yield break;
+        }
+
+        const uint alt = 0x1;
+        const uint control = 0x2;
+        const uint shift = 0x4;
+        var requiredAlt = configuredModifiers & alt;
+        yield return requiredAlt;
+        yield return requiredAlt | control;
+        yield return requiredAlt | shift;
+        yield return requiredAlt | control | shift;
+    }
+
+    private void UnregisterPrimaryHotkeys()
+    {
+        foreach (var id in primaryHotkeyIds)
+            UnregisterHotKey(hwnd, id);
+        primaryHotkeyIds.Clear();
+        hotkeyRegistered = false;
+    }
+
+    private uint NormalizeKeyboardHotkeyModifiers(uint modifiers)
+    {
+        if (keyboardHotkeyModifiersEnabled) return modifiers;
+        const uint alt = 0x1;
+        return modifiers & alt;
     }
 
     private void RegisterMouseHotkey(MouseHotkey hotkeyBinding, AutomationAction? action)
@@ -1558,7 +1633,7 @@ public partial class MainWindow : Window
             Status("Stop all active hotkeys before changing modes.", ThemeManager.Brush("WarningBrush"));
             return;
         }
-        if (hotkeyRegistered) { UnregisterHotKey(hwnd, HotkeyId); hotkeyRegistered = false; }
+        if (hotkeyRegistered) UnregisterPrimaryHotkeys();
         if (!enabled)
         {
             CaptureCurrentActionToProfile();
@@ -1635,7 +1710,7 @@ public partial class MainWindow : Window
         selectedAdvancedActionIds.Clear();
         if (editProfileDefaults) BeginProfileDefaultsEdit(profile);
         else ShowAdvancedSharedDefaults(clearSelection: false);
-        if (hotkeyRegistered) { UnregisterHotKey(hwnd, HotkeyId); hotkeyRegistered = false; }
+        if (hotkeyRegistered) UnregisterPrimaryHotkeys();
         RegisterConfiguredHotkey();
         RefreshAdvancedFooterUi();
         if (!editProfileDefaults) Status($"{profile.Name} selected — shared defaults are ready.", ThemeManager.Brush("SuccessBrush"));
@@ -1654,7 +1729,7 @@ public partial class MainWindow : Window
             CaptureCurrentActionToProfile();
             automationProfiles.ActiveActionId = action.Id;
             ApplyDefaults(ResolveActionSettings(action));
-            if (hotkeyRegistered) { UnregisterHotKey(hwnd, HotkeyId); hotkeyRegistered = false; }
+            if (hotkeyRegistered) UnregisterPrimaryHotkeys();
             RegisterConfiguredHotkey();
         }
         selectedAdvancedActionIds.Clear();
@@ -2063,8 +2138,7 @@ public partial class MainWindow : Window
         {
             Header = $"{hotkeyEnabledState}Hotkey enabled",
             IsCheckable = true,
-            IsChecked = targets.All(item => item.HotkeyEnabled),
-            StaysOpenOnClick = false
+            IsChecked = targets.All(item => item.HotkeyEnabled)
         };
         hotkeyEnabled.Click += (_, _) => SetHotkeysEnabled(targets, hotkeyEnabled.IsChecked);
         menu.Items.Add(hotkeyEnabled);
@@ -2155,7 +2229,7 @@ public partial class MainWindow : Window
         return SharedMenuState(states);
     }
 
-    private static string SharedMenuState(IEnumerable<bool?> states)
+    internal static string SharedMenuState(IEnumerable<bool?> states)
     {
         var values = states.Distinct().ToList();
         return values.Count == 1 && values[0] == true ? "✓  " : values.Any(value => value is true or null) ? "~  " : string.Empty;
@@ -2277,7 +2351,7 @@ public partial class MainWindow : Window
         selectedAdvancedActionIds.Clear();
         selectedAdvancedActionIds.Add(action.Id);
         SaveAutomationProfiles();
-        if (hotkeyRegistered) { UnregisterHotKey(hwnd, HotkeyId); hotkeyRegistered = false; }
+        if (hotkeyRegistered) UnregisterPrimaryHotkeys();
         ApplyDefaults(ResolveActionSettings(action));
         RefreshAdvancedFooterUi();
         BeginHotkeyCapture();
@@ -3328,7 +3402,7 @@ public partial class MainWindow : Window
 
     private bool ResetAdvancedMode()
     {
-        if (hotkeyRegistered) { UnregisterHotKey(hwnd, HotkeyId); hotkeyRegistered = false; }
+        if (hotkeyRegistered) UnregisterPrimaryHotkeys();
         automationProfiles = AutomationProfileStore.CreateInitial(LoadSavedDefaults());
         PersistAutomationProfiles();
         profilesDirty = false;
@@ -3356,7 +3430,7 @@ public partial class MainWindow : Window
         }
 
         // Re-register after restoring F6 and its modifiers.
-        if (hotkeyRegistered) { UnregisterHotKey(hwnd, HotkeyId); hotkeyRegistered = false; }
+        if (hotkeyRegistered) UnregisterPrimaryHotkeys();
         rgbSettings = new RgbSettings();
         ApplyDefaults(new AppDefaults());
         automationProfiles = AutomationProfileStore.CreateInitial(CreateCurrentDefaults());
@@ -3709,6 +3783,7 @@ public partial class MainWindow : Window
         workerPriority = WorkerPriorityRules.Normalize(preferences.WorkerPriority);
         cadenceDiagnosticsEnabled = preferences.CadenceDiagnosticsEnabled;
         advancedMode = preferences.AdvancedMode;
+        keyboardHotkeyModifiersEnabled = preferences.KeyboardHotkeyModifiersEnabled;
         if (!advancedMode) LoadDefaults();
         UpdatePinUi();
         ApplyCompactMode();
@@ -3717,7 +3792,7 @@ public partial class MainWindow : Window
 
     private void SaveUiPreferences()
     {
-        try { UiPreferencesStore.Save(UiPreferencesPath, new UiPreferences { Pinned = Topmost, CompactMode = compactMode, QuickStartSeen = quickStartSeen, WorkerPriority = workerPriority.ToString(), CadenceDiagnosticsEnabled = cadenceDiagnosticsEnabled, AdvancedMode = advancedMode }); }
+        try { UiPreferencesStore.Save(UiPreferencesPath, new UiPreferences { Pinned = Topmost, CompactMode = compactMode, QuickStartSeen = quickStartSeen, WorkerPriority = workerPriority.ToString(), CadenceDiagnosticsEnabled = cadenceDiagnosticsEnabled, AdvancedMode = advancedMode, KeyboardHotkeyModifiersEnabled = keyboardHotkeyModifiersEnabled }); }
         catch { }
     }
 
@@ -3774,31 +3849,14 @@ public partial class MainWindow : Window
         var asset = running ? "AutoClickerRunningIcon.ico" : "AutoClickerIcon.ico";
         Icon = new BitmapImage(new Uri($"pack://application:,,,/Assets/{asset}", UriKind.Absolute));
     }
-    private string? HotkeyKeyName() => hotkeyTrigger == HotkeyTrigger.Keyboard ? LightingKeyName(hotkey) : null;
+    private string? HotkeyKeyName() => hotkeyTrigger == HotkeyTrigger.Keyboard ? System.Windows.Input.KeyInterop.KeyFromVirtualKey(hotkey).ToString() : null;
     private static string? LightingKeyName(AppDefaults settings) => settings.HotkeyTrigger == HotkeyTrigger.Keyboard
-        ? LightingKeyName(settings.Hotkey)
+        ? System.Windows.Input.KeyInterop.KeyFromVirtualKey(settings.Hotkey).ToString()
         : null;
-
-    private static string LightingKeyName(int virtualKey)
-    {
-        if (virtualKey >= 0x30 && virtualKey <= 0x39) return (virtualKey - 0x30).ToString();
-        if (virtualKey >= 0x60 && virtualKey <= 0x69) return $"NumPad{virtualKey - 0x60}";
-        return virtualKey switch
-        {
-            0x6A => "Multiply",
-            0x6B => "Add",
-            0x6D => "Subtract",
-            0x6E => "Decimal",
-            0x6F => "Divide",
-            0x90 => "NumLock",
-            _ => System.Windows.Input.KeyInterop.KeyFromVirtualKey(virtualKey).ToString()
-        };
-    }
     private string FormatHotkey() => FormatHotkey(hotkey, hotkeyModifiers, hotkeyTrigger);
     private static string FormatHotkey(int key, uint modifiers, HotkeyTrigger trigger = HotkeyTrigger.Keyboard) => HotkeyFormatter.Format(key, modifiers, trigger);
     private static string FormatInputKey(int virtualKey)
     {
-        if (virtualKey >= 0x30 && virtualKey <= 0x39) return (virtualKey - 0x30).ToString();
         var key = System.Windows.Input.KeyInterop.KeyFromVirtualKey(virtualKey);
         return key switch { System.Windows.Input.Key.Return => "Enter", System.Windows.Input.Key.Space => "Space", _ => key.ToString() };
     }
@@ -3860,7 +3918,7 @@ public partial class MainWindow : Window
         ApplyIdleOpenRgbProfile();
         if (rgbSettings.StopAutoStartedOnExit) OpenRgbHighlighter.StopAutoStartedServer();
         // Release UI timers and the Windows hotkey hook last.
-        resetTimer.Stop(); flashTimer.Stop(); guiHeartbeatTimer.Stop(); if (hotkeyRegistered) UnregisterHotKey(hwnd, HotkeyId); foreach (var id in additionalHotkeys.Keys) UnregisterHotKey(hwnd, id); mouseHotkeys.Clear(); UpdateMouseHook(); if (hwndSource is not null) hwndSource.RemoveHook(WndProc);
+        resetTimer.Stop(); flashTimer.Stop(); guiHeartbeatTimer.Stop(); if (hotkeyRegistered) UnregisterPrimaryHotkeys(); foreach (var id in additionalHotkeys.Keys) UnregisterHotKey(hwnd, id); mouseHotkeys.Clear(); UpdateMouseHook(); if (hwndSource is not null) hwndSource.RemoveHook(WndProc);
     }
 
     private static Input[] CreateClickInputs(string button)

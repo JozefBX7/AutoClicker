@@ -14,6 +14,7 @@ public partial class SettingsWindow : Window
     public WorkerPriorityOption WorkerPriority { get; private set; }
     public bool CadenceDiagnosticsEnabled { get; private set; }
     public bool AdvancedMode { get; private set; }
+    public bool KeyboardHotkeyModifiersEnabled { get; private set; }
     private readonly string hotkeyName;
     private readonly string? hotkeyKeyName;
     private readonly Func<ResetScope, bool> resetSettings;
@@ -24,7 +25,7 @@ public partial class SettingsWindow : Window
     private bool restartEffectPreview;
     private bool isClosing;
 
-    public SettingsWindow(RgbSettings current, WorkerPriorityOption workerPriority, bool cadenceDiagnosticsEnabled, bool advancedMode, string hotkeyName, string? hotkeyKeyName, Func<ResetScope, bool> resetSettings, Func<BackupScope, string, string?> exportBackup, Func<BackupScope, string, string?> importBackup)
+    public SettingsWindow(RgbSettings current, WorkerPriorityOption workerPriority, bool cadenceDiagnosticsEnabled, bool advancedMode, bool keyboardHotkeyModifiersEnabled, string hotkeyName, string? hotkeyKeyName, Func<ResetScope, bool> resetSettings, Func<BackupScope, string, string?> exportBackup, Func<BackupScope, string, string?> importBackup)
     {
         InitializeComponent();
         this.hotkeyName = hotkeyName;
@@ -41,6 +42,8 @@ public partial class SettingsWindow : Window
         EnableCadenceDiagnostics.IsChecked = CadenceDiagnosticsEnabled;
         AdvancedMode = advancedMode;
         ModeCombo.SelectedIndex = AdvancedMode ? 1 : 0;
+        KeyboardHotkeyModifiersEnabled = keyboardHotkeyModifiersEnabled;
+        EnableKeyboardHotkeyModifiers.IsChecked = KeyboardHotkeyModifiersEnabled;
         EnableOpenRgb.IsChecked = Settings.Enabled;
         AutoStartOpenRgb.IsChecked = Settings.AutoStart;
         StopAutoStartedOpenRgb.IsChecked = Settings.StopAutoStartedOnExit;
@@ -695,6 +698,7 @@ public partial class SettingsWindow : Window
         WorkerPriority = WorkerPriorityRules.Normalize((WorkerPriorityCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString());
         CadenceDiagnosticsEnabled = EnableCadenceDiagnostics.IsChecked == true;
         AdvancedMode = string.Equals((ModeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString(), "Advanced", StringComparison.Ordinal);
+        KeyboardHotkeyModifiersEnabled = EnableKeyboardHotkeyModifiers.IsChecked == true;
         DialogResult = true;
     }
 
