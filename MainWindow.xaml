@@ -11,6 +11,14 @@
     </Window.TaskbarItemInfo>
     <Window.Resources>
         <local:AdvancedActionLabelConverter x:Key="AdvancedActionLabelConverter" />
+        <DrawingImage x:Key="TaskbarActiveOverlay">
+            <DrawingImage.Drawing>
+                <GeometryDrawing Brush="#F04452">
+                    <GeometryDrawing.Pen><Pen Brush="#F8FBFF" Thickness="1.5" /></GeometryDrawing.Pen>
+                    <GeometryDrawing.Geometry><EllipseGeometry Center="8,8" RadiusX="6.4" RadiusY="6.4" /></GeometryDrawing.Geometry>
+                </GeometryDrawing>
+            </DrawingImage.Drawing>
+        </DrawingImage>
     </Window.Resources>
     <Border Background="{DynamicResource AppBackgroundBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="16" SnapsToDevicePixels="True">
         <Grid Margin="1">
@@ -366,10 +374,10 @@
                     <TextBlock x:Name="CollapseLabel" Text="Hide settings" Margin="5,0,0,0" VerticalAlignment="Center" />
                 </StackPanel>
             </Button>
-            <Border x:Name="OpenRgbWarningIndicator" Grid.Row="2" Panel.ZIndex="3" Visibility="Collapsed" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,18,14" Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource WarningBrush}" BorderThickness="1" CornerRadius="10" Padding="4" ToolTipService.ShowDuration="60000" Cursor="Help">
-                <Grid Width="14" Height="14">
-                    <Ellipse Stroke="{DynamicResource WarningBrush}" StrokeThickness="1.5" />
-                    <TextBlock Text="i" Foreground="{DynamicResource WarningBrush}" FontSize="11" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-1,0,0" />
+            <Border x:Name="OpenRgbWarningIndicator" Grid.Row="2" Panel.ZIndex="3" Visibility="Collapsed" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,5,4" Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource WarningBrush}" BorderThickness="1" CornerRadius="7" Padding="1" ToolTipService.ShowDuration="60000" Cursor="Help">
+                <Grid Width="11" Height="11">
+                    <Ellipse Stroke="{DynamicResource WarningBrush}" StrokeThickness="1.25" />
+                    <TextBlock Text="!" Foreground="{DynamicResource WarningBrush}" FontSize="8" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-1,0,0" />
                 </Grid>
             </Border>
         </Grid>

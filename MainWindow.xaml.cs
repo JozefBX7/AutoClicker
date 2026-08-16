@@ -397,6 +397,7 @@ public partial class MainWindow : Window
                 SaveRgbSettings();
                 SaveUiPreferences();
                 CrashRecovery.UpdateEnabled(rgbSettings.CrashRecoveryEnabled);
+                if (!rgbSettings.Enabled) ClearOpenRgbWarning();
                 Status(rgbSettings.Enabled ? "OpenRGB hotkey lighting enabled." : "OpenRGB hotkey lighting disabled.", rgbSettings.Enabled ? ThemeManager.Brush("SuccessBrush") : ThemeManager.Brush("TextMutedBrush"));
             }
         }
@@ -3232,10 +3233,10 @@ public partial class MainWindow : Window
 
     private void ShowOpenRgbWarning(string message)
     {
-        if (Dispatcher.HasShutdownStarted) return;
+        if (!OpenRgbWarningRules.ShouldDisplay(rgbSettings.Enabled, isClosing) || Dispatcher.HasShutdownStarted) return;
         _ = Dispatcher.BeginInvoke(() =>
         {
-            if (isClosing) return;
+            if (!OpenRgbWarningRules.ShouldDisplay(rgbSettings.Enabled, isClosing)) return;
             OpenRgbWarningIndicator.ToolTip = message;
             OpenRgbWarningIndicator.Visibility = Visibility.Visible;
         });
@@ -3880,9 +3881,10 @@ public partial class MainWindow : Window
     }
     private void RefreshTaskbarActivityIndicator()
     {
-        var running = AutomationActivityState.IsActive(clickCancellation is not null, profileRuns.Count);
-        TaskbarActivityIndicator.ProgressState = running ? TaskbarItemProgressState.Indeterminate : TaskbarItemProgressState.None;
-        TaskbarActivityIndicator.Description = running ? "AutoClicker active" : "AutoClicker";
+        var presentation = AutomationActivityState.GetTaskbarPresentation(clickCancellation is not null, profileRuns.Count);
+        TaskbarActivityIndicator.Overlay = presentation.ShowActiveBadge ? (ImageSource)FindResource("TaskbarActiveOverlay") : null;
+        TaskbarActivityIndicator.ProgressState = presentation.ShowIndeterminateProgress ? TaskbarItemProgressState.Indeterminate : TaskbarItemProgressState.None;
+        TaskbarActivityIndicator.Description = presentation.IsActive ? "AutoClicker active" : "AutoClicker";
     }
     private string? HotkeyKeyName() => hotkeyTrigger == HotkeyTrigger.Keyboard ? LightingKeyName(hotkey) : null;
     private static string? LightingKeyName(AppDefaults settings) => settings.HotkeyTrigger == HotkeyTrigger.Keyboard

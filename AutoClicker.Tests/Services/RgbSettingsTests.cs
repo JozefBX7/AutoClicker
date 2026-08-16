@@ -63,6 +63,15 @@ public sealed class RgbSettingsTests
         Assert.AreEqual(expected, OpenRgbHighlighter.ShouldStartOnApplicationLaunch(new RgbSettings { Enabled = enabled, AutoStart = autoStart }));
     }
 
+    [DataTestMethod]
+    [DataRow(true, false, true)]
+    [DataRow(false, false, false)]
+    [DataRow(true, true, false)]
+    public void WarningIndicator_ShowsOnlyWhileLightingIsEnabledAndTheAppIsOpen(bool lightingEnabled, bool applicationClosing, bool expected)
+    {
+        Assert.AreEqual(expected, OpenRgbWarningRules.ShouldDisplay(lightingEnabled, applicationClosing));
+    }
+
     [TestMethod]
     public void BlendColor_InterpolatesAndClampsTheFadeStrength()
     {

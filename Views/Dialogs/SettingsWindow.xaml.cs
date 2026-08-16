@@ -54,13 +54,17 @@ public partial class SettingsWindow : Window
         SelectEffect(Settings.LightingEffect);
         EffectSpeedSlider.Value = SpeedToSlider(Settings.PulseSpeedMilliseconds, SelectedEffect());
         UpdatePulseSpeedEnabled();
+        UpdateOpenRgbOptionsEnabled();
         HotkeyLightingHint.Text = hotkeyKeyName is null
             ? "OpenRGB lighting applies to keyboard hotkeys. Select a keyboard hotkey to light one."
             : $"When AutoClicker is active, OpenRGB will light {hotkeyName}.";
         Loaded += (_, _) =>
         {
-            RefreshKeyboards();
-            RefreshProfiles();
+            if (EnableOpenRgb.IsChecked == true)
+            {
+                RefreshKeyboards();
+                RefreshProfiles();
+            }
         };
     }
 
@@ -98,6 +102,32 @@ public partial class SettingsWindow : Window
 
     private void FindKeyboards_Click(object sender, RoutedEventArgs e) => RefreshKeyboards();
     private void RefreshProfiles_Click(object sender, RoutedEventArgs e) => RefreshProfiles();
+
+    private void EnableOpenRgb_Changed(object sender, RoutedEventArgs e)
+    {
+        UpdateOpenRgbOptionsEnabled();
+        if (EnableOpenRgb.IsChecked == true)
+        {
+            if (IsLoaded)
+            {
+                RefreshKeyboards();
+                RefreshProfiles();
+            }
+            return;
+        }
+
+        effectPreviewRestartTimer.Stop();
+        restartEffectPreview = false;
+        effectTestCancellation?.Cancel();
+        ConnectionStatus.Text = "OpenRGB lighting is disabled.";
+        ConnectionStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+    }
+
+    private void UpdateOpenRgbOptionsEnabled()
+    {
+        if (OpenRgbOptions is not null && EnableOpenRgb is not null)
+            OpenRgbOptions.IsEnabled = EnableOpenRgb.IsChecked == true;
+    }
 
     private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
     {
@@ -494,10 +524,11 @@ public partial class SettingsWindow : Window
 
     private void SetLightingTestControlsEnabled(bool enabled)
     {
-        TestRgbButton.IsEnabled = enabled;
-        TestEffectButton.IsEnabled = enabled;
-        ClearStuckLightingButton.IsEnabled = enabled;
-        TestProfileButton.IsEnabled = enabled;
+        var canUseLighting = enabled && EnableOpenRgb.IsChecked == true;
+        TestRgbButton.IsEnabled = canUseLighting;
+        TestEffectButton.IsEnabled = canUseLighting;
+        ClearStuckLightingButton.IsEnabled = canUseLighting;
+        TestProfileButton.IsEnabled = canUseLighting;
     }
 
     private bool TryCreateLightingSettings(out RgbSettings settings, out string error)
@@ -520,6 +551,7 @@ public partial class SettingsWindow : Window
 
     private async void RefreshProfiles()
     {
+        if (EnableOpenRgb.IsChecked != true) return;
         try
         {
             var autoStart = AutoStartOpenRgb.IsChecked == true;
@@ -528,6 +560,7 @@ public partial class SettingsWindow : Window
             {
                 Settings.AutoStart = autoStart;
                 var availability = await OpenRgbHighlighter.EnsureSdkAsync(Settings);
+                if (EnableOpenRgb.IsChecked != true) return;
                 if (!availability.IsAvailable)
                 {
                     if (!autoStart || Stopwatch.GetTimestamp() >= retryDeadline)
@@ -642,10 +675,12 @@ public partial class SettingsWindow : Window
 
     private async void RefreshKeyboards()
     {
+        if (EnableOpenRgb.IsChecked != true) return;
         try
         {
             Settings.AutoStart = AutoStartOpenRgb.IsChecked == true;
             var availability = await OpenRgbHighlighter.EnsureSdkAsync(Settings);
+            if (EnableOpenRgb.IsChecked != true) return;
             if (!availability.IsAvailable)
             {
                 KeyboardCombo.ItemsSource = Array.Empty<KeyboardDevice>();
@@ -671,6 +706,7 @@ public partial class SettingsWindow : Window
         }
         catch (Exception exception)
         {
+            if (EnableOpenRgb.IsChecked != true) return;
             ConnectionStatus.Text = $"Could not connect to OpenRGB. Install and start OpenRGB with its SDK server enabled, then try again. ({exception.Message})";
             ConnectionStatus.Foreground = ThemeManager.Brush("ErrorBrush");
         }
