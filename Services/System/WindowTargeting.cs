@@ -16,7 +16,7 @@ internal sealed record TargetWindowRule(string ExecutableName, string? WindowTit
 
 public sealed record VisibleWindow(string ExecutableName, string Title)
 {
-    public string DisplayName => $"{Title} — {ExecutableName}";
+    public string DisplayName => $"{Title} - {ExecutableName}";
 }
 
 internal static class WindowTargeting

@@ -196,7 +196,7 @@ public partial class MainWindow : Window
             }
             case InputTimingScope.ProfileDefaults:
                 MarkProfileDefaultsEdited();
-                Status($"{settingName} updated for {ActiveProfile()?.Name ?? "this"} profile defaults — save the profile when ready.", ThemeManager.Brush("SuccessBrush"));
+                Status($"{settingName} updated for {ActiveProfile()?.Name ?? "this"} profile defaults - save the profile when ready.", ThemeManager.Brush("SuccessBrush"));
                 break;
             case InputTimingScope.HotkeyOverride:
                 CaptureCurrentActionToProfile();
@@ -245,7 +245,7 @@ public partial class MainWindow : Window
             ? targetWindowTitle is null ? "Executable target enabled." : "Window target enabled."
             : hasTarget ? "Target disabled. Global input enabled." : "Global input enabled.";
         TargetWindowHint.ToolTip = enabled
-            ? targetWindowTitle is null ? "Input runs only while any active window from this executable is focused." : $"{targetWindowTitle} — {TargetExecutableBox.Text}"
+            ? targetWindowTitle is null ? "Input runs only while any active window from this executable is focused." : $"{targetWindowTitle} - {TargetExecutableBox.Text}"
             : "Input is sent to whichever window is active.";
     }
 
@@ -362,7 +362,7 @@ public partial class MainWindow : Window
     private void UpdatePinUi()
     {
         PinButton.Tag = Topmost ? "Pinned" : null;
-        PinButton.ToolTip = Topmost ? "Always on top — click to unpin" : "Keep on top";
+        PinButton.ToolTip = Topmost ? "Always on top - click to unpin" : "Keep on top";
     }
 
     private void ShowQuickStart()
@@ -463,7 +463,7 @@ public partial class MainWindow : Window
             capturingSpamKey = false;
             Select(ButtonCombo, "Custom");
             if (!CommitSelectedActionChange()) ShowReadyActionStatus();
-            Status($"Ready — {FormatInputKey(virtualKey)} will be repeated.", ThemeManager.Brush("SuccessBrush"));
+            Status($"Ready - {FormatInputKey(virtualKey)} will be repeated.", ThemeManager.Brush("SuccessBrush"));
             return;
         }
         if (!capturingHotkey) return;
@@ -482,7 +482,7 @@ public partial class MainWindow : Window
         CompleteCapturedHotkey(candidate, modifiers, HotkeyTrigger.Keyboard);
         RegisterConfiguredHotkey();
         if (!hotkeyRegistered)
-            Status($"{FormatHotkey(candidate, modifiers, HotkeyTrigger.Keyboard)} is in use — choose another key.", ThemeManager.Brush("ErrorBrush"));
+            Status($"{FormatHotkey(candidate, modifiers, HotkeyTrigger.Keyboard)} is in use - choose another key.", ThemeManager.Brush("ErrorBrush"));
     }
 
     private void CompleteCapturedHotkey(int virtualKey, uint modifiers, HotkeyTrigger trigger)
@@ -501,7 +501,7 @@ public partial class MainWindow : Window
         RefreshAdvancedFooterUi();
         UpdateHotkeyLabel();
         CancelHotkeyCapture(keepStatus: true);
-        Status($"Ready — press {FormatHotkey()} to start or stop.", ThemeManager.Brush("SuccessBrush"));
+        Status($"Ready - press {FormatHotkey()} to start or stop.", ThemeManager.Brush("SuccessBrush"));
         FlashSelectedHotkey();
     }
 
@@ -721,7 +721,7 @@ public partial class MainWindow : Window
             return;
         }
         if (advancedMode || !hotkeyRegistered) RegisterConfiguredHotkey();
-        if (!keepStatus) Status($"Ready — press {FormatHotkey()} to start or stop.", ThemeManager.Brush("SuccessBrush"));
+        if (!keepStatus) Status($"Ready - press {FormatHotkey()} to start or stop.", ThemeManager.Brush("SuccessBrush"));
     }
 
     private void AbandonPendingNewAction(string actionId)
@@ -811,7 +811,7 @@ public partial class MainWindow : Window
         action.Settings = CreateCurrentDefaults();
         MarkProfilesDirty();
         UpdateActionEditorHint();
-        Status($"Updated {FormatHotkey()} — {action.ActionDescription}.", ThemeManager.Brush("SuccessBrush"));
+        Status($"Updated {FormatHotkey()} - {action.ActionDescription}.", ThemeManager.Brush("SuccessBrush"));
         return true;
     }
 
@@ -835,7 +835,7 @@ public partial class MainWindow : Window
         {
             var nextId = RegisterKeyboardHotkeyVariants(HotkeyId, hotkeyModifiers, hotkey, action: null, trackAsPrimary: true);
             hotkeyRegistered = primaryHotkeyIds.Count > 0;
-            if (!hotkeyRegistered) Status($"{FormatHotkey()} is in use — choose another key.", ThemeManager.Brush("ErrorBrush"));
+            if (!hotkeyRegistered) Status($"{FormatHotkey()} is in use - choose another key.", ThemeManager.Brush("ErrorBrush"));
             if (nextId > HotkeyId + 1) additionalHotkeys.Clear();
         }
         else hotkeyRegistered = false;
@@ -1113,7 +1113,7 @@ public partial class MainWindow : Window
         }
         UpdateSharedBehaviorDefaultsUi();
         RefreshAdvancedFooterUi();
-        if (announce) Status("Ready — editing shared defaults.", ThemeManager.Brush("SuccessBrush"));
+        if (announce) Status("Ready - editing shared defaults.", ThemeManager.Brush("SuccessBrush"));
     }
 
     private AppDefaults ResolveActionSettings(AutomationAction action)
@@ -1374,7 +1374,7 @@ public partial class MainWindow : Window
         ShowAdvancedSharedDefaults(clearSelection: false);
         MarkProfilesDirty();
         RegisterConfiguredHotkey();
-        Status("New profile — add a hotkey when you are ready.", ThemeManager.Brush("SuccessBrush"));
+        Status("New profile - add a hotkey when you are ready.", ThemeManager.Brush("SuccessBrush"));
     }
 
     private void DiscardActiveDraft()
@@ -1661,7 +1661,7 @@ public partial class MainWindow : Window
         ApplyModeUi();
         RegisterConfiguredHotkey();
         SaveUiPreferences();
-        Status(enabled ? "Advanced mode enabled — use the footer to manage hotkeys." : "Simple mode enabled.", ThemeManager.Brush("SuccessBrush"));
+        Status(enabled ? "Advanced mode enabled - use the footer to manage hotkeys." : "Simple mode enabled.", ThemeManager.Brush("SuccessBrush"));
     }
 
     private void ApplyModeUi()
@@ -1731,7 +1731,7 @@ public partial class MainWindow : Window
         if (hotkeyRegistered) UnregisterPrimaryHotkeys();
         RegisterConfiguredHotkey();
         RefreshAdvancedFooterUi();
-        if (!editProfileDefaults) Status($"{profile.Name} selected — shared defaults are ready.", ThemeManager.Brush("SuccessBrush"));
+        if (!editProfileDefaults) Status($"{profile.Name} selected - shared defaults are ready.", ThemeManager.Brush("SuccessBrush"));
     }
 
     private void SelectAdvancedAction(AutomationAction action, bool startHotkeyCapture = false)
@@ -1786,7 +1786,7 @@ public partial class MainWindow : Window
         finally { suppressProfileDefaultTracking = false; }
         RefreshAdvancedFooterUi();
         UpdateSharedBehaviorDefaultsUi();
-        Status($"Editing {profile.Name} profile defaults — save the profile when ready.", ThemeManager.Brush("SuccessBrush"));
+        Status($"Editing {profile.Name} profile defaults - save the profile when ready.", ThemeManager.Brush("SuccessBrush"));
     }
 
     private void UseSharedProfileBehaviorDefaults_Click(object sender, RoutedEventArgs e)
@@ -2012,7 +2012,7 @@ public partial class MainWindow : Window
         }
 
         ShowAdvancedSharedDefaults(clearSelection: false);
-        Status(selected.Count == 0 ? "Shared defaults selected." : $"{selected.Count} hotkeys selected — use their menu for shared options.", ThemeManager.Brush("SuccessBrush"));
+        Status(selected.Count == 0 ? "Shared defaults selected." : $"{selected.Count} hotkeys selected - use their menu for shared options.", ThemeManager.Brush("SuccessBrush"));
     }
 
     private void AdvancedActionRemove_Click(object sender, RoutedEventArgs e)
@@ -2117,7 +2117,7 @@ public partial class MainWindow : Window
         if (!AutomationProfileActionOrder.Move(profile, actionId, target.Action.Id, placeAfter)) return;
         MarkProfilesDirty();
         RefreshAdvancedFooterUi();
-        Status("Hotkey order changed — save the profile when ready.", ThemeManager.Brush("SuccessBrush"));
+        Status("Hotkey order changed - save the profile when ready.", ThemeManager.Brush("SuccessBrush"));
         e.Handled = true;
     }
 
@@ -2499,7 +2499,7 @@ public partial class MainWindow : Window
         LiveArea.BorderBrush = ThemeManager.Brush("AccentHoverBrush");
         LiveCountLabel.Text = liveClickCount == 0 ? "0 clicks" : $"{liveClickCount:N0} clicks";
         UpdateLiveInputMode();
-        Status($"{ActivityVerb()} — press {FormatHotkey()} to stop.", ThemeManager.Brush("ErrorBrush"));
+        Status($"{ActivityVerb()} - press {FormatHotkey()} to stop.", ThemeManager.Brush("ErrorBrush"));
         RefreshTaskbarActivityIndicator();
         StartRgbIndicator();
         clickTask = AutomationWorkerScheduler.Start(() => ClickLoop(delay, settings, cancellation));
@@ -2620,8 +2620,8 @@ public partial class MainWindow : Window
                         if (ReferenceEquals(clickCancellation, cancellation))
                         {
                             StopClicking();
-                            if (watchdogExpired) Status("Stopped — the GUI heartbeat timed out.", ThemeManager.Brush("WarningBrush"));
-                            else if (failure is not null) Status("Stopped — details were written to AutoClicker.log.", ThemeManager.Brush("ErrorBrush"));
+                            if (watchdogExpired) Status("Stopped - the GUI heartbeat timed out.", ThemeManager.Brush("WarningBrush"));
+                            else if (failure is not null) Status("Stopped - details were written to AutoClicker.log.", ThemeManager.Brush("ErrorBrush"));
                         }
                     }
                     finally
@@ -2773,7 +2773,7 @@ public partial class MainWindow : Window
         LiveArea.BorderBrush = ThemeManager.Brush("LiveBorderBrush");
         if (liveClickCount == 0) LiveCountLabel.Text = "Start to test";
         UpdateLiveInputMode();
-        Status($"Ready — press {FormatHotkey()} to start or stop.", ThemeManager.Brush("SuccessBrush"));
+        Status($"Ready - press {FormatHotkey()} to start or stop.", ThemeManager.Brush("SuccessBrush"));
         RefreshTaskbarActivityIndicator();
         StopRgbIndicator(SimpleRgbIndicatorId);
     }
@@ -3011,7 +3011,7 @@ public partial class MainWindow : Window
     private void ShowReadyActionStatus()
     {
         if (clickCancellation is not null || StatusLabel is null) return;
-        Status($"Ready — {SelectedActionDescription()} will be repeated.", ThemeManager.Brush("SuccessBrush"));
+        Status($"Ready - {SelectedActionDescription()} will be repeated.", ThemeManager.Brush("SuccessBrush"));
     }
 
     private string SelectedActionDescription() => InputRules.DescribeAction(Selected(ButtonCombo), customSpamVirtualKey);
@@ -3797,7 +3797,7 @@ public partial class MainWindow : Window
         updatingActionSelection = true; ButtonCombo.SelectedItem = SequenceItem; updatingActionSelection = false;
         UpdateLiveInputMode();
         CommitSelectedActionChange();
-        Status($"Ready — {preset.Name} will be repeated.", ThemeManager.Brush("SuccessBrush"));
+        Status($"Ready - {preset.Name} will be repeated.", ThemeManager.Brush("SuccessBrush"));
     }
 
     private void LoadRgbSettings()
@@ -3945,7 +3945,7 @@ public partial class MainWindow : Window
                 _ = Dispatcher.BeginInvoke(() =>
                 {
                     if (IsClicking && statusRevision == revision)
-                        Status($"{ActivityVerb()} — press {FormatHotkey()} to stop.", ThemeManager.Brush("ErrorBrush"));
+                        Status($"{ActivityVerb()} - press {FormatHotkey()} to stop.", ThemeManager.Brush("ErrorBrush"));
                 });
         });
     }

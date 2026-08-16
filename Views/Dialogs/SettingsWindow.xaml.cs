@@ -761,7 +761,7 @@ public partial class SettingsWindow : Window
             ? ThemeManager.Brush("DisabledBrush")
             : new SolidColorBrush(Color.FromRgb(color.Value.R, color.Value.G, color.Value.B));
         ColorPickerButton.ToolTip = color is null
-            ? "Choose indicator colour — enter a valid hex value"
+            ? "Choose indicator colour - enter a valid hex value"
             : $"Choose indicator colour (currently {IndicatorColorBox.Text.ToUpperInvariant()})";
     }
 

@@ -230,7 +230,7 @@ public sealed class MainForm : Form
         hotkeyRegistered = RegisterHotKey(Handle, HotkeyId, hotkeyModifiers, (uint)hotkey);
         if (!hotkeyRegistered)
         {
-            state.Text = $"{FormatHotkey()} is in use — choose another hotkey.";
+            state.Text = $"{FormatHotkey()} is in use - choose another hotkey.";
             state.ForeColor = Color.FromArgb(190, 24, 93);
         }
     }
@@ -256,7 +256,7 @@ public sealed class MainForm : Form
             hotkeyRegistered = true;
             capturingHotkey = false;
             UpdateHotkeyDisplay();
-            state.Text = $"Ready — press {FormatHotkey()} to start or stop.";
+            state.Text = $"Ready - press {FormatHotkey()} to start or stop.";
             state.ForeColor = Color.FromArgb(21, 128, 61);
         }
         else
@@ -276,7 +276,7 @@ public sealed class MainForm : Form
         if (!hotkeyRegistered) RegisterHotkey();
         if (!keepStatus)
         {
-            state.Text = $"Ready — press {FormatHotkey()} to start or stop.";
+            state.Text = $"Ready - press {FormatHotkey()} to start or stop.";
             state.ForeColor = Color.FromArgb(21, 128, 61);
         }
     }
@@ -328,7 +328,7 @@ public sealed class MainForm : Form
         var delay = TimeSpan.FromHours((double)hours.Value) + TimeSpan.FromMinutes((double)minutes.Value) + TimeSpan.FromSeconds((double)seconds.Value) + TimeSpan.FromMilliseconds((double)milliseconds.Value);
         clickCancellation = new CancellationTokenSource();
         SetRunControls(isRunning: true);
-        state.Text = $"Clicking — press {FormatHotkey()} to stop."; state.ForeColor = Color.FromArgb(220, 38, 38);
+        state.Text = $"Clicking - press {FormatHotkey()} to stop."; state.ForeColor = Color.FromArgb(220, 38, 38);
         SetLiveClickAreaActive(true);
         _ = ClickLoopAsync(delay, repeatCount.Checked ? (int)count.Value : null, clickCancellation.Token);
     }
@@ -357,7 +357,7 @@ public sealed class MainForm : Form
     {
         clickCancellation?.Cancel(); clickCancellation?.Dispose(); clickCancellation = null;
         SetRunControls(isRunning: false);
-        state.Text = $"Ready — press {FormatHotkey()} to start or stop."; state.ForeColor = Color.FromArgb(21, 128, 61);
+        state.Text = $"Ready - press {FormatHotkey()} to start or stop."; state.ForeColor = Color.FromArgb(21, 128, 61);
         SetLiveClickAreaActive(false);
     }
 
