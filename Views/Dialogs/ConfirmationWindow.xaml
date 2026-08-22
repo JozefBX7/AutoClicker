@@ -1,7 +1,7 @@
 <Window x:Class="AutoClicker.ConfirmationWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Icon="Assets/AutoClickerIcon.ico" Width="390" Height="205" ResizeMode="NoResize" WindowStyle="None" AllowsTransparency="True" Background="Transparent" FontFamily="Segoe UI" WindowStartupLocation="CenterOwner">
+        Icon="/AutoClicker;component/Assets/AutoClickerIcon.ico" Width="390" Height="205" ResizeMode="NoResize" WindowStyle="None" AllowsTransparency="True" Background="Transparent" FontFamily="Segoe UI" WindowStartupLocation="CenterOwner">
     <Border Background="{DynamicResource AppBackgroundBrush}" BorderBrush="{DynamicResource ControlBorderBrush}" BorderThickness="1" CornerRadius="14">
         <Grid Margin="1">
             <Grid.RowDefinitions><RowDefinition Height="58" /><RowDefinition Height="*" /><RowDefinition Height="58" /></Grid.RowDefinitions>

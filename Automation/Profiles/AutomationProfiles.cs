@@ -313,7 +313,7 @@ internal static class AutomationBehaviorSettingsResolver
         action.BehaviorOverrides = existingOverrides & ~restored;
     }
 
-    private static void CopyBehaviorAspects(AppDefaults source, AppDefaults destination, AutomationBehaviorOverride aspects)
+    internal static void CopyBehaviorAspects(AppDefaults source, AppDefaults destination, AutomationBehaviorOverride aspects)
     {
         if (aspects.HasFlag(AutomationBehaviorOverride.Interval))
         {

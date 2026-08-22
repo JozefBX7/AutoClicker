@@ -348,6 +348,75 @@ public sealed class AutomationProfileTests
     }
 
     [TestMethod]
+    public void CapturingPendingProfileInterval_ChangesACleanProfileConfiguration()
+    {
+        var global = new AppDefaults { Milliseconds = 100, RepeatCount = 3 };
+        var profile = new AutomationProfile
+        {
+            UsesSharedBehaviorDefaults = true,
+            BehaviorOverrides = AutomationBehaviorOverride.Interval,
+            BehaviorDefaults = new AppDefaults { Milliseconds = 150, RepeatCount = 77 }
+        };
+        var document = new AutomationProfileDocument { Profiles = [profile] };
+        var savedConfiguration = AutomationProfileConfiguration.Fingerprint(document);
+        var editorDefaults = global.Clone();
+        editorDefaults.Hours = 1;
+        editorDefaults.Minutes = 2;
+        editorDefaults.Seconds = 3;
+        editorDefaults.Milliseconds = 250;
+        editorDefaults.RepeatCount = 99;
+
+        var changed = SettingsEditorProfileDraft.Capture(profile, editorDefaults, global);
+
+        Assert.IsTrue(changed);
+        Assert.AreEqual(1, profile.BehaviorDefaults!.Hours);
+        Assert.AreEqual(2, profile.BehaviorDefaults.Minutes);
+        Assert.AreEqual(3, profile.BehaviorDefaults.Seconds);
+        Assert.AreEqual(250, profile.BehaviorDefaults.Milliseconds);
+        Assert.AreEqual(77, profile.BehaviorDefaults.RepeatCount, "Capturing the interval must not bake an inherited repeat value into the profile.");
+        Assert.AreNotEqual(savedConfiguration, AutomationProfileConfiguration.Fingerprint(document));
+    }
+
+    [TestMethod]
+    public void CapturingUnchangedProfileInterval_KeepsTheConfigurationClean()
+    {
+        var global = new AppDefaults { Milliseconds = 100 };
+        var profile = new AutomationProfile
+        {
+            UsesSharedBehaviorDefaults = true,
+            BehaviorOverrides = AutomationBehaviorOverride.Interval,
+            BehaviorDefaults = new AppDefaults { Seconds = 1, Milliseconds = 250 }
+        };
+        var document = new AutomationProfileDocument { Profiles = [profile] };
+        var savedConfiguration = AutomationProfileConfiguration.Fingerprint(document);
+        var editorDefaults = AutomationBehaviorSettingsResolver.ResolveProfileDefaults(global, profile);
+
+        var changed = SettingsEditorProfileDraft.Capture(profile, editorDefaults, global);
+
+        Assert.IsFalse(changed);
+        Assert.AreEqual(savedConfiguration, AutomationProfileConfiguration.Fingerprint(document));
+    }
+
+    [TestMethod]
+    public void CapturingTheSavedProfileIntervalAgain_RestoresTheSavedFingerprint()
+    {
+        var global = new AppDefaults { Milliseconds = 100 };
+        var profile = new AutomationProfile
+        {
+            UsesSharedBehaviorDefaults = true,
+            BehaviorOverrides = AutomationBehaviorOverride.Interval,
+            BehaviorDefaults = new AppDefaults { Milliseconds = 150 }
+        };
+        var document = new AutomationProfileDocument { Profiles = [profile] };
+        var savedConfiguration = AutomationProfileConfiguration.Fingerprint(document);
+
+        Assert.IsTrue(SettingsEditorProfileDraft.Capture(profile, new AppDefaults { Milliseconds = 250 }, global));
+        Assert.AreNotEqual(savedConfiguration, AutomationProfileConfiguration.Fingerprint(document));
+        Assert.IsTrue(SettingsEditorProfileDraft.Capture(profile, new AppDefaults { Milliseconds = 150 }, global));
+        Assert.AreEqual(savedConfiguration, AutomationProfileConfiguration.Fingerprint(document));
+    }
+
+    [TestMethod]
     public void RevertingSelectedHotkeyBehaviorAspects_RestoresOnlyThoseInheritedValues()
     {
         var global = new AppDefaults

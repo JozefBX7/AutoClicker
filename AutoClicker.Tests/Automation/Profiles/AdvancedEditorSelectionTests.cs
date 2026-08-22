@@ -26,4 +26,17 @@ public sealed class AdvancedEditorSelectionTests
         Assert.IsFalse(MainWindow.ShouldReturnFromEditorDeadSpace(advancedMode: true, isEditorDeadSpace: false));
         Assert.IsFalse(MainWindow.ShouldReturnFromEditorDeadSpace(advancedMode: false, isEditorDeadSpace: true));
     }
+
+    [TestMethod]
+    public void PendingInterval_CommitsAndReleasesFocusBeforeABackdropChangesTheEditorScope()
+    {
+        Assert.IsTrue(SettingsEditorPolicy.ShouldCommitAndReleasePendingIntervalBeforeTransition(intervalHasKeyboardFocus: true, editorTransition: true));
+        Assert.IsFalse(SettingsEditorPolicy.ShouldCommitAndReleasePendingIntervalBeforeTransition(intervalHasKeyboardFocus: false, editorTransition: true));
+    }
+
+    [TestMethod]
+    public void PendingInterval_WaitsForNormalFocusLossWhenTheEditorScopeStaysPut()
+    {
+        Assert.IsFalse(SettingsEditorPolicy.ShouldCommitAndReleasePendingIntervalBeforeTransition(intervalHasKeyboardFocus: true, editorTransition: false));
+    }
 }

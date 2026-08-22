@@ -77,9 +77,6 @@ public partial class MainWindow : Window
     private long inputJitterMaximumMilliseconds;
     private bool customSequenceUsesGlobalInputPulse = true;
     private bool profilesDirty;
-    private string? editingProfileDefaultsId;
-    private bool profileDefaultsEditingDirty;
-    private bool suppressProfileDefaultTracking;
     private bool applyingDefaults;
     private string savedProfileConfiguration = string.Empty;
     private string? unsavedProfileId;
@@ -89,8 +86,7 @@ public partial class MainWindow : Window
     private bool keyboardHotkeyModifiersEnabled;
     private AutomationProfileDocument automationProfiles = new();
     private bool advancedMode;
-    // The active action still owns global hotkey registration; this set only controls what the editor is showing.
-    private readonly HashSet<string> selectedAdvancedActionIds = new(StringComparer.Ordinal);
+    private readonly SettingsEditorSession editorSession = new();
 
     public MainWindow()
     {
@@ -161,29 +157,22 @@ public partial class MainWindow : Window
         CommitInputTimingChange("Jitter");
     }
 
-    private enum InputTimingScope { SimpleMode, GlobalDefaults, ProfileDefaults, HotkeyOverride }
+    private SettingsEditorStorageTarget CurrentEditorStorageTarget() =>
+        editorSession.StorageTarget(advancedMode, ActiveProfile()?.Id, automationProfiles.ActiveActionId);
 
-    private InputTimingScope CurrentInputTimingScope() => !advancedMode
-        ? InputTimingScope.SimpleMode
-        : editingProfileDefaultsId == ActiveProfile()?.Id
-            ? InputTimingScope.ProfileDefaults
-            : IsEditingAdvancedAction()
-                ? InputTimingScope.HotkeyOverride
-                : InputTimingScope.GlobalDefaults;
-
-    private string InputTimingScopeDescription() => CurrentInputTimingScope() switch
+    private string InputTimingScopeDescription() => CurrentEditorStorageTarget() switch
     {
-        InputTimingScope.GlobalDefaults => "global Advanced defaults",
-        InputTimingScope.ProfileDefaults => $"{ActiveProfile()?.Name ?? "current"} profile defaults",
-        InputTimingScope.HotkeyOverride => $"{FormatHotkey()} hotkey override",
+        SettingsEditorStorageTarget.GlobalDefaults => "global Advanced defaults",
+        SettingsEditorStorageTarget.ProfileDefaults => $"{ActiveProfile()?.Name ?? "current"} profile defaults",
+        SettingsEditorStorageTarget.HotkeyOverride => $"{FormatHotkey()} hotkey override",
         _ => "Simple mode settings"
     };
 
     private void CommitInputTimingChange(string settingName)
     {
-        switch (CurrentInputTimingScope())
+        switch (CurrentEditorStorageTarget())
         {
-            case InputTimingScope.GlobalDefaults:
+            case SettingsEditorStorageTarget.GlobalDefaults:
             {
                 var defaults = LoadSavedDefaults();
                 defaults.InputPulseMilliseconds = inputPulseMilliseconds;
@@ -194,11 +183,11 @@ public partial class MainWindow : Window
                     Status($"Could not save the global {settingName.ToLowerInvariant()} default.", ThemeManager.Brush("ErrorBrush"));
                 break;
             }
-            case InputTimingScope.ProfileDefaults:
+            case SettingsEditorStorageTarget.ProfileDefaults:
                 MarkProfileDefaultsEdited();
                 Status($"{settingName} updated for {ActiveProfile()?.Name ?? "this"} profile defaults - save the profile when ready.", ThemeManager.Brush("SuccessBrush"));
                 break;
-            case InputTimingScope.HotkeyOverride:
+            case SettingsEditorStorageTarget.HotkeyOverride:
                 CaptureCurrentActionToProfile();
                 Status($"{settingName} updated for the {FormatHotkey()} hotkey override.", ThemeManager.Brush("SuccessBrush"));
                 break;
@@ -296,7 +285,11 @@ public partial class MainWindow : Window
 
     private void Header_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        if (advancedMode && !IsClicking) ShowAdvancedSharedDefaults(announce: true);
+        if (advancedMode && !IsClicking)
+        {
+            CommitPendingIntervalBeforeEditorTransition(editorTransition: true);
+            ShowAdvancedSharedDefaults(announce: true);
+        }
         if (e.LeftButton == System.Windows.Input.MouseButtonState.Pressed) DragMove();
     }
 
@@ -441,6 +434,8 @@ public partial class MainWindow : Window
 
     private void Window_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
+        if (TrySubmitEditorTextField(e)) return;
+
         if (capturingSpamKey)
         {
             e.Handled = true;
@@ -485,6 +480,46 @@ public partial class MainWindow : Window
             Status($"{FormatHotkey(candidate, modifiers, HotkeyTrigger.Keyboard)} is in use - choose another key.", ThemeManager.Brush("ErrorBrush"));
     }
 
+    private bool TrySubmitEditorTextField(System.Windows.Input.KeyEventArgs e)
+    {
+        var field = GetEditorTextFieldKind(System.Windows.Input.Keyboard.FocusedElement as TextBox);
+        var inputCapturePending = capturingSpamKey || capturingHotkey;
+        if (!SettingsEditorPolicy.ShouldSubmitTextField(field, e.Key == System.Windows.Input.Key.Enter, inputCapturePending)) return false;
+
+        switch (field)
+        {
+            case SettingsEditorTextFieldKind.Interval:
+                CommitIntervalChange();
+                break;
+            case SettingsEditorTextFieldKind.RepeatCount:
+                CountBox.Text = Read(CountBox, 1, 999999).ToString();
+                CommitBehaviorChange(AutomationBehaviorOverride.Repeat);
+                break;
+            case SettingsEditorTextFieldKind.CursorPosition:
+                XBox.Text = Read(XBox, -32768, 32767).ToString();
+                YBox.Text = Read(YBox, -32768, 32767).ToString();
+                CommitBehaviorChange(AutomationBehaviorOverride.Position);
+                break;
+            case SettingsEditorTextFieldKind.TargetWindow:
+                TargetExecutableBox.Text = TargetExecutableBox.Text.Trim();
+                CommitBehaviorChange(AutomationBehaviorOverride.TargetWindow);
+                break;
+        }
+
+        e.Handled = true;
+        System.Windows.Input.Keyboard.ClearFocus();
+        return true;
+    }
+
+    private SettingsEditorTextFieldKind GetEditorTextFieldKind(TextBox? textBox)
+    {
+        if (IsIntervalTextBox(textBox)) return SettingsEditorTextFieldKind.Interval;
+        if (textBox == CountBox) return SettingsEditorTextFieldKind.RepeatCount;
+        if (textBox == XBox || textBox == YBox) return SettingsEditorTextFieldKind.CursorPosition;
+        if (textBox == TargetExecutableBox) return SettingsEditorTextFieldKind.TargetWindow;
+        return SettingsEditorTextFieldKind.None;
+    }
+
     private void CompleteCapturedHotkey(int virtualKey, uint modifiers, HotkeyTrigger trigger)
     {
         if (IsProfileHotkeyAlreadyAssigned(virtualKey, modifiers, trigger))
@@ -521,8 +556,11 @@ public partial class MainWindow : Window
         var clickedProfileButton = FindParent<Button>(source)?.Tag is AutomationProfile;
         var withinFooter = IsWithin(source, AdvancedFooter);
         var editorDeadSpace = IsAdvancedEditorDeadSpace(source);
-        if (!IsClicking && !clickedProfileButton && (ShouldReturnToSharedDefaults(advancedMode, IsWithinAdvancedActionTile(source), withinFooter)
-            || ShouldReturnFromEditorDeadSpace(advancedMode, editorDeadSpace)))
+        var returnToSharedDefaults = !IsClicking && !clickedProfileButton
+            && (ShouldReturnToSharedDefaults(advancedMode, IsWithinAdvancedActionTile(source), withinFooter)
+                || ShouldReturnFromEditorDeadSpace(advancedMode, editorDeadSpace));
+        CommitPendingIntervalBeforeEditorTransition(returnToSharedDefaults);
+        if (returnToSharedDefaults)
             ShowAdvancedSharedDefaults(announce: true);
 
         var textBox = FindParent<TextBox>(source);
@@ -554,6 +592,20 @@ public partial class MainWindow : Window
         advancedMode && !isWithinActionTile && isWithinFooter;
 
     internal static bool ShouldReturnFromEditorDeadSpace(bool advancedMode, bool isEditorDeadSpace) => advancedMode && isEditorDeadSpace;
+
+    private bool IsIntervalTextBox(TextBox? textBox) =>
+        textBox == HoursBox || textBox == MinutesBox || textBox == SecondsBox || textBox == MillisBox;
+
+    private void CommitPendingIntervalBeforeEditorTransition(bool editorTransition)
+    {
+        var intervalHasKeyboardFocus = IsIntervalTextBox(System.Windows.Input.Keyboard.FocusedElement as TextBox);
+        if (!SettingsEditorPolicy.ShouldCommitAndReleasePendingIntervalBeforeTransition(intervalHasKeyboardFocus, editorTransition)) return;
+
+        CommitIntervalChange();
+        // PreviewMouseDown changes the editor before WPF's normal focus transfer. Explicitly release focus so
+        // backdrop clicks have the same commit-and-blur behavior as moving to another input.
+        System.Windows.Input.Keyboard.ClearFocus();
+    }
 
     private bool IsAdvancedEditorDeadSpace(DependencyObject? source)
     {
@@ -643,12 +695,13 @@ public partial class MainWindow : Window
     private void CommitIntervalChange()
     {
         var interval = CreateCurrentDefaults();
-        if (!advancedMode)
+        var target = CurrentEditorStorageTarget();
+        if (target == SettingsEditorStorageTarget.SimpleDefaults)
         {
             SaveDefaults();
             return;
         }
-        if (editingProfileDefaultsId == ActiveProfile()?.Id && ActiveProfile() is { } profile)
+        if (target == SettingsEditorStorageTarget.ProfileDefaults && ActiveProfile() is { } profile)
         {
             if (HasSameInterval(interval, AutomationBehaviorSettingsResolver.ResolveProfileDefaults(LoadSavedDefaults(), profile))) return;
             var local = profile.BehaviorDefaults?.Clone() ?? LoadSavedDefaults();
@@ -659,7 +712,7 @@ public partial class MainWindow : Window
             MarkProfilesDirty();
             return;
         }
-        if (IsEditingAdvancedAction() && ActiveProfileAction() is { } action)
+        if (target == SettingsEditorStorageTarget.HotkeyOverride && ActiveProfileAction() is { } action)
         {
             if (HasSameInterval(interval, ResolveActionSettings(action))) return;
             CopyBehaviorOverride(interval, action.Settings, AutomationBehaviorOverride.Interval);
@@ -732,7 +785,7 @@ public partial class MainWindow : Window
         {
             profile.Actions.Remove(action);
             automationProfiles.ActiveActionId = profile.Actions.FirstOrDefault()?.Id ?? string.Empty;
-            selectedAdvancedActionIds.Clear();
+            editorSession.RemoveHotkey(actionId);
             ShowAdvancedSharedDefaults(clearSelection: false);
             MarkProfilesDirty();
         }
@@ -807,7 +860,7 @@ public partial class MainWindow : Window
     // Input selection is the one part of a hotkey that always belongs to the tile, even when it uses shared behavior defaults.
     private bool CommitSelectedActionChange()
     {
-        if (!advancedMode || !IsEditingAdvancedAction() || ActiveProfileAction() is not { } action) return false;
+        if (applyingDefaults || !advancedMode || !IsEditingAdvancedAction() || ActiveProfileAction() is not { } action) return false;
         action.Settings = CreateCurrentDefaults();
         MarkProfilesDirty();
         UpdateActionEditorHint();
@@ -1043,56 +1096,51 @@ public partial class MainWindow : Window
 
     private void MarkProfilesDirty()
     {
-        profilesDirty = profileDefaultsEditingDirty
-            || ActiveProfile()?.Id == unsavedProfileId
-            || !string.Equals(savedProfileConfiguration, AutomationProfileConfiguration.Fingerprint(automationProfiles), StringComparison.Ordinal);
+        profilesDirty = SettingsEditorDirtyState.IsProfileDocumentDirty(
+            automationProfiles, savedProfileConfiguration, ActiveProfile()?.Id, unsavedProfileId);
         RefreshAdvancedFooterUi();
     }
 
     private void CaptureCurrentActionToProfile()
     {
-        if (advancedMode && !IsEditingAdvancedAction()) { CaptureProfileDefaults(); return; }
+        var target = CurrentEditorStorageTarget();
+        if (target == SettingsEditorStorageTarget.ProfileDefaults) { CaptureProfileDefaults(); return; }
+        if (target != SettingsEditorStorageTarget.HotkeyOverride) return;
         var action = ActiveProfileAction();
         if (action is null) return;
         var settings = CreateCurrentDefaults();
-        var current = advancedMode ? ResolveActionSettings(action) : action.Settings;
+        var current = ResolveActionSettings(action);
         if (JsonSerializer.Serialize(current) == JsonSerializer.Serialize(settings)) return;
         action.Settings = settings;
-        if (advancedMode) MarkProfilesDirty();
+        MarkProfilesDirty();
     }
 
-    private void CaptureProfileDefaults()
+    private bool CaptureProfileDefaults()
     {
-        if (!advancedMode || suppressProfileDefaultTracking || editingProfileDefaultsId != ActiveProfile()?.Id || ActiveProfile() is not { } profile) return;
-        var overrides = profile.ActiveBehaviorOverrides;
-        if (overrides == AutomationBehaviorOverride.None)
-        {
-            profile.BehaviorDefaults = null;
-            return;
-        }
-        var current = profile.BehaviorDefaults?.Clone() ?? LoadSavedDefaults();
-        var updated = current.Clone();
-        CopyBehaviorOverride(CreateCurrentDefaults(), updated, overrides);
-        if (JsonSerializer.Serialize(current) != JsonSerializer.Serialize(updated)) profile.BehaviorDefaults = updated;
-        profileDefaultsEditingDirty = false;
+        if (!advancedMode || !IsEditingProfileDefaults() || ActiveProfile() is not { } profile) return false;
+        var changed = SettingsEditorProfileDraft.Capture(profile, CreateCurrentDefaults(), LoadSavedDefaults());
+        // Some editor exits (notably a backdrop PreviewMouseDown) happen before an interval TextBox loses focus.
+        // Capturing must therefore participate in dirty tracking instead of relying on the control event to do it.
+        if (changed) MarkProfilesDirty();
+        return changed;
     }
 
     private void MarkProfileDefaultsEdited()
     {
-        if (suppressProfileDefaultTracking || editingProfileDefaultsId != ActiveProfile()?.Id) return;
+        if (!IsEditingProfileDefaults()) return;
         // Keep the profile model current as the editor changes, so the save cue reflects real differences only.
-        profileDefaultsEditingDirty = true;
-        CaptureProfileDefaults();
-        MarkProfilesDirty();
+        // Capture marks model changes itself; an equivalent edit still needs one recalculation to clear a prior change.
+        if (!CaptureProfileDefaults()) MarkProfilesDirty();
     }
 
-    private bool IsEditingAdvancedAction() => selectedAdvancedActionIds.Count == 1
-        && selectedAdvancedActionIds.Contains(automationProfiles.ActiveActionId);
+    private bool IsEditingProfileDefaults() => advancedMode && editorSession.IsEditingProfile(ActiveProfile()?.Id);
+
+    private bool IsEditingAdvancedAction() => advancedMode && editorSession.IsEditingHotkey(automationProfiles.ActiveActionId);
 
     private IReadOnlyList<AutomationAction> SelectedAdvancedActions()
     {
         var profile = ActiveProfile();
-        return profile?.Actions.Where(action => selectedAdvancedActionIds.Contains(action.Id)).ToList() ?? [];
+        return profile?.Actions.Where(action => editorSession.SelectedActionIds.Contains(action.Id)).ToList() ?? [];
     }
 
     // Shared defaults deliberately leave the registered hotkey alone: they configure behavior, not an assignment.
@@ -1100,9 +1148,7 @@ public partial class MainWindow : Window
     {
         if (!advancedMode) return;
         CaptureProfileDefaults();
-        editingProfileDefaultsId = null;
-        profileDefaultsEditingDirty = false;
-        if (clearSelection) selectedAdvancedActionIds.Clear();
+        editorSession.EnterSharedDefaults(clearSelection);
         var active = ActiveProfileAction();
         ApplyDefaults(LoadSavedDefaults());
         if (active is not null)
@@ -1206,7 +1252,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (editingProfileDefaultsId == ActiveProfile()?.Id && ActiveProfile() is { } profile && profile.UsesSharedBehavior(aspect))
+        if (IsEditingProfileDefaults() && ActiveProfile() is { } profile && profile.UsesSharedBehavior(aspect))
         {
             var local = profile.BehaviorDefaults?.Clone() ?? LoadSavedDefaults();
             CopyBehaviorOverride(CreateCurrentDefaults(), local, aspect);
@@ -1241,7 +1287,7 @@ public partial class MainWindow : Window
     {
         if (surface?.Tag is not string tag || !Enum.TryParse<AutomationBehaviorOverride>(tag, out var aspect)) return;
         var profile = ActiveProfile();
-        var editingProfileDefaults = editingProfileDefaultsId == profile?.Id;
+        var editingProfileDefaults = IsEditingProfileDefaults();
         var action = ActiveProfileAction();
         var shared = editingProfileDefaults
             ? profile?.UsesSharedBehavior(aspect) == true
@@ -1370,8 +1416,7 @@ public partial class MainWindow : Window
         automationProfiles.ActiveActionId = string.Empty;
         unsavedProfileId = profile.Id;
         TouchRecentProfile(profile.Id);
-        selectedAdvancedActionIds.Clear();
-        ShowAdvancedSharedDefaults(clearSelection: false);
+        ShowAdvancedSharedDefaults();
         MarkProfilesDirty();
         RegisterConfiguredHotkey();
         Status("New profile - add a hotkey when you are ready.", ThemeManager.Brush("SuccessBrush"));
@@ -1440,10 +1485,14 @@ public partial class MainWindow : Window
     {
         if (ActiveProfile()?.Id == unsavedProfileId)
         {
+            editorSession.EnterSharedDefaults();
             DiscardActiveDraft();
             return true;
         }
 
+        // Leave profile/hotkey edit scope before replacing the document. The restored profile deliberately keeps
+        // the same ID, so a stale profile scope would otherwise capture the old controls back into the fresh model.
+        editorSession.EnterSharedDefaults(clearSelection: false);
         // Reloading from the atomic store restores the current profile exactly as it was last saved.
         automationProfiles = AutomationProfileStore.Load(ProfilesPath, CreateCurrentDefaults());
         unsavedProfileId = null;
@@ -1456,7 +1505,7 @@ public partial class MainWindow : Window
     {
         if (RepeatCard is null || RepeatContent is null || PositionCard is null || PositionContent is null || TargetWindowCard is null || TargetWindowContent is null) return;
         var locked = IsClicking;
-        var editingProfileDefaults = advancedMode && editingProfileDefaultsId == ActiveProfile()?.Id;
+        var editingProfileDefaults = IsEditingProfileDefaults();
         var editingSharedDefaults = advancedMode && !IsEditingAdvancedAction();
         var profile = ActiveProfile();
         var action = advancedMode && IsEditingAdvancedAction() ? ActiveProfileAction() : null;
@@ -1529,7 +1578,7 @@ public partial class MainWindow : Window
     private void UpdateActionEditorHint()
     {
         if (ActionEditorHint is null) return;
-        if (advancedMode && editingProfileDefaultsId == ActiveProfile()?.Id)
+        if (IsEditingProfileDefaults())
         {
             ActionEditorHint.Text = "Editing profile behavior defaults";
             ActionEditorHint.ToolTip = "These defaults apply to hotkeys in this profile unless that hotkey overrides an aspect.";
@@ -1614,9 +1663,12 @@ public partial class MainWindow : Window
             automationProfiles.ActiveProfileId = profile.Id;
             automationProfiles.ActiveActionId = profile.Actions.FirstOrDefault()?.Id ?? string.Empty;
             TouchRecentProfile(profile.Id);
-            selectedAdvancedActionIds.Clear();
-            if (profile.Actions.FirstOrDefault() is { } action) ApplyDefaults(ResolveActionSettings(action));
-            else ShowAdvancedSharedDefaults(clearSelection: false);
+            if (profile.Actions.FirstOrDefault() is { } action)
+            {
+                editorSession.EnterHotkey(action.Id);
+                ApplyDefaults(ResolveActionSettings(action));
+            }
+            else ShowAdvancedSharedDefaults();
             PersistAutomationProfiles();
             RegisterConfiguredHotkey();
             RefreshAdvancedFooterUi();
@@ -1676,7 +1728,8 @@ public partial class MainWindow : Window
         if (!compactMode) Height = advancedMode ? AdvancedExpandedWindowHeight : ExpandedWindowHeight;
         ModeButton.Content = advancedMode ? "Advanced" : "S";
         ModeButton.ToolTip = advancedMode ? "Switch to Simple mode" : "Switch to Advanced profiles";
-        if (advancedMode && selectedAdvancedActionIds.Count == 0) ShowAdvancedSharedDefaults(clearSelection: false);
+        if (!advancedMode) editorSession.EnterSimple();
+        else if (editorSession.Scope.Kind == SettingsEditorScopeKind.Simple) ShowAdvancedSharedDefaults(clearSelection: false);
         else UpdateSharedBehaviorDefaultsUi();
         if (advancedMode) RefreshAdvancedFooterUi();
     }
@@ -1692,9 +1745,9 @@ public partial class MainWindow : Window
             .Where(item => item is not null).Cast<AutomationProfile>().Take(3)
             .Select(item => new AdvancedProfileTile(item, item.Id == automationProfiles.ActiveProfileId, item.Id == automationProfiles.ActiveProfileId && profilesDirty)).ToList();
         // Multiple selections still edit shared defaults, but every selected tile remains visibly highlighted.
-        var multiSelection = selectedAdvancedActionIds.Count > 1;
+        var multiSelection = editorSession.SelectedActionCount > 1;
         var showInlineActionControls = (profile?.Actions.Count ?? 0) < AutomationProfileLimits.HideInlineActionControlsAt;
-        AdvancedActionsFooterList.ItemsSource = profile?.Actions.Select(action => new AdvancedActionTile(action, profileRuns.ContainsKey(action.Id), action.Id == pendingRemovalActionId, selectedAdvancedActionIds.Contains(action.Id), profileRuns.Count > 0, multiSelection, showInlineActionControls, hotkeyCapturePending: action.Id == pendingNewActionId)).ToList();
+        AdvancedActionsFooterList.ItemsSource = profile?.Actions.Select(action => new AdvancedActionTile(action, profileRuns.ContainsKey(action.Id), action.Id == pendingRemovalActionId, editorSession.SelectedActionIds.Contains(action.Id), profileRuns.Count > 0, multiSelection, showInlineActionControls, hotkeyCapturePending: action.Id == pendingNewActionId)).ToList();
         if (EmptyAdvancedActionsLabel is not null)
             EmptyAdvancedActionsLabel.Visibility = profile?.Actions.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         if (AdvancedSaveProfileButton is not null) AdvancedSaveProfileButton.Visibility = profilesDirty || ActiveProfile()?.Id == unsavedProfileId ? Visibility.Visible : Visibility.Collapsed;
@@ -1725,9 +1778,8 @@ public partial class MainWindow : Window
         automationProfiles.ActiveActionId = action?.Id ?? string.Empty;
         TouchRecentProfile(profile.Id);
         PersistProfileNavigation();
-        selectedAdvancedActionIds.Clear();
         if (editProfileDefaults) BeginProfileDefaultsEdit(profile);
-        else ShowAdvancedSharedDefaults(clearSelection: false);
+        else ShowAdvancedSharedDefaults();
         if (hotkeyRegistered) UnregisterPrimaryHotkeys();
         RegisterConfiguredHotkey();
         RefreshAdvancedFooterUi();
@@ -1736,11 +1788,10 @@ public partial class MainWindow : Window
 
     private void SelectAdvancedAction(AutomationAction action, bool startHotkeyCapture = false)
     {
-        if (editingProfileDefaultsId == ActiveProfile()?.Id)
+        if (IsEditingProfileDefaults())
         {
             CaptureProfileDefaults();
-            editingProfileDefaultsId = null;
-            profileDefaultsEditingDirty = false;
+            editorSession.EnterSharedDefaults();
         }
         if (action.Id != automationProfiles.ActiveActionId || !IsEditingAdvancedAction())
         {
@@ -1750,8 +1801,7 @@ public partial class MainWindow : Window
             if (hotkeyRegistered) UnregisterPrimaryHotkeys();
             RegisterConfiguredHotkey();
         }
-        selectedAdvancedActionIds.Clear();
-        selectedAdvancedActionIds.Add(action.Id);
+        editorSession.EnterHotkey(action.Id);
         RefreshAdvancedFooterUi();
         UpdateSharedBehaviorDefaultsUi();
         UpdateActionEditorHint();
@@ -1778,12 +1828,8 @@ public partial class MainWindow : Window
     private void BeginProfileDefaultsEdit(AutomationProfile profile)
     {
         CaptureCurrentActionToProfile();
-        selectedAdvancedActionIds.Clear();
-        editingProfileDefaultsId = profile.Id;
-        profileDefaultsEditingDirty = false;
-        suppressProfileDefaultTracking = true;
-        try { ApplyDefaults(AutomationBehaviorSettingsResolver.ResolveProfileDefaults(LoadSavedDefaults(), profile)); }
-        finally { suppressProfileDefaultTracking = false; }
+        editorSession.EnterProfileDefaults(profile.Id);
+        ApplyDefaults(AutomationBehaviorSettingsResolver.ResolveProfileDefaults(LoadSavedDefaults(), profile));
         RefreshAdvancedFooterUi();
         UpdateSharedBehaviorDefaultsUi();
         Status($"Editing {profile.Name} profile defaults - save the profile when ready.", ThemeManager.Brush("SuccessBrush"));
@@ -1889,22 +1935,15 @@ public partial class MainWindow : Window
     private void CommitBehaviorChange(AutomationBehaviorOverride aspect)
     {
         if (applyingDefaults) return;
-        if (!advancedMode)
+        switch (CurrentEditorStorageTarget())
         {
-            MarkProfileDefaultsEdited();
-            return;
-        }
-
-        if (editingProfileDefaultsId == ActiveProfile()?.Id)
-        {
-            MarkProfileDefaultsEdited();
-            return;
-        }
-
-        if (IsEditingAdvancedAction())
-        {
-            CaptureCurrentActionToProfile();
-            return;
+            case SettingsEditorStorageTarget.SimpleDefaults:
+            case SettingsEditorStorageTarget.ProfileDefaults:
+                MarkProfileDefaultsEdited();
+                return;
+            case SettingsEditorStorageTarget.HotkeyOverride:
+                CaptureCurrentActionToProfile();
+                return;
         }
 
         var defaults = LoadSavedDefaults();
@@ -1973,8 +2012,12 @@ public partial class MainWindow : Window
         automationProfiles.ActiveActionId = copy.Actions.FirstOrDefault()?.Id ?? string.Empty;
         unsavedProfileId = copy.Id;
         TouchRecentProfile(copy.Id);
-        if (copy.Actions.FirstOrDefault() is { } copiedAction) ApplyDefaults(ResolveActionSettings(copiedAction));
-        else { selectedAdvancedActionIds.Clear(); ShowAdvancedSharedDefaults(clearSelection: false); }
+        if (copy.Actions.FirstOrDefault() is { } copiedAction)
+        {
+            editorSession.EnterHotkey(copiedAction.Id);
+            ApplyDefaults(ResolveActionSettings(copiedAction));
+        }
+        else ShowAdvancedSharedDefaults();
         MarkProfilesDirty();
         RegisterConfiguredHotkey();
     }
@@ -2002,7 +2045,7 @@ public partial class MainWindow : Window
     private void ToggleAdvancedActionSelection(AutomationAction action)
     {
         CaptureCurrentActionToProfile();
-        if (!selectedAdvancedActionIds.Add(action.Id)) selectedAdvancedActionIds.Remove(action.Id);
+        editorSession.ToggleHotkey(action.Id);
 
         var selected = SelectedAdvancedActions();
         if (selected.Count == 1)
@@ -2222,9 +2265,12 @@ public partial class MainWindow : Window
             automationProfiles.ActiveProfileId = destination.Id;
             automationProfiles.ActiveActionId = destination.Actions.FirstOrDefault()?.Id ?? string.Empty;
             TouchRecentProfile(destination.Id);
-            selectedAdvancedActionIds.Clear();
-            if (destination.Actions.FirstOrDefault() is { } copiedAction) ApplyDefaults(ResolveActionSettings(copiedAction));
-            else ShowAdvancedSharedDefaults(clearSelection: false);
+            if (destination.Actions.FirstOrDefault() is { } copiedAction)
+            {
+                editorSession.EnterHotkey(copiedAction.Id);
+                ApplyDefaults(ResolveActionSettings(copiedAction));
+            }
+            else ShowAdvancedSharedDefaults();
             result = new ProfileCopyResult(destination.Actions.Count, 0, 0);
         }
         else
@@ -2289,7 +2335,7 @@ public partial class MainWindow : Window
         if (ActiveProfile() is not { } profile) return;
         StopProfileAction(action.Id);
         profile.Actions.Remove(action);
-        selectedAdvancedActionIds.Remove(action.Id);
+        editorSession.RemoveHotkey(action.Id);
         if (automationProfiles.ActiveActionId == action.Id)
         {
             var next = profile.Actions.FirstOrDefault();
@@ -2319,10 +2365,9 @@ public partial class MainWindow : Window
         foreach (var action in targets) StopProfileAction(action.Id);
         foreach (var action in targets) profile.Actions.Remove(action);
         pendingRemovalActionId = null;
-        selectedAdvancedActionIds.Clear();
         if (targets.Any(action => action.Id == automationProfiles.ActiveActionId))
             automationProfiles.ActiveActionId = profile.Actions.FirstOrDefault()?.Id ?? string.Empty;
-        if (advancedMode) ShowAdvancedSharedDefaults(clearSelection: false);
+        if (advancedMode) ShowAdvancedSharedDefaults();
         SaveAutomationProfiles();
         RegisterConfiguredHotkey();
         RefreshAdvancedFooterUi();
@@ -2367,8 +2412,7 @@ public partial class MainWindow : Window
         profile.Actions.Add(action);
         automationProfiles.ActiveActionId = action.Id;
         pendingNewActionId = action.Id;
-        selectedAdvancedActionIds.Clear();
-        selectedAdvancedActionIds.Add(action.Id);
+        editorSession.EnterHotkey(action.Id);
         SaveAutomationProfiles();
         if (hotkeyRegistered) UnregisterPrimaryHotkeys();
         ApplyDefaults(ResolveActionSettings(action));
@@ -3353,7 +3397,7 @@ public partial class MainWindow : Window
 
     private void RemoveIntervalOverrideFromHoldHotkey()
     {
-        if (!advancedMode || !IsEditingAdvancedAction() || ActiveProfileAction() is not { } action || !InputRules.IsHoldAction(action.Settings.ClickType)) return;
+        if (applyingDefaults || !advancedMode || !IsEditingAdvancedAction() || ActiveProfileAction() is not { } action || !InputRules.IsHoldAction(action.Settings.ClickType)) return;
         var overrides = action.ActiveBehaviorOverrides;
         if (!overrides.HasFlag(AutomationBehaviorOverride.Interval)) return;
 
@@ -3426,9 +3470,18 @@ public partial class MainWindow : Window
         if (!WriteDefaults(GlobalDefaultsPath, new AppDefaults())) return false;
         if (advancedMode)
         {
-            if (editingProfileDefaultsId == ActiveProfile()?.Id && ActiveProfile() is { } profile) BeginProfileDefaultsEdit(profile);
-            else if (ActiveProfileAction() is { } action) ApplyDefaults(ResolveActionSettings(action));
-            else ApplyDefaults(LoadSavedDefaults());
+            switch (CurrentEditorStorageTarget())
+            {
+                case SettingsEditorStorageTarget.ProfileDefaults when ActiveProfile() is { } profile:
+                    BeginProfileDefaultsEdit(profile);
+                    break;
+                case SettingsEditorStorageTarget.HotkeyOverride when ActiveProfileAction() is { } action:
+                    ApplyDefaults(ResolveActionSettings(action));
+                    break;
+                default:
+                    ApplyDefaults(LoadSavedDefaults());
+                    break;
+            }
             UpdateSharedBehaviorDefaultsUi();
         }
         Status("Shared Advanced-mode defaults restored.", ThemeManager.Brush("SuccessBrush"));
@@ -3442,7 +3495,11 @@ public partial class MainWindow : Window
         PersistAutomationProfiles();
         profilesDirty = false;
         unsavedProfileId = null;
-        if (advancedMode) ApplyDefaults(ResolveActionSettings(ActiveProfileAction()!));
+        if (advancedMode && ActiveProfileAction() is { } action)
+        {
+            editorSession.EnterHotkey(action.Id);
+            ApplyDefaults(ResolveActionSettings(action));
+        }
         RegisterConfiguredHotkey();
         RefreshAdvancedFooterUi();
         UpdateSharedBehaviorDefaultsUi();
@@ -3639,11 +3696,15 @@ public partial class MainWindow : Window
         automationProfiles.ActiveProfileId = activeProfile.Id;
         automationProfiles.ActiveActionId = activeAction?.Id ?? string.Empty;
         unsavedProfileId = null;
-        selectedAdvancedActionIds.Clear();
         PersistAutomationProfiles();
         profilesDirty = false;
         if (!advancedMode) return;
-        ApplyDefaults(activeAction is null ? sharedDefaults : ResolveActionSettings(activeAction));
+        if (activeAction is null) ShowAdvancedSharedDefaults();
+        else
+        {
+            editorSession.EnterHotkey(activeAction.Id);
+            ApplyDefaults(ResolveActionSettings(activeAction));
+        }
         RegisterConfiguredHotkey();
         if (refreshUi) { RefreshAdvancedFooterUi(); UpdateSharedBehaviorDefaultsUi(); UpdateLiveInputMode(); }
     }
