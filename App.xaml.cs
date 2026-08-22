@@ -53,6 +53,9 @@ public partial class App : System.Windows.Application
 
     protected override void OnExit(System.Windows.ExitEventArgs e)
     {
+        // Window closing normally performs this cleanup. Keep an idempotent UI-thread
+        // fallback for shutdown paths that do not complete the window closing handler.
+        EmergencyStop();
         AppLog.Info($"Application exit | Code={e.ApplicationExitCode}");
         if (!crashing) CrashRecovery.MarkCleanShutdown();
         exiting = true;

@@ -2842,6 +2842,7 @@ public partial class MainWindow : Window
     internal bool IsClicking => clickCancellation is not null || profileRuns.Count > 0;
     internal void EmergencyStop()
     {
+        OpenRgbHighlighter.SuppressAutoStart();
         clickCancellation?.Cancel();
         foreach (var cancellation in profileRuns.Values) cancellation.Cancel();
         if (rgbSettings.StopAutoStartedOnExit) OpenRgbHighlighter.StopAutoStartedServer();
@@ -3120,7 +3121,7 @@ public partial class MainWindow : Window
                     }
 
                     ClearOpenRgbWarning();
-                    if (availability.Message is not null && !Dispatcher.HasShutdownStarted)
+                    if (availability.WasStarted && !Dispatcher.HasShutdownStarted)
                         _ = Dispatcher.BeginInvoke(ShowOpenRgbStartedStatus);
                     // Resolve by saved name where possible, then keep the resolved device details.
                     var keyboard = OpenRgbHighlighter.ResolveKeyboard(settings);
@@ -3211,12 +3212,19 @@ public partial class MainWindow : Window
 
     private void ApplyIdleOpenRgbProfile()
     {
-        var profileName = (rgbSettings.IdleProfileName ?? string.Empty).Trim();
-        if (profileName.Length == 0) return;
+        // Shutdown owns one final, bounded profile restore. Background continuations
+        // must not race that restore or relaunch OpenRGB after it has been stopped.
+        if (isClosing) return;
+        _ = ApplyIdleOpenRgbProfileAsync(allowAutoStart: true);
+    }
 
-        var settings = CloneLighting(rgbSettings);
-        settings.Enabled = true;
-        _ = Task.Run(async () =>
+    private Task ApplyIdleOpenRgbProfileAsync(bool allowAutoStart)
+    {
+        var profileName = (rgbSettings.IdleProfileName ?? string.Empty).Trim();
+        if (profileName.Length == 0) return Task.CompletedTask;
+
+        var settings = OpenRgbHighlighter.CreateIdleProfileSettings(CloneLighting(rgbSettings), allowAutoStart);
+        return Task.Run(async () =>
         {
             try
             {
@@ -3259,6 +3267,8 @@ public partial class MainWindow : Window
                 {
                     AppLog.Info(availability.Message ?? "OpenRGB SDK server was already available at application launch.");
                     ClearOpenRgbWarning();
+                    if (availability.WasStarted && !Dispatcher.HasShutdownStarted)
+                        _ = Dispatcher.BeginInvoke(ShowOpenRgbStartedStatus);
                 }
                 else
                 {
@@ -3997,7 +4007,6 @@ public partial class MainWindow : Window
 
     private void ShowOpenRgbStartedStatus()
     {
-        if (!IsClicking) return;
         var revision = Status("OpenRGB started automatically.", ThemeManager.Brush("SuccessBrush"));
         _ = Task.Run(async () =>
         {
@@ -4005,8 +4014,11 @@ public partial class MainWindow : Window
             if (!Dispatcher.HasShutdownStarted)
                 _ = Dispatcher.BeginInvoke(() =>
                 {
-                    if (IsClicking && statusRevision == revision)
+                    if (statusRevision != revision) return;
+                    if (IsClicking)
                         Status($"{ActivityVerb()} - press {FormatHotkey()} to stop.", ThemeManager.Brush("ErrorBrush"));
+                    else
+                        Status($"Ready - press {FormatHotkey()} to start or stop.", ThemeManager.Brush("SuccessBrush"));
                 });
         });
     }
@@ -4022,6 +4034,7 @@ public partial class MainWindow : Window
         }
         // Cancel first, then give the worker a short chance to release native resources.
         isClosing = true;
+        OpenRgbHighlighter.SuppressAutoStart();
         var activeTask = clickTask;
         StopClicking();
         foreach (var cancellation in profileRuns.Values) cancellation.Cancel();
@@ -4030,7 +4043,7 @@ public partial class MainWindow : Window
         try { Task.WaitAll(runningProfileTasks, TimeSpan.FromSeconds(2)); } catch (Exception exception) { AppLog.Error("Error while waiting for profile worker shutdown", exception); }
         var rgbTasks = StopAllRgbIndicators();
         try { Task.WaitAll(rgbTasks, TimeSpan.FromSeconds(2)); } catch (Exception exception) { AppLog.Error("Error while restoring OpenRGB lighting", exception); }
-        ApplyIdleOpenRgbProfile();
+        try { ApplyIdleOpenRgbProfileAsync(allowAutoStart: false).Wait(TimeSpan.FromSeconds(2)); } catch (Exception exception) { AppLog.Error("Error while applying the final OpenRGB idle profile", exception); }
         if (rgbSettings.StopAutoStartedOnExit) OpenRgbHighlighter.StopAutoStartedServer();
         // Release UI timers and the Windows hotkey hook last.
         resetTimer.Stop(); flashTimer.Stop(); guiHeartbeatTimer.Stop(); if (hotkeyRegistered) UnregisterPrimaryHotkeys(); foreach (var id in additionalHotkeys.Keys) UnregisterHotKey(hwnd, id); mouseHotkeys.Clear(); UpdateMouseHook(); if (hwndSource is not null) hwndSource.RemoveHook(WndProc);

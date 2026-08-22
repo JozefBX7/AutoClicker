@@ -63,6 +63,30 @@ public sealed class RgbSettingsTests
         Assert.AreEqual(expected, OpenRgbHighlighter.ShouldStartOnApplicationLaunch(new RgbSettings { Enabled = enabled, AutoStart = autoStart }));
     }
 
+    [TestMethod]
+    public void AutoStartedServer_BindsOnlyToLoopback()
+    {
+        var startInfo = OpenRgbHighlighter.CreateServerStartInfo(@"C:\Program Files\OpenRGB\OpenRGB.exe");
+
+        CollectionAssert.AreEqual(new[] { "--server", "--server-host", "127.0.0.1" }, startInfo.ArgumentList.ToArray());
+        Assert.AreEqual(@"C:\Program Files\OpenRGB", startInfo.WorkingDirectory);
+        Assert.IsFalse(startInfo.UseShellExecute);
+        Assert.IsTrue(startInfo.CreateNoWindow);
+    }
+
+    [TestMethod]
+    public void ShutdownIdleProfileRestore_CannotAutoStartOpenRgb()
+    {
+        var source = new RgbSettings { Enabled = true, AutoStart = true, IdleProfileName = "Dark White" };
+
+        var shutdownSettings = OpenRgbHighlighter.CreateIdleProfileSettings(source, allowAutoStart: false);
+
+        Assert.IsTrue(shutdownSettings.Enabled);
+        Assert.IsFalse(shutdownSettings.AutoStart);
+        Assert.AreEqual("Dark White", shutdownSettings.IdleProfileName);
+        Assert.IsTrue(source.AutoStart);
+    }
+
     [DataTestMethod]
     [DataRow(true, false, true)]
     [DataRow(false, false, false)]

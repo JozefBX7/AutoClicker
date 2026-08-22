@@ -2,8 +2,6 @@ using OpenRGB.NET;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
-using System.Net;
-using System.Net.Sockets;
 
 namespace AutoClicker;
 
@@ -48,6 +46,10 @@ public sealed record KeyboardDevice(int Index, string Name)
 
 public static class OpenRgbHighlighter
 {
+    private const int SdkProbeTimeoutMilliseconds = 600;
+    private const int SdkStartupPollDelayMilliseconds = 250;
+    private const int AutoStartedSdkReadyTimeoutMilliseconds = 15_000;
+    private const int ExistingProcessStartupGraceMilliseconds = 10_000;
     internal const int PulseFramesPerCycle = 12;
     internal const int MaximumPulseFramesPerCycle = 36;
     internal const int PulseTargetFrameDurationMilliseconds = 100;
@@ -60,6 +62,7 @@ public static class OpenRgbHighlighter
     private static readonly object IndicatorWriteLock = new();
     private static readonly Dictionary<int, IndicatorDeviceState> ActiveIndicators = [];
     private static Process? processStartedByAutoClicker;
+    private static bool autoStartSuppressed;
 
     internal static bool ShouldStartOnApplicationLaunch(RgbSettings settings) => settings.Enabled && settings.AutoStart;
 
@@ -68,15 +71,33 @@ public static class OpenRgbHighlighter
         if (await IsSdkAvailableAsync()) return new(true, null);
         if (!settings.AutoStart)
             return new(false, "OpenRGB's SDK server is not available. Enable it in OpenRGB, or turn on automatic startup here.");
+        if (IsAutoStartSuppressed())
+            return new(false, "OpenRGB was not started because AutoClicker is shutting down.");
 
         await SdkStartupLock.WaitAsync();
         try
         {
             // Another request may have started OpenRGB while this caller was waiting.
             if (await IsSdkAvailableAsync()) return new(true, null);
+            if (IsAutoStartSuppressed())
+                return new(false, "OpenRGB was not started because AutoClicker is shutting down.");
 
-            if (Process.GetProcessesByName("OpenRGB").Length > 0)
-                return new(false, "OpenRGB is already running, but its SDK server is not available. Enable its SDK server on port 6742, then refresh.");
+            var runningProcesses = Process.GetProcessesByName("OpenRGB");
+            try
+            {
+                if (runningProcesses.Length > 0)
+                {
+                    var gracePeriod = RemainingStartupGracePeriod(runningProcesses);
+                    if (gracePeriod > TimeSpan.Zero && await WaitForSdkAsync(gracePeriod))
+                        return new(true, "OpenRGB's SDK server became available.");
+
+                    return new(false, "OpenRGB is already running, but its SDK server is not available. Enable its SDK server on port 6742, then refresh.");
+                }
+            }
+            finally
+            {
+                foreach (var runningProcess in runningProcesses) runningProcess.Dispose();
+            }
 
             var executable = FindOpenRgbExecutable();
             if (executable is null)
@@ -84,25 +105,28 @@ public static class OpenRgbHighlighter
 
             try
             {
-                var process = Process.Start(new ProcessStartInfo(executable, "--server")
+                Process process;
+                lock (StartedProcessLock)
                 {
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    WorkingDirectory = Path.GetDirectoryName(executable)!
-                });
-                if (process is null) return new(false, "OpenRGB could not be started.");
-                lock (StartedProcessLock) processStartedByAutoClicker = process;
+                    // Coordinate with shutdown so a process can never be launched
+                    // after the final owner-only stop has taken its snapshot.
+                    if (autoStartSuppressed)
+                        return new(false, "OpenRGB was not started because AutoClicker is shutting down.");
+                    process = Process.Start(CreateServerStartInfo(executable))
+                        ?? throw new InvalidOperationException("OpenRGB could not be started.");
+                    processStartedByAutoClicker = process;
+                }
+                AppLog.Info($"Started OpenRGB SDK server process | PID={process.Id} | Path={executable} | Host=127.0.0.1 | Port=6742");
+
+                if (await WaitForSdkAsync(TimeSpan.FromMilliseconds(AutoStartedSdkReadyTimeoutMilliseconds), process))
+                    return new(true, "OpenRGB was started automatically.", WasStarted: true);
+
+                if (HasExited(process))
+                    return new(false, $"OpenRGB exited before its SDK server became available{ExitCodeSuffix(process)}.");
             }
             catch (Exception exception)
             {
                 return new(false, $"Could not start OpenRGB: {exception.Message}");
-            }
-
-            // Wait briefly for the SDK socket.
-            for (var attempt = 0; attempt < 20; attempt++)
-            {
-                await Task.Delay(200);
-                if (await IsSdkAvailableAsync()) return new(true, "OpenRGB was started automatically.");
             }
             return new(false, "OpenRGB started, but its SDK server did not become available. Open OpenRGB and enable its SDK server.");
         }
@@ -136,6 +160,16 @@ public static class OpenRgbHighlighter
             AppLog.Error("Could not stop the OpenRGB process started by AutoClicker", exception);
         }
         finally { process.Dispose(); }
+    }
+
+    internal static void SuppressAutoStart()
+    {
+        lock (StartedProcessLock) autoStartSuppressed = true;
+    }
+
+    private static bool IsAutoStartSuppressed()
+    {
+        lock (StartedProcessLock) return autoStartSuppressed;
     }
 
     public static string[] GetProfiles()
@@ -175,16 +209,84 @@ public static class OpenRgbHighlighter
         }
     }
 
-    private static async Task<bool> IsSdkAvailableAsync()
+    private static Task<bool> IsSdkAvailableAsync() => Task.Run(() =>
     {
         try
         {
-            using var client = new TcpClient();
-            using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(350));
-            await client.ConnectAsync(IPAddress.Loopback, 6742, timeout.Token);
+            // A TCP listener alone does not prove this is a ready OpenRGB SDK server.
+            // Complete the protocol handshake and one small request before callers use it.
+            using var client = new OpenRgbClient(name: "AutoClicker readiness probe", timeoutMs: SdkProbeTimeoutMilliseconds);
+            _ = client.GetControllerCount();
             return true;
         }
         catch { return false; }
+    });
+
+    private static async Task<bool> WaitForSdkAsync(TimeSpan timeout, Process? process = null)
+    {
+        var deadline = Stopwatch.GetTimestamp() + timeout.TotalSeconds * Stopwatch.Frequency;
+        while (Stopwatch.GetTimestamp() < deadline)
+        {
+            if (process is not null && HasExited(process)) return false;
+            if (await IsSdkAvailableAsync()) return true;
+            await Task.Delay(SdkStartupPollDelayMilliseconds);
+        }
+        return await IsSdkAvailableAsync();
+    }
+
+    private static TimeSpan RemainingStartupGracePeriod(IEnumerable<Process> processes)
+    {
+        var now = DateTime.Now;
+        var remaining = TimeSpan.Zero;
+        foreach (var process in processes)
+        {
+            try
+            {
+                var age = now - process.StartTime;
+                var candidate = TimeSpan.FromMilliseconds(ExistingProcessStartupGraceMilliseconds) - age;
+                if (candidate > remaining) remaining = candidate;
+            }
+            catch
+            {
+                // If process metadata is inaccessible, keep the no-second-instance
+                // safeguard and report the unavailable server without delaying.
+            }
+        }
+        return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+    }
+
+    private static bool HasExited(Process process)
+    {
+        try { return process.HasExited; }
+        catch { return true; }
+    }
+
+    private static string ExitCodeSuffix(Process process)
+    {
+        try { return $" (exit code {process.ExitCode})"; }
+        catch { return string.Empty; }
+    }
+
+    internal static ProcessStartInfo CreateServerStartInfo(string executable)
+    {
+        var startInfo = new ProcessStartInfo(executable)
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetDirectoryName(executable)!
+        };
+        startInfo.ArgumentList.Add("--server");
+        startInfo.ArgumentList.Add("--server-host");
+        startInfo.ArgumentList.Add("127.0.0.1");
+        return startInfo;
+    }
+
+    internal static RgbSettings CreateIdleProfileSettings(RgbSettings source, bool allowAutoStart)
+    {
+        var settings = source.Clone();
+        settings.Enabled = true;
+        settings.AutoStart = allowAutoStart && source.AutoStart;
+        return settings;
     }
 
     private static string? FindOpenRgbExecutable()
@@ -855,4 +957,4 @@ public sealed record RgbLightingSnapshot(int DeviceIndex, Color[] Colors, RgbDev
     public Guid Id { get; } = Guid.NewGuid();
 }
 public sealed record RgbKeyboardSnapshot(int DeviceIndex, Color[] Colors, RgbDeviceModeSnapshot Mode, Color IndicatorColor);
-public sealed record OpenRgbAvailability(bool IsAvailable, string? Message);
+public sealed record OpenRgbAvailability(bool IsAvailable, string? Message, bool WasStarted = false);
