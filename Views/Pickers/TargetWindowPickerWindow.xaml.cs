@@ -1,3 +1,7 @@
+// -----------------------------------------------------------------------
+// Copyright (c) 2026 JBX7. All rights reserved.
+// -----------------------------------------------------------------------
+
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;

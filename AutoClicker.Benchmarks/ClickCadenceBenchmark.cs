@@ -1,3 +1,7 @@
+// -----------------------------------------------------------------------
+// Copyright (c) 2026 JBX7. All rights reserved.
+// -----------------------------------------------------------------------
+
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using BenchmarkDotNet.Attributes;

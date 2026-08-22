@@ -1,3 +1,7 @@
+// -----------------------------------------------------------------------
+// Copyright (c) 2026 JBX7. All rights reserved.
+// -----------------------------------------------------------------------
+
 namespace AutoClicker;
 
 // Keep user-visible activity indicators aligned with the worker lifecycle rather than individual UI events.

@@ -1,3 +1,7 @@
+// -----------------------------------------------------------------------
+// Copyright (c) 2026 JBX7. All rights reserved.
+// -----------------------------------------------------------------------
+
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Globalization;
 using System.Windows;
@@ -595,7 +599,7 @@ public sealed class AutomationProfileTests
         Assert.AreEqual(string.Empty, tile.BehaviorBadge);
         Assert.IsTrue(tile.IsSelected);
         Assert.IsFalse(tile.CanEdit);
-        Assert.IsFalse(tile.CanStart);
+        Assert.IsTrue(tile.CanStart);
     }
 
     [TestMethod]

@@ -1,3 +1,7 @@
+// -----------------------------------------------------------------------
+// Copyright (c) 2026 JBX7. All rights reserved.
+// -----------------------------------------------------------------------
+
 using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;

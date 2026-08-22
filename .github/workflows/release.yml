@@ -16,8 +16,11 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - name: Test
-        run: dotnet test AutoClicker.Tests\AutoClicker.Tests.csproj
+      - name: Unit tests
+        run: dotnet test AutoClicker.Tests\AutoClicker.Tests.csproj --configuration Release
+      - name: Desktop end-to-end tests
+        timeout-minutes: 15
+        run: dotnet test AutoClicker.E2E\AutoClicker.E2E.csproj --configuration Release
       - name: Install Inno Setup
         run: choco install innosetup --no-progress --yes
       - name: Package installer and portable build

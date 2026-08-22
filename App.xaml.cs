@@ -1,3 +1,7 @@
+// -----------------------------------------------------------------------
+// Copyright (c) 2026 JBX7. All rights reserved.
+// -----------------------------------------------------------------------
+
 namespace AutoClicker;
 
 public partial class App : System.Windows.Application
@@ -27,6 +31,7 @@ public partial class App : System.Windows.Application
 
     protected override void OnStartup(System.Windows.StartupEventArgs e)
     {
+        AppRuntime.Configure(e.Args);
         if (CrashRecovery.TryRunWatchdog(e.Args))
         {
             Shutdown();
@@ -34,21 +39,23 @@ public partial class App : System.Windows.Application
         }
         ThemeManager.Load();
         // A second launch brings the existing window forward.
-        instanceMutex = new System.Threading.Mutex(true, InstanceMutexName, out var isFirstInstance);
+        var instanceMutexName = AppRuntime.ScopedKernelName(InstanceMutexName);
+        var activateEventName = AppRuntime.ScopedKernelName(ActivateEventName);
+        instanceMutex = new System.Threading.Mutex(true, instanceMutexName, out var isFirstInstance);
         if (!isFirstInstance)
         {
-            try { System.Threading.EventWaitHandle.OpenExisting(ActivateEventName).Set(); } catch (System.Threading.WaitHandleCannotBeOpenedException) { }
+            try { System.Threading.EventWaitHandle.OpenExisting(activateEventName).Set(); } catch (System.Threading.WaitHandleCannotBeOpenedException) { }
             Shutdown();
             return;
         }
 
-        activateEvent = new System.Threading.EventWaitHandle(false, System.Threading.EventResetMode.AutoReset, ActivateEventName);
+        activateEvent = new System.Threading.EventWaitHandle(false, System.Threading.EventResetMode.AutoReset, activateEventName);
         _ = Task.Run(ListenForActivation);
         base.OnStartup(e);
         var window = new MainWindow();
         MainWindow = window;
         window.Show();
-        CrashRecovery.StartIfEnabled();
+        if (!AppRuntime.IsEndToEndTest) CrashRecovery.StartIfEnabled();
     }
 
     protected override void OnExit(System.Windows.ExitEventArgs e)

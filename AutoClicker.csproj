@@ -16,6 +16,7 @@
   <ItemGroup>
     <Compile Remove="AutoClicker.Tests\**\*.cs" />
     <Compile Remove="AutoClicker.Benchmarks\**\*.cs" />
+    <Compile Remove="AutoClicker.E2E\**\*.cs" />
   </ItemGroup>
   <ItemGroup>
     <Using Remove="System.Drawing" />

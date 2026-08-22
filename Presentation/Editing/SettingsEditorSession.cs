@@ -1,3 +1,7 @@
+// -----------------------------------------------------------------------
+// Copyright (c) 2026 JBX7. All rights reserved.
+// -----------------------------------------------------------------------
+
 using System.Text.Json;
 
 namespace AutoClicker;
@@ -144,6 +148,23 @@ internal static class SettingsEditorPolicy
         bool enterPressed,
         bool inputCapturePending) =>
         field != SettingsEditorTextFieldKind.None && enterPressed && !inputCapturePending;
+
+    internal static SettingsEditorScope ResolveScopeAfterDocumentReload(
+        SettingsEditorScope previousScope,
+        string? activeProfileId,
+        IEnumerable<string> availableActionIds)
+    {
+        if (previousScope.Kind == SettingsEditorScopeKind.ProfileDefaults
+            && previousScope.TargetId == activeProfileId)
+            return previousScope;
+
+        if (previousScope.Kind == SettingsEditorScopeKind.Hotkey
+            && previousScope.TargetId is { } actionId
+            && availableActionIds.Contains(actionId, StringComparer.Ordinal))
+            return previousScope;
+
+        return SettingsEditorScope.GlobalDefaults;
+    }
 }
 
 internal static class SettingsEditorProfileDraft

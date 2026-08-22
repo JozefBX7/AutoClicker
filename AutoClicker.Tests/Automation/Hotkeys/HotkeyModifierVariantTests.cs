@@ -1,3 +1,7 @@
+// -----------------------------------------------------------------------
+// Copyright (c) 2026 JBX7. All rights reserved.
+// -----------------------------------------------------------------------
+
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace AutoClicker.Tests;
@@ -5,6 +9,25 @@ namespace AutoClicker.Tests;
 [TestClass]
 public sealed class HotkeyModifierVariantTests
 {
+    [TestMethod]
+    public void KeyboardModifierMatch_UsesTheQueuedHotkeyMessageInsteadOfLiveKeyState()
+    {
+        const uint controlAndShift = 0x2 | 0x4;
+
+        Assert.IsTrue(MainWindow.IsKeyboardModifierMatch(
+            modifiersEnabled: true,
+            configuredModifiers: controlAndShift,
+            messageModifiers: controlAndShift));
+        Assert.IsFalse(MainWindow.IsKeyboardModifierMatch(
+            modifiersEnabled: true,
+            configuredModifiers: controlAndShift,
+            messageModifiers: 0));
+        Assert.IsTrue(MainWindow.IsKeyboardModifierMatch(
+            modifiersEnabled: false,
+            configuredModifiers: controlAndShift,
+            messageModifiers: 0));
+    }
+
     [TestMethod]
     public void KeyboardHotkeyModifierVariants_ModifiersEnabled_UsesOnlyConfiguredModifiers()
     {

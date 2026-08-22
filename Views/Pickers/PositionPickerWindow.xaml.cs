@@ -1,3 +1,7 @@
+// -----------------------------------------------------------------------
+// Copyright (c) 2026 JBX7. All rights reserved.
+// -----------------------------------------------------------------------
+
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -23,6 +27,13 @@ public partial class PositionPickerWindow : Window
         cursorTimer.Tick += (_, _) => UpdateCursorPosition();
         Loaded += (_, _) =>
         {
+            if (AppRuntime.IsEndToEndTest)
+            {
+                UpdateCursorPosition();
+                Activate();
+                Focus();
+                return;
+            }
             mouseHook = SetWindowsHookEx(WhMouseLl, mouseHookProc, GetModuleHandle(Process.GetCurrentProcess().MainModule?.ModuleName), 0);
             if (mouseHook == 0)
             {

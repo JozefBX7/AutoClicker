@@ -1,3 +1,7 @@
+// -----------------------------------------------------------------------
+// Copyright (c) 2026 JBX7. All rights reserved.
+// -----------------------------------------------------------------------
+
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace AutoClicker.Tests;
@@ -98,6 +102,37 @@ public sealed class SettingsEditorSessionTests
 
         Assert.IsFalse(session.IsEditingProfile("profile"));
         Assert.AreEqual(SettingsEditorStorageTarget.GlobalDefaults, session.StorageTarget(advancedMode: true, "profile", activeActionId: null));
+    }
+
+    [TestMethod]
+    public void DocumentReload_RestoresTheSelectedProfileEditorWhenTheProfileStillExists()
+    {
+        var previous = SettingsEditorScope.ProfileDefaults("profile");
+
+        var restored = SettingsEditorPolicy.ResolveScopeAfterDocumentReload(previous, "profile", []);
+
+        Assert.AreEqual(previous, restored);
+    }
+
+    [TestMethod]
+    public void DocumentReload_RestoresTheSelectedHotkeyEditorWhenTheHotkeyStillExists()
+    {
+        var previous = SettingsEditorScope.Hotkey("f6");
+
+        var restored = SettingsEditorPolicy.ResolveScopeAfterDocumentReload(previous, "profile", ["f6", "f7"]);
+
+        Assert.AreEqual(previous, restored);
+    }
+
+    [TestMethod]
+    public void DocumentReload_FallsBackToGlobalWhenThePreviousTargetNoLongerExists()
+    {
+        Assert.AreEqual(
+            SettingsEditorScope.GlobalDefaults,
+            SettingsEditorPolicy.ResolveScopeAfterDocumentReload(SettingsEditorScope.ProfileDefaults("old-profile"), "profile", []));
+        Assert.AreEqual(
+            SettingsEditorScope.GlobalDefaults,
+            SettingsEditorPolicy.ResolveScopeAfterDocumentReload(SettingsEditorScope.Hotkey("old-action"), "profile", ["f6"]));
     }
 
     [TestMethod]

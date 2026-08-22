@@ -1,3 +1,7 @@
+// -----------------------------------------------------------------------
+// Copyright (c) 2026 JBX7. All rights reserved.
+// -----------------------------------------------------------------------
+
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -205,29 +209,39 @@ public partial class SettingsWindow : Window
 
     private void ExportBackup(BackupScope scope)
     {
-        var dialog = new Microsoft.Win32.SaveFileDialog
+        var fileName = AppRuntime.SaveFilePathOverride;
+        if (fileName is null)
         {
-            Title = $"Export {BackupScopeInfo.DisplayName(scope)}",
-            Filter = BackupScopeInfo.ExportFilter(scope),
-            FileName = BackupScopeInfo.DefaultFileName(scope),
-            DefaultExt = BackupScopeInfo.FileExtension(scope),
-            AddExtension = true
-        };
-        if (dialog.ShowDialog(this) != true) return;
-        var error = exportBackup(scope, dialog.FileName);
+            var dialog = new Microsoft.Win32.SaveFileDialog
+            {
+                Title = $"Export {BackupScopeInfo.DisplayName(scope)}",
+                Filter = BackupScopeInfo.ExportFilter(scope),
+                FileName = BackupScopeInfo.DefaultFileName(scope),
+                DefaultExt = BackupScopeInfo.FileExtension(scope),
+                AddExtension = true
+            };
+            if (dialog.ShowDialog(this) != true) return;
+            fileName = dialog.FileName;
+        }
+        var error = exportBackup(scope, fileName);
         ConnectionStatus.Text = error is null ? $"{BackupScopeInfo.DisplayName(scope)} exported." : error;
         ConnectionStatus.Foreground = ThemeManager.Brush(error is null ? "SuccessBrush" : "ErrorBrush");
     }
 
     private void ImportBackup(BackupScope scope)
     {
-        var dialog = new Microsoft.Win32.OpenFileDialog
+        var fileName = AppRuntime.OpenFilePathOverride;
+        if (fileName is null)
         {
-            Title = $"Restore {BackupScopeInfo.DisplayName(scope)}",
-            Filter = BackupScopeInfo.ImportFilter(scope)
-        };
-        if (dialog.ShowDialog(this) != true) return;
-        var error = importBackup(scope, dialog.FileName);
+            var dialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = $"Restore {BackupScopeInfo.DisplayName(scope)}",
+                Filter = BackupScopeInfo.ImportFilter(scope)
+            };
+            if (dialog.ShowDialog(this) != true) return;
+            fileName = dialog.FileName;
+        }
+        var error = importBackup(scope, fileName);
         ConnectionStatus.Text = error is null ? $"{BackupScopeInfo.DisplayName(scope)} restored. Close Settings to use it." : error;
         ConnectionStatus.Foreground = ThemeManager.Brush(error is null ? "SuccessBrush" : "ErrorBrush");
     }
@@ -552,6 +566,12 @@ public partial class SettingsWindow : Window
     private async void RefreshProfiles()
     {
         if (EnableOpenRgb.IsChecked != true) return;
+        if (AppRuntime.IsEndToEndTest)
+        {
+            SetIdleProfileOptions([], clearMissingWhenKeyboardConnected: false);
+            ConnectionStatus.Text = "OpenRGB discovery is isolated during desktop tests.";
+            return;
+        }
         try
         {
             var autoStart = AutoStartOpenRgb.IsChecked == true;
@@ -676,6 +696,13 @@ public partial class SettingsWindow : Window
     private async void RefreshKeyboards()
     {
         if (EnableOpenRgb.IsChecked != true) return;
+        if (AppRuntime.IsEndToEndTest)
+        {
+            KeyboardCombo.ItemsSource = Array.Empty<KeyboardDevice>();
+            ConnectionStatus.Text = "OpenRGB discovery is isolated during desktop tests.";
+            ConnectionStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+            return;
+        }
         try
         {
             Settings.AutoStart = AutoStartOpenRgb.IsChecked == true;

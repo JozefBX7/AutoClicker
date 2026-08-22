@@ -1,3 +1,7 @@
+// -----------------------------------------------------------------------
+// Copyright (c) 2026 JBX7. All rights reserved.
+// -----------------------------------------------------------------------
+
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.IO;
 

@@ -1,3 +1,7 @@
+// -----------------------------------------------------------------------
+// Copyright (c) 2026 JBX7. All rights reserved.
+// -----------------------------------------------------------------------
+
 namespace AutoClicker;
 
 // Keep reset and backup boundaries explicit: Simple settings never imply Advanced settings or profiles.

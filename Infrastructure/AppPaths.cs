@@ -1,3 +1,7 @@
+// -----------------------------------------------------------------------
+// Copyright (c) 2026 JBX7. All rights reserved.
+// -----------------------------------------------------------------------
+
 using System.IO;
 
 namespace AutoClicker;
@@ -9,7 +13,7 @@ internal static class AppPaths
     internal static bool IsPortable { get; } = File.Exists(Path.Combine(AppContext.BaseDirectory, PortableMarkerName));
     private static readonly string configDirectory = ResolveConfigDirectory();
 
-    internal static string ConfigDirectory => configDirectory;
+    internal static string ConfigDirectory => AppRuntime.ConfigDirectoryOverride ?? configDirectory;
     internal static string ConfigFile(string fileName) => Path.Combine(ConfigDirectory, fileName);
 
     internal static string InstalledConfigDirectory(string localApplicationData) => Path.Combine(localApplicationData, "AutoClicker");
