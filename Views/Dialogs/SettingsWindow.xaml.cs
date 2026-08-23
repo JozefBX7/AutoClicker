@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Diagnostics;
+using System.IO;
 
 namespace AutoClicker;
 
@@ -21,6 +22,7 @@ public partial class SettingsWindow : Window
     private readonly Func<ResetScope, bool> resetSettings;
     private readonly Func<BackupScope, string, string?> exportBackup;
     private readonly Func<BackupScope, string, string?> importBackup;
+    private readonly CancellationTokenSource updateCancellation = new();
     private CancellationTokenSource? effectTestCancellation;
     private readonly System.Windows.Threading.DispatcherTimer effectPreviewRestartTimer;
     private bool restartEffectPreview;
@@ -77,6 +79,8 @@ public partial class SettingsWindow : Window
         effectPreviewRestartTimer.Stop();
         effectPreviewRestartTimer.Tick -= EffectPreviewRestartTimer_Tick;
         effectTestCancellation?.Cancel();
+        updateCancellation.Cancel();
+        updateCancellation.Dispose();
         base.OnClosed(e);
     }
 
@@ -142,6 +146,7 @@ public partial class SettingsWindow : Window
     private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
     {
         // Update checks are manual; this only runs from the Settings button.
+        var cancellationToken = updateCancellation.Token;
         CheckUpdatesButton.IsEnabled = false;
         DownloadUpdateButton.Visibility = Visibility.Collapsed;
         ReleaseHistoryPanel.Visibility = Visibility.Collapsed;
@@ -150,7 +155,7 @@ public partial class SettingsWindow : Window
         UpdateStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush);
         try
         {
-            var update = await UpdateService.CheckForUpdateAsync(AppPaths.IsPortable, CancellationToken.None);
+            var update = await UpdateService.CheckForUpdateAsync(AppPaths.IsPortable, cancellationToken);
             UpdateStatus.Text = update.Message;
             UpdateStatus.Foreground = ThemeManager.Brush(update.IsUpdateAvailable ? ThemeResourceKeys.SuccessBrush : ThemeResourceKeys.TextMutedBrush);
             if (update.RecentReleases is { Count: > 0 })
@@ -165,13 +170,14 @@ public partial class SettingsWindow : Window
                 DownloadUpdateButton.Visibility = Visibility.Visible;
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         catch (Exception exception)
         {
             AppLog.Error("GitHub update check failed", exception);
             UpdateStatus.Text = "Could not check GitHub Releases. Open Releases to download an update manually.";
             UpdateStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.WarningBrush);
         }
-        finally { CheckUpdatesButton.IsEnabled = true; }
+        finally { if (!isClosing) CheckUpdatesButton.IsEnabled = true; }
     }
 
     private void OpenReleases_Click(object sender, RoutedEventArgs e) => OpenUrl(UpdateService.ReleasesUrl);
@@ -187,28 +193,69 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        var confirmation = new ConfirmationWindow(
-            "Install update",
-            $"Download and run AutoClicker {update.LatestTag} from the official GitHub Release? AutoClicker will close before setup starts.",
-            "Download and install") { Owner = this };
-        if (confirmation.ShowDialog() != true) return;
-
-        // Download first; launch the normal installer only after a complete file is available.
-        DownloadUpdateButton.IsEnabled = false;
-        UpdateStatus.Text = "Downloading the installer from GitHub Releases…";
-        UpdateStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush);
+        var cancellationToken = updateCancellation.Token;
         try
         {
-            var installerPath = await UpdateService.DownloadInstallerAsync(downloadUri, update.LatestTag ?? "latest", CancellationToken.None);
-            Process.Start(new ProcessStartInfo(installerPath) { UseShellExecute = true });
+            if (!ConfirmUpdate(update)) return;
+            if (update.DownloadSize is not { } expectedSize || string.IsNullOrWhiteSpace(update.DownloadSha256))
+                throw new InvalidDataException("The release did not provide the installer integrity metadata required for an automatic update.");
+
+            // Download first; launch the normal installer only after a complete, verified file is available.
+            DownloadUpdateButton.IsEnabled = false;
+            UpdateStatus.Text = "Downloading and verifying the installer from GitHub Releases…";
+            UpdateStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush);
+            var installerPath = await UpdatePackageDownloader.DownloadInstallerAsync(
+                downloadUri,
+                update.LatestTag ?? string.Empty,
+                expectedSize,
+                update.DownloadSha256,
+                cancellationToken);
+            var installerProcess = Process.Start(new ProcessStartInfo(installerPath)
+            {
+                UseShellExecute = true,
+                WorkingDirectory = Path.GetDirectoryName(installerPath)!
+            })
+                ?? throw new InvalidOperationException("Windows did not start the downloaded update installer.");
+            using (installerProcess)
+            {
+                // A healthy interactive installer remains alive while its first page is shown.
+                await Task.Delay(TimeSpan.FromMilliseconds(750));
+                if (installerProcess.HasExited)
+                    throw new InvalidOperationException($"The update installer exited before handoff completed (exit code {installerProcess.ExitCode}).");
+                AppLog.Info($"Update installer handoff confirmed | Version={update.LatestTag} | PID={installerProcess.Id}");
+            }
+            UpdateStatus.Text = "Installer started. AutoClicker is closing…";
             System.Windows.Application.Current.Shutdown();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (Exception exception)
+        {
+            AppLog.Error("GitHub update preparation failed", exception);
+            UpdateStatus.Text = "Could not prepare the update. AutoClicker is still running; open Releases to install it manually.";
+            UpdateStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.WarningBrush);
+            DownloadUpdateButton.IsEnabled = true;
+        }
+    }
+
+    private bool ConfirmUpdate(UpdateCheckResult update)
+    {
+        var message = $"Download and run AutoClicker {update.LatestTag} from the official GitHub Release? AutoClicker will close after setup starts.";
+        try
+        {
+            var confirmation = new ConfirmationWindow("Install update", message, "Download and install") { Owner = this };
+            return confirmation.ShowDialog() == true;
         }
         catch (Exception exception)
         {
-            AppLog.Error("GitHub update installer download failed", exception);
-            UpdateStatus.Text = "Could not download the installer. Open Releases to download the update manually.";
-            UpdateStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.WarningBrush);
-            DownloadUpdateButton.IsEnabled = true;
+            // Updating must not depend on custom window resources being available.
+            AppLog.Error("Custom update confirmation failed; using the Windows confirmation dialog", exception);
+            return System.Windows.MessageBox.Show(
+                this,
+                message,
+                "Install update",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question,
+                MessageBoxResult.No) == MessageBoxResult.Yes;
         }
     }
     private static void OpenUrl(Uri url) => Process.Start(new ProcessStartInfo(url.AbsoluteUri) { UseShellExecute = true });

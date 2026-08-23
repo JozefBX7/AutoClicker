@@ -51,12 +51,96 @@ jobs:
         run: |
           $version = $env:GITHUB_REF_NAME.TrimStart('v')
           .\scripts\Build-Release.ps1 -Version $version
+      - name: Smoke test installer upgrade
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidateInstaller = (Resolve-Path '.\dist\AutoClicker-Setup-x64.exe').Path
+          $installDirectory = [System.IO.Path]::GetFullPath((Join-Path $env:RUNNER_TEMP 'AutoClicker-upgrade-smoke'))
+          $runnerTemp = [System.IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+          if (-not $installDirectory.StartsWith($runnerTemp, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing to use an installer smoke-test directory outside RUNNER_TEMP: $installDirectory"
+          }
+
+          function Invoke-SmokeInstaller([string]$installer) {
+            $arguments = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', "/DIR=$installDirectory")
+            $process = Start-Process -FilePath $installer -ArgumentList $arguments -Wait -PassThru -WindowStyle Hidden
+            if ($process.ExitCode -ne 0) {
+              throw "Installer $installer exited with code $($process.ExitCode)."
+            }
+          }
+
+          $previousVersion = $null
+          $sentinel = Join-Path $installDirectory 'upgrade-smoke.sentinel'
+          try {
+            $previousTag = gh release view --repo $env:GITHUB_REPOSITORY --json tagName --jq '.tagName' 2>&1
+            if ($LASTEXITCODE -eq 0 -and $previousTag -ne $env:GITHUB_REF_NAME) {
+              $previousDirectory = Join-Path $env:RUNNER_TEMP 'AutoClicker-previous-release'
+              New-Item -ItemType Directory -Path $previousDirectory -Force | Out-Null
+              gh release download $previousTag --repo $env:GITHUB_REPOSITORY --pattern 'AutoClicker-Setup-x64.exe' --dir $previousDirectory
+              if ($LASTEXITCODE -ne 0) { throw "Could not download the previous $previousTag installer." }
+              Invoke-SmokeInstaller (Join-Path $previousDirectory 'AutoClicker-Setup-x64.exe')
+              $previousVersion = [Version](Get-Item -LiteralPath (Join-Path $installDirectory 'AutoClicker.exe')).VersionInfo.FileVersion
+              Set-Content -LiteralPath $sentinel -Value 'preserve across upgrade' -NoNewline
+            } elseif ($LASTEXITCODE -ne 0 -and ($previousTag | Out-String) -notmatch 'release not found|no releases found') {
+              throw "Could not determine the previous release: $previousTag"
+            }
+
+            Invoke-SmokeInstaller $candidateInstaller
+            $installedExecutable = Join-Path $installDirectory 'AutoClicker.exe'
+            if (-not (Test-Path -LiteralPath $installedExecutable)) {
+              throw 'The candidate installer completed without installing AutoClicker.exe.'
+            }
+            $installedVersion = [Version](Get-Item -LiteralPath $installedExecutable).VersionInfo.FileVersion
+            $tagVersion = [Version]($env:GITHUB_REF_NAME.TrimStart('v'))
+            $expectedVersion = [Version]::new($tagVersion.Major, $tagVersion.Minor, [Math]::Max(0, $tagVersion.Build), [Math]::Max(0, $tagVersion.Revision))
+            if ($installedVersion -ne $expectedVersion) {
+              throw "The installed version is $installedVersion, expected $expectedVersion."
+            }
+            if ($null -ne $previousVersion -and $installedVersion -le $previousVersion) {
+              throw "The candidate did not upgrade the previous $previousVersion installation."
+            }
+            if ($null -ne $previousVersion -and -not (Test-Path -LiteralPath $sentinel)) {
+              throw 'The upgrade removed a file that was not owned by the installer.'
+            }
+          } finally {
+            $uninstaller = Get-ChildItem -LiteralPath $installDirectory -Filter 'unins*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($null -ne $uninstaller) {
+              $uninstall = Start-Process -FilePath $uninstaller.FullName -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru -WindowStyle Hidden
+              if ($uninstall.ExitCode -ne 0) {
+                Write-Warning "Smoke-test uninstaller exited with code $($uninstall.ExitCode)."
+              }
+            }
+          }
       - name: Stage GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
           gh release create $env:GITHUB_REF_NAME .\dist\AutoClicker-Setup-x64.exe .\dist\AutoClicker-Portable-x64.zip --draft --verify-tag --generate-notes --title "AutoClicker $env:GITHUB_REF_NAME"
+      - name: Verify staged release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $release = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:GITHUB_REF_NAME" | ConvertFrom-Json
+          foreach ($name in @('AutoClicker-Setup-x64.exe', 'AutoClicker-Portable-x64.zip')) {
+            $path = Join-Path '.\dist' $name
+            $asset = @($release.assets | Where-Object name -EQ $name)
+            if ($asset.Count -ne 1) {
+              throw "The staged release does not contain exactly one $name asset."
+            }
+            $expectedSize = (Get-Item -LiteralPath $path).Length
+            $expectedDigest = 'sha256:' + (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($asset[0].size -ne $expectedSize) {
+              throw "$name was uploaded with size $($asset[0].size), expected $expectedSize."
+            }
+            if ($asset[0].digest -ne $expectedDigest) {
+              throw "$name was uploaded with digest $($asset[0].digest), expected $expectedDigest."
+            }
+          }
       - name: Publish staged release
         env:
           GH_TOKEN: ${{ github.token }}

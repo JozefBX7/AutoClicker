@@ -5,7 +5,6 @@
 using System.Net.Http;
 using System.Reflection;
 using System.Text.Json;
-using System.IO;
 
 namespace AutoClicker;
 
@@ -18,13 +17,22 @@ internal sealed record UpdateCheckResult(
     string Message,
     string? ReleaseNotes = null,
     Uri? ReleaseNotesUrl = null,
-    IReadOnlyList<ReleaseHistoryEntry>? RecentReleases = null);
+    IReadOnlyList<ReleaseHistoryEntry>? RecentReleases = null,
+    long? DownloadSize = null,
+    string? DownloadSha256 = null);
 
 internal static class UpdateService
 {
-    internal const string Repository = "JozefBX7/AutoClicker";
-    private static readonly Uri RecentReleasesApi = new($"https://api.github.com/repos/{Repository}/releases?per_page=3");
+    private const string RepositoryOwner = "JozefBX7";
+    private const string RepositoryName = "AutoClicker";
+    internal const string Repository = RepositoryOwner + "/" + RepositoryName;
+    internal const string InstallerAssetName = "AutoClicker-Setup-x64.exe";
+    internal const string PortableAssetName = "AutoClicker-Portable-x64.zip";
+    private const int RecentReleaseLimit = 3;
+    private static readonly TimeSpan CheckTimeout = TimeSpan.FromSeconds(30);
+    private static readonly Uri RecentReleasesApi = new($"https://api.github.com/repos/{Repository}/releases?per_page=10");
     private static readonly Uri ReleasesPage = new($"https://github.com/{Repository}/releases/latest");
+    private static readonly HttpClient HttpClient = CreateHttpClient();
 
     internal static Uri ReleasesUrl => ReleasesPage;
 
@@ -32,56 +40,87 @@ internal static class UpdateService
     {
         try
         {
-            using var client = new HttpClient();
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("AutoClicker-update-check");
-            using var response = await client.GetAsync(RecentReleasesApi, cancellationToken);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(CheckTimeout);
+            using var response = await HttpClient.GetAsync(RecentReleasesApi, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 return new(false, null, null, "No published GitHub Release is available yet.");
             if (!response.IsSuccessStatusCode)
                 return new(false, null, null, "Could not check GitHub Releases. Open Releases to download an update manually.");
 
-            using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(cancellationToken));
-            if (document.RootElement.ValueKind != JsonValueKind.Array)
-                return new(false, null, null, "GitHub Releases returned an unexpected response.");
-
-            var releases = new List<ReleaseHistoryEntry>();
-            foreach (var release in document.RootElement.EnumerateArray())
-            {
-                if (release.TryGetProperty("draft", out var draftElement) && draftElement.GetBoolean()
-                    || release.TryGetProperty("prerelease", out var prereleaseElement) && prereleaseElement.GetBoolean()
-                    || !release.TryGetProperty("tag_name", out var tagElement)) continue;
-
-                var tag = tagElement.GetString();
-                if (string.IsNullOrWhiteSpace(tag) || !TryParseVersion(tag, out _)) continue;
-
-                var releaseNotes = release.TryGetProperty("body", out var bodyElement) ? bodyElement.GetString() : null;
-                var releaseNotesUrl = TryGetReleaseNotesUrl(releaseNotes);
-                releases.Add(new ReleaseHistoryEntry(tag, FormatReleaseNotes(releaseNotes, releaseNotesUrl) ?? "No release notes were provided.", releaseNotesUrl));
-            }
-
-            if (releases.Count == 0)
-                return new(false, null, null, "No published GitHub Release is available yet.");
-
-            var latestRelease = releases[0];
-            _ = TryParseVersion(latestRelease.Tag, out var latest);
-            var current = CurrentVersion();
-            if (latest <= current)
-                return new(false, latestRelease.Tag, null, $"You are up to date (v{current}).", RecentReleases: releases);
-
-            return new(true, latestRelease.Tag, DownloadUrl(latestRelease.Tag, portable), $"Version {latestRelease.Tag} is available (you have v{current}).", latestRelease.Notes, latestRelease.DetailsUrl, releases);
+            var json = await response.Content.ReadAsStringAsync(timeout.Token);
+            return ParseReleaseResponse(json, portable, CurrentVersion());
         }
-        catch (OperationCanceledException) { throw; }
-        catch
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception exception)
         {
+            AppLog.Error("GitHub release check failed", exception);
             return new(false, null, null, "Could not check GitHub Releases. Open Releases to download an update manually.");
         }
+    }
+
+    internal static UpdateCheckResult ParseReleaseResponse(string json, bool portable, Version currentVersion)
+    {
+        using var document = JsonDocument.Parse(json);
+        if (document.RootElement.ValueKind != JsonValueKind.Array)
+            return new(false, null, null, "GitHub Releases returned an unexpected response.");
+
+        var candidates = new List<ReleaseCandidate>();
+        foreach (var release in document.RootElement.EnumerateArray())
+        {
+            if (ReadBoolean(release, "draft") || ReadBoolean(release, "prerelease")
+                || !release.TryGetProperty("tag_name", out var tagElement)) continue;
+
+            var tag = tagElement.GetString();
+            if (string.IsNullOrWhiteSpace(tag) || !TryParseVersion(tag, out var version)) continue;
+
+            var releaseNotes = release.TryGetProperty("body", out var bodyElement) && bodyElement.ValueKind == JsonValueKind.String
+                ? bodyElement.GetString()
+                : null;
+            var releaseNotesUrl = TryGetReleaseNotesUrl(releaseNotes);
+            var history = new ReleaseHistoryEntry(
+                tag,
+                FormatReleaseNotes(releaseNotes, releaseNotesUrl) ?? "No release notes were provided.",
+                releaseNotesUrl);
+            candidates.Add(new ReleaseCandidate(version, tag, history, ReadReleaseAsset(release, tag, portable)));
+        }
+
+        if (candidates.Count == 0)
+            return new(false, null, null, "No published GitHub Release is available yet.");
+
+        var ordered = candidates.OrderByDescending(candidate => candidate.Version).ToArray();
+        var latest = ordered[0];
+        var historyEntries = ordered.Take(RecentReleaseLimit).Select(candidate => candidate.History).ToArray();
+        if (latest.Version <= currentVersion)
+            return new(false, latest.Tag, null, $"You are up to date (v{currentVersion}).", RecentReleases: historyEntries);
+
+        if (latest.Asset is null)
+            return new(
+                false,
+                latest.Tag,
+                null,
+                $"Version {latest.Tag} is published, but its verified {(portable ? "portable archive" : "installer")} is unavailable. Open Releases to update manually.",
+                latest.History.Notes,
+                latest.History.DetailsUrl,
+                historyEntries);
+
+        return new(
+            true,
+            latest.Tag,
+            latest.Asset.DownloadUri,
+            $"Version {latest.Tag} is available (you have v{currentVersion}).",
+            latest.History.Notes,
+            latest.History.DetailsUrl,
+            historyEntries,
+            latest.Asset.Size,
+            latest.Asset.Sha256);
     }
 
     internal static Version CurrentVersion() => Assembly.GetEntryAssembly()?.GetName().Version ?? new Version(1, 0, 0);
 
     internal static Uri DownloadUrl(string tag, bool portable)
     {
-        var asset = portable ? "AutoClicker-Portable-x64.zip" : "AutoClicker-Setup-x64.exe";
+        var asset = portable ? PortableAssetName : InstallerAssetName;
         return new Uri($"https://github.com/{Repository}/releases/download/{Uri.EscapeDataString(tag)}/{asset}");
     }
 
@@ -109,31 +148,68 @@ internal static class UpdateService
         return Uri.TryCreate(urlText, UriKind.Absolute, out var url) && url.Scheme == Uri.UriSchemeHttps ? url : null;
     }
 
-    // Only install assets from this repository's release path.
     internal static bool IsOfficialDownloadUrl(Uri uri) =>
-        uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
-        && uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
-        && uri.AbsolutePath.StartsWith($"/{Repository}/releases/download/", StringComparison.Ordinal);
+        IsOfficialDownloadUrl(uri, expectedTag: null, expectedAssetName: null);
 
-    internal static async Task<string> DownloadInstallerAsync(Uri downloadUri, string versionTag, CancellationToken cancellationToken)
+    internal static bool IsOfficialDownloadUrl(Uri uri, string? expectedTag, string? expectedAssetName)
     {
-        if (!IsOfficialDownloadUrl(downloadUri))
-            throw new InvalidOperationException("The update download is not an official AutoClicker GitHub Release.");
+        if (!uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+            || !uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
+            || !uri.IsDefaultPort
+            || !string.IsNullOrEmpty(uri.Query)
+            || !string.IsNullOrEmpty(uri.Fragment)) return false;
 
-        // The tag is used in a temporary filename.
-        var safeTag = string.Concat(versionTag.Where(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '_'));
-        if (string.IsNullOrWhiteSpace(safeTag)) safeTag = "latest";
-        var directory = Path.Combine(Path.GetTempPath(), AppIdentity.Name, "Updates");
-        Directory.CreateDirectory(directory);
-        var destination = Path.Combine(directory, $"AutoClicker-Setup-x64-{safeTag}.exe");
+        var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length != 6
+            || !segments[0].Equals(RepositoryOwner, StringComparison.Ordinal)
+            || !segments[1].Equals(RepositoryName, StringComparison.Ordinal)
+            || !segments[2].Equals("releases", StringComparison.Ordinal)
+            || !segments[3].Equals("download", StringComparison.Ordinal)) return false;
 
-        using var client = new HttpClient();
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("AutoClicker-update-installer");
-        using var response = await client.GetAsync(downloadUri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
-        await using var target = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None);
-        await source.CopyToAsync(target, cancellationToken);
-        return destination;
+        var tag = Uri.UnescapeDataString(segments[4]);
+        var asset = Uri.UnescapeDataString(segments[5]);
+        if (!TryParseVersion(tag, out _)) return false;
+        if (expectedTag is not null && !tag.Equals(expectedTag, StringComparison.Ordinal)) return false;
+        if (expectedAssetName is not null && !asset.Equals(expectedAssetName, StringComparison.Ordinal)) return false;
+        return asset is InstallerAssetName or PortableAssetName;
     }
+
+    private static HttpClient CreateHttpClient()
+    {
+        var client = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("AutoClicker-updater");
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+        client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
+        return client;
+    }
+
+    private static bool ReadBoolean(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var value) && value.ValueKind is JsonValueKind.True;
+
+    private static ReleaseAsset? ReadReleaseAsset(JsonElement release, string tag, bool portable)
+    {
+        if (!release.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Array) return null;
+        var expectedName = portable ? PortableAssetName : InstallerAssetName;
+        foreach (var asset in assets.EnumerateArray())
+        {
+            if (!asset.TryGetProperty("name", out var nameElement)
+                || !expectedName.Equals(nameElement.GetString(), StringComparison.Ordinal)
+                || !asset.TryGetProperty("browser_download_url", out var urlElement)
+                || !Uri.TryCreate(urlElement.GetString(), UriKind.Absolute, out var downloadUri)
+                || !IsOfficialDownloadUrl(downloadUri, tag, expectedName)
+                || !asset.TryGetProperty("size", out var sizeElement)
+                || !sizeElement.TryGetInt64(out var size)
+                || size <= 0
+                || (!portable && size > UpdatePackageDownloader.MaximumInstallerBytes)
+                || !asset.TryGetProperty("digest", out var digestElement)
+                || digestElement.ValueKind != JsonValueKind.String
+                || !UpdatePackageDownloader.TryParseSha256(digestElement.GetString() ?? string.Empty, out var hash)) continue;
+
+            return new ReleaseAsset(downloadUri, size, Convert.ToHexString(hash).ToLowerInvariant());
+        }
+        return null;
+    }
+
+    private sealed record ReleaseCandidate(Version Version, string Tag, ReleaseHistoryEntry History, ReleaseAsset? Asset);
+    private sealed record ReleaseAsset(Uri DownloadUri, long Size, string Sha256);
 }

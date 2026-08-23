@@ -38,6 +38,7 @@ internal sealed class SettingsRobot
     internal void Cancel() => ButtonByName("Cancel").Invoke();
     internal void Export(string scope) => Element($"Export{scope}").AsButton().Invoke();
     internal void Restore(string scope) => Element($"Restore{scope}").AsButton().Invoke();
+    internal void OpenAbout() => Element("AboutButton").AsButton().Invoke();
 
     internal void Reset(string resetButtonName)
     {

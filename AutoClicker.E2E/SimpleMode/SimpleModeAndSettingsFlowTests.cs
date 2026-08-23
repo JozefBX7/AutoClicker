@@ -182,4 +182,22 @@ public sealed class SimpleModeAndSettingsFlowTests
         settings.Cancel();
         Assert.IsFalse(session.Application.HasExited);
     }
+
+    [TestMethod]
+    public void Settings_AboutConfirmationLoadsPackagedWindowResourcesWithoutCrashing()
+    {
+        using var fixture = new ProfileE2EFixture(advancedMode: false);
+        using var session = fixture.Launch();
+        var app = new MainWindowRobot(session);
+        app.OpenSettings();
+        var settings = new SettingsRobot(session);
+
+        settings.OpenAbout();
+        var confirmation = session.Dialog("Confirmation");
+        confirmation.FindFirstDescendant(condition => condition.ByAutomationId("ConfirmButton"))!.AsButton().Invoke();
+
+        Assert.IsFalse(session.Application.HasExited);
+        settings.Cancel();
+        session.WaitFor(() => !session.IsDialogOpen("Settings"), "Settings did not close after its Cancel button was invoked");
+    }
 }

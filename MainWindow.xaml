@@ -9,7 +9,7 @@ Copyright (c) 2026 JBX7. All rights reserved.
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:AutoClicker"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
-        Title="{x:Static local:AppIdentity.Name}" AutomationProperties.AutomationId="MainWindow" Icon="Assets/AutoClickerIcon.ico" Width="522" Height="580" ResizeMode="NoResize" WindowStartupLocation="CenterScreen"
+        Title="{x:Static local:AppIdentity.Name}" AutomationProperties.AutomationId="MainWindow" Icon="/AutoClicker;component/Assets/AutoClickerIcon.ico" Width="522" Height="580" ResizeMode="NoResize" WindowStartupLocation="CenterScreen"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         FontFamily="Segoe UI" PreviewKeyDown="Window_PreviewKeyDown" PreviewMouseDown="Window_PreviewMouseDown" PreviewMouseLeftButtonDown="Window_PreviewMouseLeftButtonDown" SourceInitialized="Window_SourceInitialized" LocationChanged="Window_LocationChanged" Closing="Window_Closing">
     <Window.TaskbarItemInfo>
