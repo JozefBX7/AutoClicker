@@ -22,7 +22,7 @@ internal static class ProfileTransferStore
     {
         var document = new ProfileTransferDocument { SchemaVersion = CurrentSchemaVersion, Profile = profile.Clone() };
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var temporary = path + ".tmp";
+        var temporary = path + ConfigurationFileNames.TemporarySuffix;
         File.WriteAllText(temporary, JsonSerializer.Serialize(document, new JsonSerializerOptions { WriteIndented = true }));
         File.Move(temporary, path, overwrite: true);
     }
@@ -31,12 +31,12 @@ internal static class ProfileTransferStore
     {
         var document = JsonSerializer.Deserialize<ProfileTransferDocument>(File.ReadAllText(path));
         if (document is null || document.SchemaVersion > CurrentSchemaVersion || document.Profile is null || string.IsNullOrWhiteSpace(document.Profile.Name))
-            throw new InvalidDataException("This is not a supported AutoClicker profile export.");
+            throw new InvalidDataException($"This is not a supported {AppIdentity.Name} profile export.");
 
         var source = document.Profile;
         var profile = new AutomationProfile
         {
-            Id = Guid.NewGuid().ToString("N"),
+            Id = Guid.NewGuid().ToString(AppIdentity.CompactGuidFormat),
             Name = source.Name.Trim(),
             BehaviorDefaults = source.BehaviorDefaults?.Clone(),
             UsesSharedBehaviorDefaults = source.UsesSharedBehaviorDefaults,
@@ -54,7 +54,7 @@ internal static class ProfileTransferStore
     private static AutomationAction CloneForImport(AutomationAction action)
     {
         var clone = action.Clone();
-        clone.Id = Guid.NewGuid().ToString("N");
+        clone.Id = Guid.NewGuid().ToString(AppIdentity.CompactGuidFormat);
         return clone;
     }
 }
@@ -83,14 +83,14 @@ internal static class AutomationProfileCopy
         };
     }
 
-    internal static ProfileCopyResult CopyTo(AutomationProfile destination, IEnumerable<AutomationAction> actions, ProfileCopyConflictResolution resolution)
+    internal static ProfileCopyResult CopyTo(AutomationProfile destination, IEnumerable<AutomationAction> actions, ProfileCopyConflictResolution resolution, bool keyboardModifiersEnabled = true)
     {
         var copied = 0;
         var replaced = 0;
         var skipped = 0;
         foreach (var source in actions.DistinctBy(action => action.Id))
         {
-            var matches = destination.Actions.Where(action => Matches(action, source)).ToList();
+            var matches = destination.Actions.Where(action => AutomationHotkeyBindingRules.ActionsConflict(action, source, keyboardModifiersEnabled)).ToList();
             if (matches.Count > 0)
             {
                 if (resolution == ProfileCopyConflictResolution.Skip)
@@ -112,15 +112,10 @@ internal static class AutomationProfileCopy
         return new ProfileCopyResult(copied, replaced, skipped);
     }
 
-    private static bool Matches(AutomationAction existing, AutomationAction source) => existing.MatchesHotkey(
-        source.Settings.Hotkey,
-        source.Settings.HotkeyModifiers,
-        source.Settings.HotkeyTrigger);
-
     private static AutomationAction CloneForCopy(AutomationAction source)
     {
         var copy = source.Clone();
-        copy.Id = Guid.NewGuid().ToString("N");
+        copy.Id = Guid.NewGuid().ToString(AppIdentity.CompactGuidFormat);
         return copy;
     }
 }

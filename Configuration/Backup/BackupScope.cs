@@ -24,18 +24,18 @@ internal static class BackupScopeInfo
 
     internal static string FileStem(BackupScope scope) => scope switch
     {
-        BackupScope.SimpleMode => "AutoClicker-simple-settings",
-        BackupScope.AdvancedMode => "AutoClicker-advanced-settings",
-        BackupScope.CustomSequences => "AutoClicker-custom-sequences",
-        _ => "AutoClicker-backup"
+        BackupScope.SimpleMode => $"{AppIdentity.Name}-simple-settings",
+        BackupScope.AdvancedMode => $"{AppIdentity.Name}-advanced-settings",
+        BackupScope.CustomSequences => $"{AppIdentity.Name}-custom-sequences",
+        _ => $"{AppIdentity.Name}-backup"
     };
 
     internal static string FileExtension(BackupScope scope) => scope switch
     {
-        BackupScope.SimpleMode => ".autoclicker-simple.json",
-        BackupScope.AdvancedMode => ".autoclicker-advanced.json",
-        BackupScope.CustomSequences => ".autoclicker-sequences.json",
-        _ => ".autoclicker-backup.json"
+        BackupScope.SimpleMode => ConfigurationFileExtensions.SimpleBackup,
+        BackupScope.AdvancedMode => ConfigurationFileExtensions.AdvancedBackup,
+        BackupScope.CustomSequences => ConfigurationFileExtensions.SequenceBackup,
+        _ => ConfigurationFileExtensions.CompleteBackup
     };
 
     internal static string DefaultFileName(BackupScope scope) => FileStem(scope) + FileExtension(scope);
@@ -50,9 +50,9 @@ internal static class BackupScopeInfo
         var specific = Wildcard(scope);
         var complete = Wildcard(BackupScope.Everything);
         if (scope == BackupScope.Everything)
-            return $"Complete AutoClicker backups ({complete})|{complete}|Legacy AutoClicker backups (*.json)|*.json";
+            return $"Complete {AppIdentity.Name} backups ({complete})|{complete}|Legacy {AppIdentity.Name} backups (*.json)|*.json";
 
-        return $"Supported backups ({specific};{complete})|{specific};{complete}|{DisplayName(scope)} only ({specific})|{specific}|Complete AutoClicker backups ({complete})|{complete}|Legacy AutoClicker backups (*.json)|*.json";
+        return $"Supported backups ({specific};{complete})|{specific};{complete}|{DisplayName(scope)} only ({specific})|{specific}|Complete {AppIdentity.Name} backups ({complete})|{complete}|Legacy {AppIdentity.Name} backups (*.json)|*.json";
     }
 
     private static string Wildcard(BackupScope scope) => "*" + FileExtension(scope);

@@ -34,7 +34,7 @@ public sealed class SettingsCancellationAndLightingFlowTests
         Assert.AreEqual(initialRgb.AutoStart, cancelledRgb.AutoStart);
         Assert.AreEqual(initialRgb.StopAutoStartedOnExit, cancelledRgb.StopAutoStartedOnExit);
         Assert.AreEqual(initialRgb.IndicatorColor, cancelledRgb.IndicatorColor);
-        var cancelledUi = fixture.ReadUiPreferences();
+        var cancelledUi = fixture.ReadApplicationPreferences();
         Assert.IsFalse(cancelledUi.KeyboardHotkeyModifiersEnabled);
         Assert.IsFalse(cancelledUi.CadenceDiagnosticsEnabled);
 

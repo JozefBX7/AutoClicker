@@ -70,7 +70,7 @@ public partial class ProfilesWindow : Window
         foreach (var original in selected)
         {
             if (destination.Actions.Count >= AutomationProfileLimits.MaximumHotkeys) break;
-            var copy = original.Clone(); copy.Id = Guid.NewGuid().ToString("N"); EnsureUniqueHotkey(copy, destination); destination.Actions.Add(copy); copied++;
+            var copy = original.Clone(); copy.Id = Guid.NewGuid().ToString(AppIdentity.CompactGuidFormat); EnsureUniqueHotkey(copy, destination); destination.Actions.Add(copy); copied++;
         }
         HintLabel.Text = copied == selected.Count
             ? $"Copied {copied} hotkey{(copied == 1 ? string.Empty : "s")} to {destination.Name}."

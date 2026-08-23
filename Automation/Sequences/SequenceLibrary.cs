@@ -9,7 +9,7 @@ namespace AutoClicker;
 
 public sealed class SequencePreset
 {
-    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Id { get; set; } = Guid.NewGuid().ToString(AppIdentity.CompactGuidFormat);
     public string Name { get; set; } = "Untitled sequence";
     public List<SequenceStep> Steps { get; set; } = [];
     public bool UseGlobalInputPulse { get; set; } = true;
@@ -25,7 +25,7 @@ internal sealed class SequenceLibraryDocument
 
 internal static class SequenceLibraryStore
 {
-    internal const int CurrentSchemaVersion = 1;
+    internal const int CurrentSchemaVersion = 2;
 
     internal static List<SequencePreset> Load(string path)
     {
@@ -56,7 +56,7 @@ internal static class SequenceLibraryStore
                 steps.Add(NormalizeStep(step));
             }
 
-            if (isValid && steps.Count >= 2)
+            if (isValid && steps.Count >= 2 && SequenceHoldRules.ValidationError(steps) is null)
                 presets.Add(new SequencePreset { Id = preset.Id, Name = preset.Name.Trim(), Steps = steps, UseGlobalInputPulse = preset.UseGlobalInputPulse });
         }
 
@@ -67,20 +67,20 @@ internal static class SequenceLibraryStore
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var document = new SequenceLibraryDocument { Presets = Deserialize(JsonSerializer.Serialize(new SequenceLibraryDocument { Presets = presets.Select(preset => preset.Clone()).ToList() })) };
-        var temporary = path + ".tmp";
+        var temporary = path + ConfigurationFileNames.TemporarySuffix;
         File.WriteAllText(temporary, JsonSerializer.Serialize(document));
         File.Move(temporary, path, overwrite: true);
     }
 
-    private static bool IsSupportedStep(SequenceStep step) => step.Input switch
+    private static bool IsSupportedStep(SequenceStep step) => Enum.IsDefined(step.Mode) && step.Input switch
     {
-        "Left" or "Right" or "Middle" or "Space" or "Enter" => true,
-        "Custom" => step.CustomKey is > 0 and <= 0xFF,
-        "Delay" => true,
+        AutomationInputIds.Left or AutomationInputIds.Right or AutomationInputIds.Middle or AutomationInputIds.Space or AutomationInputIds.Enter => true,
+        AutomationInputIds.Custom => step.CustomKey is > 0 and <= 0xFF,
+        AutomationInputIds.Delay => true,
         _ => false
     };
 
-    private static SequenceStep NormalizeStep(SequenceStep step) => step.Input == "Delay"
-        ? new SequenceStep { Input = "Delay", DelayAfterMilliseconds = Math.Clamp(step.DelayAfterMilliseconds, 1, 600000) }
-        : new SequenceStep { Input = step.Input, CustomKey = step.CustomKey, DelayAfterMilliseconds = Math.Clamp(step.DelayAfterMilliseconds, 0, 600000) };
+    private static SequenceStep NormalizeStep(SequenceStep step) => step.Input == AutomationInputIds.Delay
+        ? new SequenceStep { Input = AutomationInputIds.Delay, DelayAfterMilliseconds = Math.Clamp(step.DelayAfterMilliseconds, 1, 600000), Mode = SequenceStepMode.Press }
+        : new SequenceStep { Input = step.Input, CustomKey = step.CustomKey, DelayAfterMilliseconds = Math.Clamp(step.DelayAfterMilliseconds, 0, 600000), Mode = step.Mode };
 }

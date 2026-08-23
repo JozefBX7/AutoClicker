@@ -30,8 +30,8 @@ public sealed class ModeIsolationFlowTests
             app.SwitchMode();
             Assert.AreEqual(50, session.Editor.Milliseconds, "Simple mode loaded an Advanced interval");
             app.SetIntervalMilliseconds(444);
-            app.SelectInput("Right click");
-            app.SelectActionType("Double");
+            app.SelectInput(AutomationInputLabels.RightClick);
+            app.SelectActionType(AutomationActionTypeIds.Double);
             app.SetFiniteRepeat(9);
             app.SetFixedPosition(-44, 55);
             app.DisableTargetWindow();
@@ -43,7 +43,7 @@ public sealed class ModeIsolationFlowTests
 
             app.SwitchMode();
             Assert.AreEqual(444, session.Editor.Milliseconds);
-            Assert.AreEqual("Right click", app.SelectedInput);
+            Assert.AreEqual(AutomationInputLabels.RightClick, app.SelectedInput);
             Assert.AreEqual(9, session.Editor.RepeatCount);
             Assert.AreEqual(-44, session.Editor.CursorX);
             Assert.AreEqual(55, session.Editor.CursorY);
@@ -55,7 +55,7 @@ public sealed class ModeIsolationFlowTests
         using var restarted = fixture.Launch();
         var restartedApp = new MainWindowRobot(restarted);
         Assert.AreEqual(444, restarted.Editor.Milliseconds);
-        Assert.AreEqual("Right click", restartedApp.SelectedInput);
+        Assert.AreEqual(AutomationInputLabels.RightClick, restartedApp.SelectedInput);
         Assert.AreEqual("F8", restarted.MainElement("HotkeyLabel").Name);
         restartedApp.SwitchMode();
         AssertAdvancedIntervals(restarted, 111, 222, 333);

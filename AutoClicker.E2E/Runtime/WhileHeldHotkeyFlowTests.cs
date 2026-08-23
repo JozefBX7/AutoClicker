@@ -20,8 +20,8 @@ public sealed class WhileHeldHotkeyFlowTests
         {
             var app = new MainWindowRobot(session);
             app.DisableTargetWindow();
-            app.SelectInput("Left click");
-            app.SelectActionType("While held");
+            app.SelectInput(AutomationInputLabels.LeftClick);
+            app.SelectActionType(AutomationActionTypeIds.WhileHeld);
             app.SetIntervalMilliseconds(70);
             Assert.IsFalse(app.FiniteRepeatEnabled, "While held must not leave a finite repeat that can restart on key repeat");
             app.SaveAsDefault();
@@ -29,8 +29,10 @@ public sealed class WhileHeldHotkeyFlowTests
             using (session.HoldRegisteredKeyboardHotkey(VirtualKeyShort.F6))
             {
                 session.WaitFor(() => !app.StartEnabled && app.StopEnabled, "held simple hotkey did not start");
+                var countBeforeSample = InputEventCount(fixture);
                 Thread.Sleep(360);
-                Assert.IsTrue(InputEventCount(fixture) >= 8, "the action did not repeat at the configured interval while held");
+                AssertInputCountWithin(fixture, countBeforeSample, minimum: 8, maximum: 16,
+                    "the simple action did not maintain a bounded cadence near its configured 70 ms interval");
             }
 
             app.WaitUntilStopped();
@@ -38,7 +40,7 @@ public sealed class WhileHeldHotkeyFlowTests
         }
 
         var saved = fixture.ReadSimpleDefaults();
-        Assert.AreEqual("While held", saved.ClickType);
+        Assert.AreEqual(AutomationActionTypeIds.WhileHeld, saved.ClickType);
         Assert.AreEqual(70, saved.Milliseconds);
     }
 
@@ -53,13 +55,13 @@ public sealed class WhileHeldHotkeyFlowTests
         action.BehaviorOverrides &= ~AutomationBehaviorOverride.Interval;
         action.Settings.TargetExecutable = string.Empty;
         action.Settings.TargetWindowEnabled = false;
-        AutomationProfileStore.Save(fixture.TestFile("automation-profiles.json"), document);
+        AutomationProfileStore.Save(fixture.TestFile(ConfigurationFileNames.AutomationProfiles), document);
 
         using (var session = fixture.Launch(registerKeyboardHotkeys: true))
         {
             var app = new MainWindowRobot(session);
             session.Editor.Select(EditorScope.Hotkey);
-            app.SelectActionType("While held");
+            app.SelectActionType(AutomationActionTypeIds.WhileHeld);
             session.Editor.SaveProfile();
 
             using (session.HoldRegisteredKeyboardHotkey(VirtualKeyShort.F6))
@@ -67,9 +69,10 @@ public sealed class WhileHeldHotkeyFlowTests
                 session.WaitFor(
                     () => session.MainElement($"StopAction_{ProfileE2EFixture.ActionId}").AsButton().IsEnabled,
                     "held profile hotkey did not start");
+                var countBeforeSample = InputEventCount(fixture);
                 Thread.Sleep(430);
-                Assert.IsTrue(InputEventCount(fixture) >= 8,
-                    "the held action did not use the inherited 80 ms profile interval");
+                AssertInputCountWithin(fixture, countBeforeSample, minimum: 8, maximum: 16,
+                    "the held action did not maintain a bounded cadence near its inherited 80 ms profile interval");
             }
 
             session.WaitFor(
@@ -79,7 +82,7 @@ public sealed class WhileHeldHotkeyFlowTests
         }
 
         var stored = fixture.ReadProfiles().Profiles.Single().Actions.Single(item => item.Id == ProfileE2EFixture.ActionId);
-        Assert.AreEqual("While held", stored.Settings.ClickType);
+        Assert.AreEqual(AutomationActionTypeIds.WhileHeld, stored.Settings.ClickType);
         Assert.IsFalse(stored.ActiveBehaviorOverrides.HasFlag(AutomationBehaviorOverride.Interval),
             "choosing While held must not turn an inherited interval into a local override");
     }
@@ -92,7 +95,7 @@ public sealed class WhileHeldHotkeyFlowTests
         var app = new MainWindowRobot(session);
         app.DisableTargetWindow();
         app.SelectCustomKey(VirtualKeyShort.F6);
-        app.SelectActionType("While held");
+        app.SelectActionType(AutomationActionTypeIds.WhileHeld);
 
         using (session.HoldRegisteredKeyboardHotkey(VirtualKeyShort.F6))
             session.WaitFor(
@@ -106,6 +109,18 @@ public sealed class WhileHeldHotkeyFlowTests
 
     private static int InputEventCount(ProfileE2EFixture fixture) =>
         fixture.ReadRuntimeEvents().Count(line => line.Contains("\tinput\t", StringComparison.Ordinal));
+
+    private static void AssertInputCountWithin(
+        ProfileE2EFixture fixture,
+        int countBeforeSample,
+        int minimum,
+        int maximum,
+        string message)
+    {
+        var sampledCount = InputEventCount(fixture) - countBeforeSample;
+        Assert.IsTrue(sampledCount >= minimum && sampledCount <= maximum,
+            $"{message}. Expected {minimum}–{maximum} safe input events but observed {sampledCount}.");
+    }
 
     private static void AssertInputRemainsStopped(ProfileE2EFixture fixture)
     {

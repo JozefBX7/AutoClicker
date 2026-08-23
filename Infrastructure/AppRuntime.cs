@@ -20,16 +20,16 @@ internal static class AppRuntime
 
     internal static void Configure(string[] args)
     {
-        if (!HasArgument(args, "--e2e")) return;
+        if (!HasArgument(args, AppCommandLineOptions.EndToEnd)) return;
 
         IsEndToEndTest = true;
         RegisterEndToEndKeyboardHotkeys = ShouldRegisterEndToEndKeyboardHotkeys(args);
-        ConfigDirectoryOverride = ReadValue(args, "--config-directory") is { } directory
+        ConfigDirectoryOverride = ReadValue(args, AppCommandLineOptions.ConfigDirectory) is { } directory
             ? Path.GetFullPath(directory)
             : throw new ArgumentException("End-to-end mode requires --config-directory.");
-        InstanceId = SanitizeName(ReadValue(args, "--instance-id") ?? Environment.ProcessId.ToString());
-        SaveFilePathOverride = ValidateTestFilePath(ReadValue(args, "--save-file"));
-        OpenFilePathOverride = ValidateTestFilePath(ReadValue(args, "--open-file"));
+        InstanceId = SanitizeName(ReadValue(args, AppCommandLineOptions.InstanceId) ?? Environment.ProcessId.ToString());
+        SaveFilePathOverride = ValidateTestFilePath(ReadValue(args, AppCommandLineOptions.SaveFile));
+        OpenFilePathOverride = ValidateTestFilePath(ReadValue(args, AppCommandLineOptions.OpenFile));
     }
 
     internal static string ScopedKernelName(string productionName) =>
@@ -42,7 +42,7 @@ internal static class AppRuntime
         lock (journalLock)
         {
             Directory.CreateDirectory(ConfigDirectoryOverride);
-            File.AppendAllText(Path.Combine(ConfigDirectoryOverride, "e2e-runtime-events.log"), line);
+            File.AppendAllText(Path.Combine(ConfigDirectoryOverride, ConfigurationFileNames.EndToEndRuntimeLog), line);
         }
     }
 
@@ -76,7 +76,7 @@ internal static class AppRuntime
     }
 
     internal static bool ShouldRegisterEndToEndKeyboardHotkeys(IReadOnlyList<string> args) =>
-        HasArgument(args, "--e2e") && HasArgument(args, "--e2e-register-keyboard-hotkeys");
+        HasArgument(args, AppCommandLineOptions.EndToEnd) && HasArgument(args, AppCommandLineOptions.RegisterEndToEndKeyboardHotkeys);
 
     private static bool HasArgument(IEnumerable<string> args, string option) =>
         args.Any(argument => string.Equals(argument, option, StringComparison.OrdinalIgnoreCase));

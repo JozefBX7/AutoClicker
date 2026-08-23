@@ -122,31 +122,31 @@ public partial class PositionPickerWindow : Window
 
     private delegate nint LowLevelMouseProc(int code, nint wParam, nint lParam);
 
-    [DllImport("user32.dll", SetLastError = true)]
+    [DllImport(NativeLibraryNames.User32, SetLastError = true)]
     private static extern nint SetWindowsHookEx(int idHook, LowLevelMouseProc callback, nint module, uint threadId);
 
-    [DllImport("user32.dll", SetLastError = true)]
+    [DllImport(NativeLibraryNames.User32, SetLastError = true)]
     private static extern bool UnhookWindowsHookEx(nint hook);
 
-    [DllImport("user32.dll")]
+    [DllImport(NativeLibraryNames.User32)]
     private static extern nint CallNextHookEx(nint hook, int code, nint wParam, nint lParam);
 
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    [DllImport(NativeLibraryNames.Kernel32, CharSet = CharSet.Unicode)]
     private static extern nint GetModuleHandle(string? moduleName);
 
-    [DllImport("user32.dll")]
+    [DllImport(NativeLibraryNames.User32)]
     private static extern bool GetCursorPos(out NativePoint point);
 
-    [DllImport("user32.dll")]
+    [DllImport(NativeLibraryNames.User32)]
     private static extern bool GetWindowRect(nint window, out NativeRect rectangle);
 
-    [DllImport("user32.dll", SetLastError = true)]
+    [DllImport(NativeLibraryNames.User32, SetLastError = true)]
     private static extern bool SetWindowPos(nint window, nint insertAfter, int x, int y, int width, int height, uint flags);
 
-    [DllImport("user32.dll")]
+    [DllImport(NativeLibraryNames.User32)]
     private static extern nint MonitorFromPoint(NativePoint point, uint flags);
 
-    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    [DllImport(NativeLibraryNames.User32, CharSet = CharSet.Auto)]
     private static extern bool GetMonitorInfo(nint monitor, ref MonitorInfo info);
 
     [StructLayout(LayoutKind.Sequential)]

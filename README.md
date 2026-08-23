@@ -19,7 +19,7 @@ Detailed guides are available in the [AutoClicker Wiki](https://github.com/Jozef
 - **Simple mode** keeps one action and one global hotkey visible, ideal for a quick clicker or key spammer on one key.
 - **Advanced mode** keeps named profiles of hotkeys. Actions may run concurrently, can be enabled or disabled individually, and inherit interval, repeat, position, targeting, jitter, pulse, and lighting from profile or Advanced defaults until overridden.
 
-Profiles are saved deliberately, so experimenting does not overwrite a saved setup. They can be duplicated, reordered, imported/exported individually, or copied into another profile.
+Profiles are saved deliberately, so experimenting does not overwrite a saved setup. They can be duplicated, reordered, imported/exported individually, or copied into another profile. Each Advanced hotkey can also have a separate binding that enables or disables it; disabling stops that action, and re-enabling a While-held action starts it immediately when its run trigger is already down.
 
 ## Input and targeting
 
@@ -27,13 +27,17 @@ Leave the target blank for normal global input, enter an executable name to run 
 
 Choose left, middle, or right clicks; Space, Enter, or a picked key; or a custom sequence. Mouse buttons beyond left/right may also be used as global hotkeys.
 
+Custom-sequence events can be normal presses, held inputs, matching releases, or explicit waits. The editor supports multi-selection, grouped drag-and-drop, clipboard-style editing, automatic matching releases, and a non-running timeline preview. Balanced hold/release events make it possible to build real key chords and timed mouse holds while retaining automatic cleanup if a run is stopped.
+
 The Action menu supports **Single**, **Double**, **Hold**, and **While held**. Hold keeps one generated input pressed until the action is stopped. While held instead repeats complete clicks, key presses, or custom sequences at the configured interval for only as long as the action hotkey remains physically held.
 
 ## Keep your setup portable
 
 Settings can export or restore **Everything**, **Simple mode**, **Advanced mode and profiles**, or **Custom sequences**. Full backups are versioned for future compatibility, while profile export makes it easy to share one named setup.
 
-OpenRGB keyboard lighting can also keep an optional idle OpenRGB profile selection in full backups and full resets.
+Window pinning can be remembered independently from whether it is applied immediately at startup. Delayed pinning lets the app launch normally and become always-on-top only after the first interaction. The main window also returns to its last normal position and is moved back into a visible work area if the monitor layout has changed.
+
+OpenRGB keyboard lighting can also keep an optional idle OpenRGB profile selection in full backups and full resets. Keyboard discovery uses OpenRGB's device type and generic keyboard characteristics rather than a hard-coded vendor or model list.
 
 ## Download
 

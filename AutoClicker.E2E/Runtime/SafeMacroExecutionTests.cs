@@ -18,8 +18,8 @@ public sealed class SafeMacroExecutionTests
         using var session = fixture.Launch();
         var app = new MainWindowRobot(session);
         app.DisableTargetWindow();
-        app.SelectInput("Left click");
-        app.SelectActionType("Single");
+        app.SelectInput(AutomationInputLabels.LeftClick);
+        app.SelectActionType(AutomationActionTypeIds.Single);
         app.SetIntervalMilliseconds(60);
         app.SetFixedPosition(123, 234);
         app.SetFiniteRepeat(5);
@@ -40,8 +40,8 @@ public sealed class SafeMacroExecutionTests
         using var session = fixture.Launch();
         var app = new MainWindowRobot(session);
         app.DisableTargetWindow();
-        app.SelectInput("Space");
-        app.SelectActionType("Hold");
+        app.SelectInput(AutomationInputIds.Space);
+        app.SelectActionType(AutomationActionTypeIds.Hold);
         app.SetRepeatUntilStopped();
 
         app.Start();
@@ -49,26 +49,64 @@ public sealed class SafeMacroExecutionTests
             "held input did not reach the safe E2E sink");
         app.Stop();
 
-        Assert.IsTrue(fixture.ReadRuntimeEvents().Count(line => line.Contains("\tinput\t", StringComparison.Ordinal)) >= 2,
-            "a held action should record both its down packet and final release packet");
+        var inputEvents = fixture.ReadRuntimeEvents().Where(IsInputEvent).ToList();
+        Assert.AreEqual(2, inputEvents.Count, "a held action should emit exactly one down and one cleanup release");
+        Assert.AreEqual(1, inputEvents.Count(line => line.Contains("keyboard:vk=0:scan=57:flags=8", StringComparison.Ordinal)),
+            "the held Space action did not emit exactly one key-down packet");
+        Assert.AreEqual(1, inputEvents.Count(line => line.Contains("keyboard:vk=0:scan=57:flags=10", StringComparison.Ordinal)),
+            "stopping the held Space action did not emit exactly one key-up packet");
+        Assert.IsTrue(inputEvents[0].Contains("flags=8", StringComparison.Ordinal)
+            && inputEvents[1].Contains("flags=10", StringComparison.Ordinal),
+            "the cleanup release must occur after the held input is pressed");
     }
 
     [TestMethod]
     public void AdvancedActions_CanRunConcurrentlyAndStopIndependently()
     {
         using var fixture = new ProfileE2EFixture();
+        var document = fixture.ReadProfiles();
+        var profile = document.Profiles.Single(item => item.Id == ProfileE2EFixture.ProfileId);
+        var first = profile.Actions.Single(item => item.Id == ProfileE2EFixture.ActionId);
+        var second = profile.Actions.Single(item => item.Id == ProfileE2EFixture.SecondActionId);
+        first.Settings.TargetExecutable = string.Empty;
+        first.Settings.TargetWindowEnabled = false;
+        first.Settings.RepeatUntilStopped = true;
+        second.Settings.Input = AutomationInputIds.Right;
+        second.Settings.MouseButton = AutomationInputIds.Right;
+        second.Settings.TargetExecutable = string.Empty;
+        second.Settings.TargetWindowEnabled = false;
+        second.Settings.RepeatUntilStopped = true;
+        AutomationProfileStore.Save(fixture.TestFile(ConfigurationFileNames.AutomationProfiles), document);
+
         using var session = fixture.Launch();
         var app = new MainWindowRobot(session);
 
-        session.Editor.Select(EditorScope.Hotkey);
-        app.DisableTargetWindow();
         app.StartAdvancedAction(ProfileE2EFixture.ActionId);
         app.StartAdvancedAction(ProfileE2EFixture.SecondActionId);
-        session.WaitFor(() => fixture.ReadRuntimeEvents().Count(line => line.Contains("\tinput\t", StringComparison.Ordinal)) >= 2,
-            "concurrent actions did not reach the safe E2E sink");
+        session.WaitFor(() => LeftClickCount(fixture) >= 2 && RightClickCount(fixture) >= 2,
+            "both distinguishable concurrent actions did not reach the safe E2E sink");
 
         app.StopAdvancedAction(ProfileE2EFixture.ActionId);
         Assert.IsTrue(session.MainElement($"StopAction_{ProfileE2EFixture.SecondActionId}").AsButton().IsEnabled);
+        var leftCountAfterStop = LeftClickCount(fixture);
+        var rightCountAfterFirstStop = RightClickCount(fixture);
+        session.WaitFor(() => RightClickCount(fixture) > rightCountAfterFirstStop,
+            "stopping the left-click action also stopped the concurrent right-click action");
+        Assert.AreEqual(leftCountAfterStop, LeftClickCount(fixture),
+            "the first action continued emitting left clicks after it was stopped");
+
         app.StopAdvancedAction(ProfileE2EFixture.SecondActionId);
+        var rightCountAfterStop = RightClickCount(fixture);
+        Thread.Sleep(250);
+        Assert.AreEqual(rightCountAfterStop, RightClickCount(fixture),
+            "the second action continued emitting right clicks after it was stopped");
     }
+
+    private static bool IsInputEvent(string line) => line.Contains("\tinput\t", StringComparison.Ordinal);
+
+    private static int LeftClickCount(ProfileE2EFixture fixture) =>
+        fixture.ReadRuntimeEvents().Count(line => IsInputEvent(line) && line.Contains("mouse:2", StringComparison.Ordinal));
+
+    private static int RightClickCount(ProfileE2EFixture fixture) =>
+        fixture.ReadRuntimeEvents().Count(line => IsInputEvent(line) && line.Contains("mouse:8", StringComparison.Ordinal));
 }

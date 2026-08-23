@@ -14,11 +14,8 @@ public partial class SettingsWindow : Window
     private const string NoIdleProfileOption = "(None)";
     private const int OpenRgbProfileRetryWindowMilliseconds = 10_000;
     private const int OpenRgbProfileRetryDelayMilliseconds = 300;
-    public RgbSettings Settings { get; }
-    public WorkerPriorityOption WorkerPriority { get; private set; }
-    public bool CadenceDiagnosticsEnabled { get; private set; }
-    public bool AdvancedMode { get; private set; }
-    public bool KeyboardHotkeyModifiersEnabled { get; private set; }
+    public RgbSettings RgbSettings { get; }
+    public ApplicationPreferences ApplicationPreferences { get; }
     private readonly string hotkeyName;
     private readonly string? hotkeyKeyName;
     private readonly Func<ResetScope, bool> resetSettings;
@@ -29,7 +26,7 @@ public partial class SettingsWindow : Window
     private bool restartEffectPreview;
     private bool isClosing;
 
-    public SettingsWindow(RgbSettings current, WorkerPriorityOption workerPriority, bool cadenceDiagnosticsEnabled, bool advancedMode, bool keyboardHotkeyModifiersEnabled, string hotkeyName, string? hotkeyKeyName, Func<ResetScope, bool> resetSettings, Func<BackupScope, string, string?> exportBackup, Func<BackupScope, string, string?> importBackup)
+    public SettingsWindow(RgbSettings currentRgbSettings, ApplicationPreferences currentApplicationPreferences, string hotkeyName, string? hotkeyKeyName, Func<ResetScope, bool> resetSettings, Func<BackupScope, string, string?> exportBackup, Func<BackupScope, string, string?> importBackup)
     {
         InitializeComponent();
         this.hotkeyName = hotkeyName;
@@ -39,24 +36,25 @@ public partial class SettingsWindow : Window
         this.importBackup = importBackup;
         effectPreviewRestartTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
         effectPreviewRestartTimer.Tick += EffectPreviewRestartTimer_Tick;
-        Settings = new RgbSettings { Enabled = current.Enabled, DeviceIndex = current.DeviceIndex, DeviceName = current.DeviceName, AutoStart = current.AutoStart, StopAutoStartedOnExit = current.StopAutoStartedOnExit, CrashRecoveryEnabled = current.CrashRecoveryEnabled, IdleProfileName = current.IdleProfileName, IndicatorColor = current.IndicatorColor, LightingEffect = current.LightingEffect, PulseSpeedMilliseconds = current.PulseSpeedMilliseconds };
-        WorkerPriority = workerPriority;
-        WorkerPriorityCombo.SelectedItem = WorkerPriorityCombo.Items.OfType<ComboBoxItem>().First(item => string.Equals(item.Tag?.ToString(), WorkerPriority.ToString(), StringComparison.OrdinalIgnoreCase));
-        CadenceDiagnosticsEnabled = cadenceDiagnosticsEnabled;
-        EnableCadenceDiagnostics.IsChecked = CadenceDiagnosticsEnabled;
-        AdvancedMode = advancedMode;
-        ModeCombo.SelectedIndex = AdvancedMode ? 1 : 0;
-        KeyboardHotkeyModifiersEnabled = keyboardHotkeyModifiersEnabled;
-        EnableKeyboardHotkeyModifiers.IsChecked = KeyboardHotkeyModifiersEnabled;
-        EnableOpenRgb.IsChecked = Settings.Enabled;
-        AutoStartOpenRgb.IsChecked = Settings.AutoStart;
-        StopAutoStartedOpenRgb.IsChecked = Settings.StopAutoStartedOnExit;
+        RgbSettings = currentRgbSettings.Clone();
+        ApplicationPreferences = currentApplicationPreferences.Clone();
+        var workerPriority = WorkerPriorityRules.Normalize(ApplicationPreferences.WorkerPriority);
+        WorkerPriorityCombo.SelectedItem = WorkerPriorityCombo.Items.OfType<ComboBoxItem>().First(item => string.Equals(item.Tag?.ToString(), workerPriority.ToString(), StringComparison.OrdinalIgnoreCase));
+        EnableCadenceDiagnostics.IsChecked = ApplicationPreferences.CadenceDiagnosticsEnabled;
+        ModeCombo.SelectedIndex = ApplicationPreferences.AdvancedMode ? 1 : 0;
+        EnableKeyboardHotkeyModifiers.IsChecked = ApplicationPreferences.KeyboardHotkeyModifiersEnabled;
+        RememberPinnedCheckBox.IsChecked = ApplicationPreferences.RememberPinned;
+        ApplyPinnedOnLaunchCheckBox.IsChecked = ApplicationPreferences.ApplyPinnedOnLaunch;
+        UpdatePinnedPreferenceUi();
+        EnableOpenRgb.IsChecked = RgbSettings.Enabled;
+        AutoStartOpenRgb.IsChecked = RgbSettings.AutoStart;
+        StopAutoStartedOpenRgb.IsChecked = RgbSettings.StopAutoStartedOnExit;
         SetIdleProfileOptions([], clearMissingWhenKeyboardConnected: false);
-        EnableCrashRecovery.IsChecked = Settings.CrashRecoveryEnabled;
-        IndicatorColorBox.Text = Settings.IndicatorColor;
+        EnableCrashRecovery.IsChecked = ApplicationPreferences.CrashRecoveryEnabled;
+        IndicatorColorBox.Text = RgbSettings.IndicatorColor;
         UpdateColorPreview();
-        SelectEffect(Settings.LightingEffect);
-        EffectSpeedSlider.Value = SpeedToSlider(Settings.PulseSpeedMilliseconds, SelectedEffect());
+        SelectEffect(RgbSettings.LightingEffect);
+        EffectSpeedSlider.Value = SpeedToSlider(RgbSettings.EffectSpeedMilliseconds, SelectedEffect());
         UpdatePulseSpeedEnabled();
         UpdateOpenRgbOptionsEnabled();
         HotkeyLightingHint.Text = hotkeyKeyName is null
@@ -124,7 +122,15 @@ public partial class SettingsWindow : Window
         restartEffectPreview = false;
         effectTestCancellation?.Cancel();
         ConnectionStatus.Text = "OpenRGB lighting is disabled.";
-        ConnectionStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+        ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush);
+    }
+
+    private void RememberPinned_Changed(object sender, RoutedEventArgs e) => UpdatePinnedPreferenceUi();
+
+    private void UpdatePinnedPreferenceUi()
+    {
+        if (ApplyPinnedOnLaunchCheckBox is not null && RememberPinnedCheckBox is not null)
+            ApplyPinnedOnLaunchCheckBox.IsEnabled = RememberPinnedCheckBox.IsChecked == true;
     }
 
     private void UpdateOpenRgbOptionsEnabled()
@@ -141,12 +147,12 @@ public partial class SettingsWindow : Window
         ReleaseHistoryPanel.Visibility = Visibility.Collapsed;
         ReleaseHistoryList.ItemsSource = null;
         UpdateStatus.Text = "Checking GitHub Releases…";
-        UpdateStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+        UpdateStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush);
         try
         {
             var update = await UpdateService.CheckForUpdateAsync(AppPaths.IsPortable, CancellationToken.None);
             UpdateStatus.Text = update.Message;
-            UpdateStatus.Foreground = ThemeManager.Brush(update.IsUpdateAvailable ? "SuccessBrush" : "TextMutedBrush");
+            UpdateStatus.Foreground = ThemeManager.Brush(update.IsUpdateAvailable ? ThemeResourceKeys.SuccessBrush : ThemeResourceKeys.TextMutedBrush);
             if (update.RecentReleases is { Count: > 0 })
             {
                 ReleaseHistoryList.ItemsSource = update.RecentReleases;
@@ -163,7 +169,7 @@ public partial class SettingsWindow : Window
         {
             AppLog.Error("GitHub update check failed", exception);
             UpdateStatus.Text = "Could not check GitHub Releases. Open Releases to download an update manually.";
-            UpdateStatus.Foreground = ThemeManager.Brush("WarningBrush");
+            UpdateStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.WarningBrush);
         }
         finally { CheckUpdatesButton.IsEnabled = true; }
     }
@@ -177,7 +183,7 @@ public partial class SettingsWindow : Window
             // Portable files are replaced by the user so their folder remains under their control.
             OpenUrl(downloadUri);
             UpdateStatus.Text = "Download opened. Extract it over the portable copy after AutoClicker closes; its Data folder is preserved.";
-            UpdateStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+            UpdateStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush);
             return;
         }
 
@@ -190,7 +196,7 @@ public partial class SettingsWindow : Window
         // Download first; launch the normal installer only after a complete file is available.
         DownloadUpdateButton.IsEnabled = false;
         UpdateStatus.Text = "Downloading the installer from GitHub Releases…";
-        UpdateStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+        UpdateStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush);
         try
         {
             var installerPath = await UpdateService.DownloadInstallerAsync(downloadUri, update.LatestTag ?? "latest", CancellationToken.None);
@@ -201,7 +207,7 @@ public partial class SettingsWindow : Window
         {
             AppLog.Error("GitHub update installer download failed", exception);
             UpdateStatus.Text = "Could not download the installer. Open Releases to download the update manually.";
-            UpdateStatus.Foreground = ThemeManager.Brush("WarningBrush");
+            UpdateStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.WarningBrush);
             DownloadUpdateButton.IsEnabled = true;
         }
     }
@@ -225,7 +231,7 @@ public partial class SettingsWindow : Window
         }
         var error = exportBackup(scope, fileName);
         ConnectionStatus.Text = error is null ? $"{BackupScopeInfo.DisplayName(scope)} exported." : error;
-        ConnectionStatus.Foreground = ThemeManager.Brush(error is null ? "SuccessBrush" : "ErrorBrush");
+        ConnectionStatus.Foreground = ThemeManager.Brush(error is null ? ThemeResourceKeys.SuccessBrush : ThemeResourceKeys.ErrorBrush);
     }
 
     private void ImportBackup(BackupScope scope)
@@ -243,7 +249,7 @@ public partial class SettingsWindow : Window
         }
         var error = importBackup(scope, fileName);
         ConnectionStatus.Text = error is null ? $"{BackupScopeInfo.DisplayName(scope)} restored. Close Settings to use it." : error;
-        ConnectionStatus.Foreground = ThemeManager.Brush(error is null ? "SuccessBrush" : "ErrorBrush");
+        ConnectionStatus.Foreground = ThemeManager.Brush(error is null ? ThemeResourceKeys.SuccessBrush : ThemeResourceKeys.ErrorBrush);
     }
 
     private void ExportEverything_Click(object sender, RoutedEventArgs e) => ExportBackup(BackupScope.Everything);
@@ -273,7 +279,7 @@ public partial class SettingsWindow : Window
         restartEffectPreview = true;
         TestEffectButton.IsEnabled = false;
         ConnectionStatus.Text = "Applying effect speed…";
-        ConnectionStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+        ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush);
         effectTestCancellation.Cancel();
     }
 
@@ -304,7 +310,7 @@ public partial class SettingsWindow : Window
         };
         var availability = await OpenRgbHighlighter.EnsureSdkAsync(settings);
         cancellation.ThrowIfCancellationRequested();
-        if (!availability.IsAvailable) return availability.Message ?? "OpenRGB's SDK server is unavailable.";
+        if (!availability.IsAvailable) return availability.Message ?? OpenRgbMessages.SdkServerUnavailable;
         return await OpenRgbHighlighter.ShowKeySolidAsync(settings, hotkeyKeyName, cancellation);
     }
 
@@ -319,44 +325,44 @@ public partial class SettingsWindow : Window
         if (hotkeyKeyName is null)
         {
             ConnectionStatus.Text = "OpenRGB can only light a keyboard hotkey.";
-            ConnectionStatus.Foreground = ThemeManager.Brush("WarningBrush");
+            ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.WarningBrush);
             return;
         }
         if (Owner is MainWindow { IsClicking: true })
         {
             ConnectionStatus.Text = "Stop AutoClicker before testing RGB lighting.";
-            ConnectionStatus.Foreground = ThemeManager.Brush("WarningBrush");
+            ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.WarningBrush);
             return;
         }
         if (EnableOpenRgb.IsChecked != true || KeyboardCombo.SelectedItem is not KeyboardDevice keyboard)
         {
             ConnectionStatus.Text = "Enable OpenRGB lighting and select a keyboard before testing.";
-            ConnectionStatus.Foreground = ThemeManager.Brush("WarningBrush");
+            ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.WarningBrush);
             return;
         }
 
         SetLightingTestControlsEnabled(false);
         ConnectionStatus.Text = "Flashing the selected keyboard three times…";
-        ConnectionStatus.Foreground = ThemeManager.Brush("SuccessBrush");
+        ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.SuccessBrush);
         try
         {
             if (!OpenRgbHighlighter.TryNormalizeIndicatorColor(IndicatorColorBox.Text, out var color))
             {
                 ConnectionStatus.Text = "Enter a colour as a hex value, for example #22D3EE.";
-                ConnectionStatus.Foreground = ThemeManager.Brush("ErrorBrush");
+                ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.ErrorBrush);
                 return;
             }
-            var settings = new RgbSettings { Enabled = true, DeviceIndex = keyboard.Index, DeviceName = keyboard.Name, AutoStart = AutoStartOpenRgb.IsChecked == true, StopAutoStartedOnExit = StopAutoStartedOpenRgb.IsChecked == true, IdleProfileName = SelectedIdleProfileName(), IndicatorColor = color, LightingEffect = SelectedEffect(), PulseSpeedMilliseconds = ReadPulseSpeed() };
+            var settings = new RgbSettings { Enabled = true, DeviceIndex = keyboard.Index, DeviceName = keyboard.Name, AutoStart = AutoStartOpenRgb.IsChecked == true, StopAutoStartedOnExit = StopAutoStartedOpenRgb.IsChecked == true, IdleProfileName = SelectedIdleProfileName(), IndicatorColor = color, LightingEffect = SelectedEffect(), EffectSpeedMilliseconds = ReadEffectSpeed() };
             var availability = await OpenRgbHighlighter.EnsureSdkAsync(settings);
             if (!availability.IsAvailable)
             {
-                ConnectionStatus.Text = availability.Message ?? "OpenRGB's SDK server is unavailable.";
-                ConnectionStatus.Foreground = ThemeManager.Brush("ErrorBrush");
+                ConnectionStatus.Text = availability.Message ?? OpenRgbMessages.SdkServerUnavailable;
+                ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.ErrorBrush);
                 return;
             }
             var error = await OpenRgbHighlighter.FlashKeyboardAsync(settings);
             ConnectionStatus.Text = error is null ? "Finished testing the keyboard; its previous colours were restored." : error;
-            ConnectionStatus.Foreground = error is null ? ThemeManager.Brush("SuccessBrush") : ThemeManager.Brush("ErrorBrush");
+            ConnectionStatus.Foreground = error is null ? ThemeManager.Brush(ThemeResourceKeys.SuccessBrush) : ThemeManager.Brush(ThemeResourceKeys.ErrorBrush);
         }
         finally
         {
@@ -373,20 +379,20 @@ public partial class SettingsWindow : Window
             effectTestCancellation.Cancel();
             TestEffectButton.IsEnabled = false;
             ConnectionStatus.Text = "Stopping keyboard effect test…";
-            ConnectionStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+            ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush);
             return;
         }
 
         if (Owner is MainWindow { IsClicking: true })
         {
             ConnectionStatus.Text = "Stop AutoClicker before testing RGB lighting.";
-            ConnectionStatus.Foreground = ThemeManager.Brush("WarningBrush");
+            ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.WarningBrush);
             return;
         }
         if (!TryCreateLightingSettings(out var settings, out var validationError))
         {
             ConnectionStatus.Text = validationError;
-            ConnectionStatus.Foreground = ThemeManager.Brush("WarningBrush");
+            ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.WarningBrush);
             return;
         }
 
@@ -396,7 +402,7 @@ public partial class SettingsWindow : Window
         TestEffectButton.Content = "Stop effect test";
         TestEffectButton.ToolTip = "Stop the current keyboard effect test and restore its previous colours.";
         ConnectionStatus.Text = $"Testing {SelectedEffect().ToLowerInvariant()} across the keyboard…";
-        ConnectionStatus.Foreground = ThemeManager.Brush("SuccessBrush");
+        ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.SuccessBrush);
 
         RgbKeyboardSnapshot? snapshot = null;
         try
@@ -404,29 +410,29 @@ public partial class SettingsWindow : Window
             var availability = await OpenRgbHighlighter.EnsureSdkAsync(settings);
             if (!availability.IsAvailable)
             {
-                ConnectionStatus.Text = availability.Message ?? "OpenRGB's SDK server is unavailable.";
-                ConnectionStatus.Foreground = ThemeManager.Brush("ErrorBrush");
+                ConnectionStatus.Text = availability.Message ?? OpenRgbMessages.SdkServerUnavailable;
+                ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.ErrorBrush);
                 return;
             }
 
-            snapshot = OpenRgbHighlighter.EnableKeyboardIndicator(settings, out var error, lightImmediately: !settings.IsPulse);
+            snapshot = OpenRgbHighlighter.EnableKeyboardIndicator(settings, out var error, lightImmediately: !settings.UsesFadeEffect);
             if (snapshot is null)
             {
                 ConnectionStatus.Text = error ?? "OpenRGB could not start the effect test.";
-                ConnectionStatus.Foreground = ThemeManager.Brush("ErrorBrush");
+                ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.ErrorBrush);
                 return;
             }
 
             using var duration = CancellationTokenSource.CreateLinkedTokenSource(effectTestCancellation.Token);
-            if (settings.IsBlink)
+            if (settings.UsesBlinkEffect)
             {
-                duration.CancelAfter(TimeSpan.FromMilliseconds(Math.Clamp(settings.PulseSpeedMilliseconds, 120, 2000) * 6));
-                await OpenRgbHighlighter.BlinkKeyboardAsync(snapshot, settings.PulseSpeedMilliseconds, duration.Token);
+                duration.CancelAfter(TimeSpan.FromMilliseconds(Math.Clamp(settings.EffectSpeedMilliseconds, 120, 2000) * 6));
+                await OpenRgbHighlighter.BlinkKeyboardAsync(snapshot, settings.EffectSpeedMilliseconds, duration.Token);
             }
-            else if (settings.IsPulse)
+            else if (settings.UsesFadeEffect)
             {
-                duration.CancelAfter(TimeSpan.FromMilliseconds(Math.Clamp(settings.PulseSpeedMilliseconds, OpenRgbHighlighter.MinimumPulseCycleMilliseconds, OpenRgbHighlighter.MaximumPulseCycleMilliseconds) * 3));
-                await OpenRgbHighlighter.FadePulseKeyboardAsync(snapshot, settings.PulseSpeedMilliseconds, duration.Token);
+                duration.CancelAfter(TimeSpan.FromMilliseconds(Math.Clamp(settings.EffectSpeedMilliseconds, OpenRgbHighlighter.MinimumFadeCycleMilliseconds, OpenRgbHighlighter.MaximumFadeCycleMilliseconds) * 3));
+                await OpenRgbHighlighter.FadeKeyboardAsync(snapshot, settings.EffectSpeedMilliseconds, duration.Token);
             }
             else
             {
@@ -438,13 +444,13 @@ public partial class SettingsWindow : Window
                 if (!isClosing)
                 {
                     ConnectionStatus.Text = "Keyboard effect test stopped; the previous colours were restored.";
-                    ConnectionStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+                    ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush);
                 }
             }
             else
             {
                 ConnectionStatus.Text = $"Finished testing {SelectedEffect().ToLowerInvariant()}; the previous colours were restored.";
-                ConnectionStatus.Foreground = ThemeManager.Brush("SuccessBrush");
+                ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.SuccessBrush);
             }
         }
         catch (OperationCanceledException)
@@ -452,7 +458,7 @@ public partial class SettingsWindow : Window
             if (!isClosing)
             {
                 ConnectionStatus.Text = "Keyboard effect test stopped; the previous colours were restored.";
-                ConnectionStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+                ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush);
             }
         }
         catch (Exception exception)
@@ -461,7 +467,7 @@ public partial class SettingsWindow : Window
             if (!isClosing)
             {
                 ConnectionStatus.Text = $"Keyboard effect test failed: {exception.Message}";
-                ConnectionStatus.Foreground = ThemeManager.Brush("ErrorBrush");
+                ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.ErrorBrush);
             }
         }
         finally
@@ -486,25 +492,25 @@ public partial class SettingsWindow : Window
         if (Owner is MainWindow { IsClicking: true })
         {
             ConnectionStatus.Text = "Stop AutoClicker before clearing keyboard lighting.";
-            ConnectionStatus.Foreground = ThemeManager.Brush("WarningBrush");
+            ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.WarningBrush);
             return;
         }
         if (effectTestCancellation is not null || !TestRgbButton.IsEnabled)
         {
             ConnectionStatus.Text = "Finish the current keyboard lighting test before clearing lighting.";
-            ConnectionStatus.Foreground = ThemeManager.Brush("WarningBrush");
+            ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.WarningBrush);
             return;
         }
         if (KeyboardCombo.SelectedItem is not KeyboardDevice keyboard)
         {
             ConnectionStatus.Text = "Select a keyboard before clearing stuck lighting.";
-            ConnectionStatus.Foreground = ThemeManager.Brush("WarningBrush");
+            ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.WarningBrush);
             return;
         }
 
         SetLightingTestControlsEnabled(false);
         ConnectionStatus.Text = "Refreshing the selected keyboard's colours…";
-        ConnectionStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+        ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush);
         try
         {
             var settings = new RgbSettings
@@ -519,8 +525,8 @@ public partial class SettingsWindow : Window
             var availability = await OpenRgbHighlighter.EnsureSdkAsync(settings);
             if (!availability.IsAvailable)
             {
-                ConnectionStatus.Text = availability.Message ?? "OpenRGB's SDK server is unavailable.";
-                ConnectionStatus.Foreground = ThemeManager.Brush("ErrorBrush");
+                ConnectionStatus.Text = availability.Message ?? OpenRgbMessages.SdkServerUnavailable;
+                ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.ErrorBrush);
                 return;
             }
 
@@ -528,7 +534,7 @@ public partial class SettingsWindow : Window
             ConnectionStatus.Text = error is null
                 ? "Refreshed the selected keyboard colours to clear any stuck lighting."
                 : error;
-            ConnectionStatus.Foreground = error is null ? ThemeManager.Brush("SuccessBrush") : ThemeManager.Brush("ErrorBrush");
+            ConnectionStatus.Foreground = error is null ? ThemeManager.Brush(ThemeResourceKeys.SuccessBrush) : ThemeManager.Brush(ThemeResourceKeys.ErrorBrush);
         }
         finally
         {
@@ -559,7 +565,7 @@ public partial class SettingsWindow : Window
             error = "Enter a colour as a hex value, for example #22D3EE.";
             return false;
         }
-        settings = new RgbSettings { Enabled = true, DeviceIndex = keyboard.Index, DeviceName = keyboard.Name, AutoStart = AutoStartOpenRgb.IsChecked == true, StopAutoStartedOnExit = StopAutoStartedOpenRgb.IsChecked == true, IdleProfileName = SelectedIdleProfileName(), IndicatorColor = color, LightingEffect = SelectedEffect(), PulseSpeedMilliseconds = ReadPulseSpeed() };
+        settings = new RgbSettings { Enabled = true, DeviceIndex = keyboard.Index, DeviceName = keyboard.Name, AutoStart = AutoStartOpenRgb.IsChecked == true, StopAutoStartedOnExit = StopAutoStartedOpenRgb.IsChecked == true, IdleProfileName = SelectedIdleProfileName(), IndicatorColor = color, LightingEffect = SelectedEffect(), EffectSpeedMilliseconds = ReadEffectSpeed() };
         return true;
     }
 
@@ -578,8 +584,8 @@ public partial class SettingsWindow : Window
             var retryDeadline = Stopwatch.GetTimestamp() + OpenRgbProfileRetryWindowMilliseconds * Stopwatch.Frequency / 1000d;
             while (!isClosing)
             {
-                Settings.AutoStart = autoStart;
-                var availability = await OpenRgbHighlighter.EnsureSdkAsync(Settings);
+                RgbSettings.AutoStart = autoStart;
+                var availability = await OpenRgbHighlighter.EnsureSdkAsync(RgbSettings);
                 if (EnableOpenRgb.IsChecked != true) return;
                 if (!availability.IsAvailable)
                 {
@@ -602,7 +608,7 @@ public partial class SettingsWindow : Window
 
     private void SetIdleProfileOptions(IEnumerable<string> discoveredProfiles, bool clearMissingWhenKeyboardConnected)
     {
-        var remembered = (Settings.IdleProfileName ?? string.Empty).Trim();
+        var remembered = (RgbSettings.IdleProfileName ?? string.Empty).Trim();
         var rememberedKey = NormalizeProfileNameForCompare(remembered);
         var profiles = discoveredProfiles
             .Where(profile => !string.IsNullOrWhiteSpace(profile))
@@ -630,10 +636,10 @@ public partial class SettingsWindow : Window
 
         if (clearMissingWhenKeyboardConnected && profiles.Count > 0)
         {
-            Settings.IdleProfileName = string.Empty;
+            RgbSettings.IdleProfileName = string.Empty;
             OpenRgbProfileCombo.SelectedItem = NoIdleProfileOption;
             ConnectionStatus.Text = $"Saved idle profile '{remembered}' was not found. Idle profile was set to none.";
-            ConnectionStatus.Foreground = ThemeManager.Brush("WarningBrush");
+            ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.WarningBrush);
             return;
         }
 
@@ -654,32 +660,32 @@ public partial class SettingsWindow : Window
         if (string.IsNullOrWhiteSpace(profileName))
         {
             ConnectionStatus.Text = "Choose an OpenRGB profile before testing.";
-            ConnectionStatus.Foreground = ThemeManager.Brush("WarningBrush");
+            ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.WarningBrush);
             return;
         }
 
         SetLightingTestControlsEnabled(false);
         ConnectionStatus.Text = $"Applying OpenRGB profile '{profileName}'…";
-        ConnectionStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+        ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush);
         try
         {
             var settings = new RgbSettings { Enabled = true, AutoStart = AutoStartOpenRgb.IsChecked == true };
             var availability = await OpenRgbHighlighter.EnsureSdkAsync(settings);
             if (!availability.IsAvailable)
             {
-                ConnectionStatus.Text = availability.Message ?? "OpenRGB's SDK server is unavailable.";
-                ConnectionStatus.Foreground = ThemeManager.Brush("ErrorBrush");
+                ConnectionStatus.Text = availability.Message ?? OpenRgbMessages.SdkServerUnavailable;
+                ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.ErrorBrush);
                 return;
             }
             if (!OpenRgbHighlighter.TryLoadProfile(profileName, out var error))
             {
                 ConnectionStatus.Text = error ?? "OpenRGB profile load failed.";
-                ConnectionStatus.Foreground = ThemeManager.Brush("ErrorBrush");
+                ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.ErrorBrush);
                 return;
             }
 
             ConnectionStatus.Text = $"Applied OpenRGB profile '{profileName}'.";
-            ConnectionStatus.Foreground = ThemeManager.Brush("SuccessBrush");
+            ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.SuccessBrush);
         }
         finally
         {
@@ -700,26 +706,26 @@ public partial class SettingsWindow : Window
         {
             KeyboardCombo.ItemsSource = Array.Empty<KeyboardDevice>();
             ConnectionStatus.Text = "OpenRGB discovery is isolated during desktop tests.";
-            ConnectionStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+            ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush);
             return;
         }
         try
         {
-            Settings.AutoStart = AutoStartOpenRgb.IsChecked == true;
-            var availability = await OpenRgbHighlighter.EnsureSdkAsync(Settings);
+            RgbSettings.AutoStart = AutoStartOpenRgb.IsChecked == true;
+            var availability = await OpenRgbHighlighter.EnsureSdkAsync(RgbSettings);
             if (EnableOpenRgb.IsChecked != true) return;
             if (!availability.IsAvailable)
             {
                 KeyboardCombo.ItemsSource = Array.Empty<KeyboardDevice>();
-                ConnectionStatus.Text = availability.Message ?? "OpenRGB's SDK server is unavailable.";
-                ConnectionStatus.Foreground = ThemeManager.Brush("ErrorBrush");
+                ConnectionStatus.Text = availability.Message ?? OpenRgbMessages.SdkServerUnavailable;
+                ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.ErrorBrush);
                 return;
             }
             var keyboards = OpenRgbHighlighter.FindKeyboards();
             KeyboardCombo.ItemsSource = keyboards;
-            KeyboardCombo.SelectedItem = keyboards.FirstOrDefault(item => item.Index == Settings.DeviceIndex) ?? (keyboards.Length == 1 ? keyboards[0] : null);
+            KeyboardCombo.SelectedItem = keyboards.FirstOrDefault(item => item.Index == RgbSettings.DeviceIndex) ?? (keyboards.Length == 1 ? keyboards[0] : null);
             ConnectionStatus.Text = keyboards.Length == 0 ? "Connected, but OpenRGB did not expose your keyboard. In OpenRGB, rescan devices and try running it as administrator." : $"Found {keyboards.Length} keyboard{(keyboards.Length == 1 ? string.Empty : "s")}.";
-            ConnectionStatus.Foreground = keyboards.Length == 0 ? ThemeManager.Brush("WarningBrush") : ThemeManager.Brush("SuccessBrush");
+            ConnectionStatus.Foreground = keyboards.Length == 0 ? ThemeManager.Brush(ThemeResourceKeys.WarningBrush) : ThemeManager.Brush(ThemeResourceKeys.SuccessBrush);
             var selected = KeyboardCombo.SelectedItem as KeyboardDevice;
             if (EnableOpenRgb.IsChecked == true && selected is not null && hotkeyKeyName is not null)
             {
@@ -728,55 +734,57 @@ public partial class SettingsWindow : Window
                 HotkeyLightingHint.Text = canLight
                     ? $"OpenRGB can light {hotkeyName} while AutoClicker is active."
                     : error ?? $"OpenRGB cannot light {hotkeyName}.";
-                HotkeyLightingHint.Foreground = canLight ? ThemeManager.Brush("SuccessBrush") : ThemeManager.Brush("ErrorBrush");
+                HotkeyLightingHint.Foreground = canLight ? ThemeManager.Brush(ThemeResourceKeys.SuccessBrush) : ThemeManager.Brush(ThemeResourceKeys.ErrorBrush);
             }
         }
         catch (Exception exception)
         {
             if (EnableOpenRgb.IsChecked != true) return;
             ConnectionStatus.Text = $"Could not connect to OpenRGB. Install and start OpenRGB with its SDK server enabled, then try again. ({exception.Message})";
-            ConnectionStatus.Foreground = ThemeManager.Brush("ErrorBrush");
+            ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.ErrorBrush);
         }
     }
 
     private void SaveButton_Click(object sender, RoutedEventArgs e)
     {
         var keyboard = KeyboardCombo.SelectedItem as KeyboardDevice;
-        Settings.Enabled = EnableOpenRgb.IsChecked == true;
-        Settings.AutoStart = AutoStartOpenRgb.IsChecked == true;
-        Settings.StopAutoStartedOnExit = StopAutoStartedOpenRgb.IsChecked == true;
-        Settings.CrashRecoveryEnabled = EnableCrashRecovery.IsChecked == true;
-        Settings.IdleProfileName = SelectedIdleProfileName();
+        RgbSettings.Enabled = EnableOpenRgb.IsChecked == true;
+        RgbSettings.AutoStart = AutoStartOpenRgb.IsChecked == true;
+        RgbSettings.StopAutoStartedOnExit = StopAutoStartedOpenRgb.IsChecked == true;
+        ApplicationPreferences.CrashRecoveryEnabled = EnableCrashRecovery.IsChecked == true;
+        RgbSettings.IdleProfileName = SelectedIdleProfileName();
         if (!OpenRgbHighlighter.TryNormalizeIndicatorColor(IndicatorColorBox.Text, out var color))
         {
             ConnectionStatus.Text = "Enter a colour as a hex value, for example #22D3EE.";
-            ConnectionStatus.Foreground = ThemeManager.Brush("ErrorBrush");
+            ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.ErrorBrush);
             return;
         }
-        Settings.IndicatorColor = color;
-        Settings.LightingEffect = SelectedEffect();
-        Settings.PulseSpeedMilliseconds = ReadPulseSpeed();
-        Settings.DeviceIndex = keyboard?.Index ?? -1;
-        Settings.DeviceName = keyboard?.Name ?? string.Empty;
-        WorkerPriority = WorkerPriorityRules.Normalize((WorkerPriorityCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString());
-        CadenceDiagnosticsEnabled = EnableCadenceDiagnostics.IsChecked == true;
-        AdvancedMode = string.Equals((ModeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString(), "Advanced", StringComparison.Ordinal);
-        KeyboardHotkeyModifiersEnabled = EnableKeyboardHotkeyModifiers.IsChecked == true;
+        RgbSettings.IndicatorColor = color;
+        RgbSettings.LightingEffect = SelectedEffect();
+        RgbSettings.EffectSpeedMilliseconds = ReadEffectSpeed();
+        RgbSettings.DeviceIndex = keyboard?.Index ?? -1;
+        RgbSettings.DeviceName = keyboard?.Name ?? string.Empty;
+        ApplicationPreferences.WorkerPriority = WorkerPriorityRules.Normalize((WorkerPriorityCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString()).ToString();
+        ApplicationPreferences.CadenceDiagnosticsEnabled = EnableCadenceDiagnostics.IsChecked == true;
+        ApplicationPreferences.AdvancedMode = string.Equals((ModeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString(), AppModeIds.Advanced, StringComparison.Ordinal);
+        ApplicationPreferences.KeyboardHotkeyModifiersEnabled = EnableKeyboardHotkeyModifiers.IsChecked == true;
+        ApplicationPreferences.RememberPinned = RememberPinnedCheckBox.IsChecked == true;
+        ApplicationPreferences.ApplyPinnedOnLaunch = ApplyPinnedOnLaunchCheckBox.IsChecked == true;
         DialogResult = true;
     }
 
-    private int ReadPulseSpeed()
+    private int ReadEffectSpeed()
     {
         var progress = Math.Clamp(EffectSpeedSlider?.Value ?? 50d, 0d, 100d) / 100d;
-        return string.Equals(SelectedEffect(), "Fade", StringComparison.OrdinalIgnoreCase)
-            ? (int)Math.Round(OpenRgbHighlighter.MaximumPulseCycleMilliseconds - ((OpenRgbHighlighter.MaximumPulseCycleMilliseconds - OpenRgbHighlighter.MinimumPulseCycleMilliseconds) * progress))
+        return string.Equals(SelectedEffect(), RgbLightingEffectIds.Fade, StringComparison.OrdinalIgnoreCase)
+            ? (int)Math.Round(OpenRgbHighlighter.MaximumFadeCycleMilliseconds - ((OpenRgbHighlighter.MaximumFadeCycleMilliseconds - OpenRgbHighlighter.MinimumFadeCycleMilliseconds) * progress))
             : (int)Math.Round(2000d - (1880d * progress));
     }
 
     private static double SpeedToSlider(int milliseconds, string effect)
     {
-        if (string.Equals(effect, "Fade", StringComparison.OrdinalIgnoreCase))
-            return (OpenRgbHighlighter.MaximumPulseCycleMilliseconds - Math.Clamp(milliseconds, OpenRgbHighlighter.MinimumPulseCycleMilliseconds, OpenRgbHighlighter.MaximumPulseCycleMilliseconds)) * 100d / (OpenRgbHighlighter.MaximumPulseCycleMilliseconds - OpenRgbHighlighter.MinimumPulseCycleMilliseconds);
+        if (string.Equals(effect, RgbLightingEffectIds.Fade, StringComparison.OrdinalIgnoreCase))
+            return (OpenRgbHighlighter.MaximumFadeCycleMilliseconds - Math.Clamp(milliseconds, OpenRgbHighlighter.MinimumFadeCycleMilliseconds, OpenRgbHighlighter.MaximumFadeCycleMilliseconds)) * 100d / (OpenRgbHighlighter.MaximumFadeCycleMilliseconds - OpenRgbHighlighter.MinimumFadeCycleMilliseconds);
         return (2000d - Math.Clamp(milliseconds, 120, 2000)) * 100d / 1880d;
     }
 
@@ -785,7 +793,7 @@ public partial class SettingsWindow : Window
         if (ColorPreview is null) return;
         var color = ParseColor(IndicatorColorBox.Text);
         ColorPreview.Background = color is null
-            ? ThemeManager.Brush("DisabledBrush")
+            ? ThemeManager.Brush(ThemeResourceKeys.DisabledBrush)
             : new SolidColorBrush(Color.FromRgb(color.Value.R, color.Value.G, color.Value.B));
         ColorPickerButton.ToolTip = color is null
             ? "Choose indicator colour - enter a valid hex value"
@@ -801,29 +809,29 @@ public partial class SettingsWindow : Window
             Convert.ToInt32(normalized[5..7], 16));
     }
 
-    private string SelectedEffect() => ((LightingEffectCombo.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Content?.ToString() ?? "Constant") switch { "Pulse" => "Fade", _ => (LightingEffectCombo.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Content?.ToString() ?? "Constant" };
+    private string SelectedEffect() => ((LightingEffectCombo.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Content?.ToString() ?? RgbLightingEffectIds.Constant) switch { RgbLightingEffectDisplayNames.Pulse => RgbLightingEffectIds.Fade, _ => (LightingEffectCombo.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Content?.ToString() ?? RgbLightingEffectIds.Constant };
     private void SelectEffect(string effect)
     {
-        var displayEffect = string.Equals(effect, "Fade", StringComparison.OrdinalIgnoreCase) ? "Pulse"
-            : string.Equals(effect, "Pulse", StringComparison.OrdinalIgnoreCase) ? "Blink" : effect;
+        var displayEffect = string.Equals(effect, RgbLightingEffectIds.Fade, StringComparison.OrdinalIgnoreCase) ? RgbLightingEffectDisplayNames.Pulse
+            : string.Equals(effect, RgbLightingEffectIds.LegacyBlink, StringComparison.OrdinalIgnoreCase) ? RgbLightingEffectIds.Blink : effect;
         LightingEffectCombo.SelectedItem = LightingEffectCombo.Items.OfType<System.Windows.Controls.ComboBoxItem>().FirstOrDefault(item => string.Equals(item.Content?.ToString(), displayEffect, StringComparison.OrdinalIgnoreCase)) ?? LightingEffectCombo.Items[0];
     }
     private void UpdatePulseSpeedEnabled()
     {
         if (EffectSpeedSlider is null || EffectSpeedHint is null || EffectSpeedValueLabel is null || EffectSpeedPanel is null) return;
         var effect = SelectedEffect();
-        var hasSpeed = !string.Equals(effect, "Constant", StringComparison.OrdinalIgnoreCase);
+        var hasSpeed = !string.Equals(effect, RgbLightingEffectIds.Constant, StringComparison.OrdinalIgnoreCase);
         EffectSpeedPanel.Visibility = hasSpeed ? Visibility.Visible : Visibility.Collapsed;
         EffectSpeedHint.Visibility = hasSpeed ? Visibility.Visible : Visibility.Collapsed;
         EffectSpeedSlider.IsEnabled = hasSpeed;
-        if (string.Equals(effect, "Fade", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(effect, RgbLightingEffectIds.Fade, StringComparison.OrdinalIgnoreCase))
         {
-            EffectSpeedValueLabel.Text = $"{ReadPulseSpeed() / 1000d:0.0} s per cycle";
+            EffectSpeedValueLabel.Text = $"{ReadEffectSpeed() / 1000d:0.0} s per cycle";
             EffectSpeedHint.Text = "Pulse fades smoothly; use the slider to choose a slower or faster cycle.";
         }
-        else if (string.Equals(effect, "Blink", StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(effect, RgbLightingEffectIds.Blink, StringComparison.OrdinalIgnoreCase))
         {
-            EffectSpeedValueLabel.Text = $"{ReadPulseSpeed():N0} ms per state";
+            EffectSpeedValueLabel.Text = $"{ReadEffectSpeed():N0} ms per state";
             EffectSpeedHint.Text = "Blink switches the key on and off at the selected speed.";
         }
         else { EffectSpeedValueLabel.Text = string.Empty; EffectSpeedHint.Text = string.Empty; }

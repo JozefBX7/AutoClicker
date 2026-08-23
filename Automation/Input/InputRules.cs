@@ -60,48 +60,48 @@ internal static class InputRules
 
     internal static long ApplyJitter(long baseMilliseconds, long offsetMilliseconds) => Math.Max(1, baseMilliseconds + offsetMilliseconds);
 
-    internal static bool IsKeyboardAction(string? action) => action is "Space" or "Enter" or "Custom";
+    internal static bool IsKeyboardAction(string? action) => action is AutomationInputIds.Space or AutomationInputIds.Enter or AutomationInputIds.Custom;
 
     internal static bool IsConfiguredAction(string? action, int customVirtualKey, int sequenceStepCount) => action switch
     {
-        "Left" or "Right" or "Middle" or "Space" or "Enter" => true,
-        "Custom" => customVirtualKey != 0,
-        "Sequence" => sequenceStepCount >= 2,
+        AutomationInputIds.Left or AutomationInputIds.Right or AutomationInputIds.Middle or AutomationInputIds.Space or AutomationInputIds.Enter => true,
+        AutomationInputIds.Custom => customVirtualKey != 0,
+        AutomationInputIds.Sequence => sequenceStepCount >= 2,
         _ => false
     };
 
-    internal static bool IsHoldAction(string? actionType) => string.Equals(actionType, "Hold", StringComparison.Ordinal);
+    internal static bool IsHoldAction(string? actionType) => string.Equals(actionType, AutomationActionTypeIds.Hold, StringComparison.Ordinal);
 
-    internal static bool IsWhileHeldAction(string? actionType) => string.Equals(actionType, "While held", StringComparison.Ordinal);
+    internal static bool IsWhileHeldAction(string? actionType) => string.Equals(actionType, AutomationActionTypeIds.WhileHeld, StringComparison.Ordinal);
 
     internal static bool RequiresContinuousRun(string? actionType) => IsHoldAction(actionType) || IsWhileHeldAction(actionType);
 
     internal static bool ActionUsesVirtualKey(string? action, int customVirtualKey, IEnumerable<SequenceStep>? sequence, int virtualKey) => action switch
     {
-        "Space" => virtualKey == 0x20,
-        "Enter" => virtualKey == 0x0D,
-        "Custom" => customVirtualKey == virtualKey,
-        "Sequence" => sequence?.Any(step => ActionUsesVirtualKey(step.Input, step.CustomKey, null, virtualKey)) == true,
+        AutomationInputIds.Space => virtualKey == 0x20,
+        AutomationInputIds.Enter => virtualKey == 0x0D,
+        AutomationInputIds.Custom => customVirtualKey == virtualKey,
+        AutomationInputIds.Sequence => sequence?.Any(step => ActionUsesVirtualKey(step.Input, step.CustomKey, null, virtualKey)) == true,
         _ => false
     };
 
     internal static string DescribeAction(string? action, int customVirtualKey) => action switch
     {
-        "Left" => "Left click",
-        "Right" => "Right click",
-        "Middle" => "Middle click",
-        "Space" => "Space",
-        "Enter" => "Enter",
-        "Custom" when customVirtualKey != 0 => DescribeVirtualKey(customVirtualKey),
-        "Sequence" => "Custom sequence",
-        _ => "Set action"
+        AutomationInputIds.Left => AutomationInputLabels.LeftClick,
+        AutomationInputIds.Right => AutomationInputLabels.RightClick,
+        AutomationInputIds.Middle => AutomationInputLabels.MiddleClick,
+        AutomationInputIds.Space => AutomationInputIds.Space,
+        AutomationInputIds.Enter => AutomationInputIds.Enter,
+        AutomationInputIds.Custom when customVirtualKey != 0 => DescribeVirtualKey(customVirtualKey),
+        AutomationInputIds.Sequence => AutomationInputLabels.CustomSequence,
+        _ => AutomationInputLabels.SetAction
     };
 
     private static string DescribeVirtualKey(int virtualKey) => System.Windows.Input.KeyInterop.KeyFromVirtualKey(virtualKey) switch
     {
         var key when virtualKey >= 0x30 && virtualKey <= 0x39 => (virtualKey - 0x30).ToString(),
-        System.Windows.Input.Key.Return => "Enter",
-        System.Windows.Input.Key.Space => "Space",
+        System.Windows.Input.Key.Return => AutomationInputIds.Enter,
+        System.Windows.Input.Key.Space => AutomationInputIds.Space,
         var key => key.ToString()
     };
 }

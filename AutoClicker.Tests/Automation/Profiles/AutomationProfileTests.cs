@@ -12,13 +12,14 @@ namespace AutoClicker.Tests;
 [TestClass]
 public sealed class AutomationProfileTests
 {
+    private const string TestDirectoryName = "AutoClicker.Tests";
     [TestMethod]
     public void MissingStore_CreatesReadyToUseGeneralProfile()
     {
         var path = TemporaryPath();
         try
         {
-            var document = AutomationProfileStore.Load(path, new AppDefaults { Input = "Left", Hotkey = 117 });
+            var document = AutomationProfileStore.Load(path, new AppDefaults { Input = AutomationInputIds.Left, Hotkey = 117 });
             Assert.AreEqual(1, document.Profiles.Count);
             Assert.AreEqual("General", document.Profiles[0].Name);
             Assert.AreEqual(1, document.Profiles[0].Actions.Count);
@@ -36,14 +37,14 @@ public sealed class AutomationProfileTests
             var profile = new AutomationProfile
             {
                 Name = "Unselected action",
-                Actions = [new AutomationAction { Settings = new AppDefaults { Hotkey = 118, Input = "Unset", MouseButton = "Unset" } }]
+                Actions = [new AutomationAction { Settings = new AppDefaults { Hotkey = 118, Input = AutomationInputIds.Unset, MouseButton = AutomationInputIds.Unset } }]
             };
 
             ProfileTransferStore.Save(path, profile);
             var imported = ProfileTransferStore.Load(path);
 
-            Assert.AreEqual("Unset", imported.Actions[0].Settings.Input);
-            Assert.AreEqual("Unset", imported.Actions[0].Settings.MouseButton);
+            Assert.AreEqual(AutomationInputIds.Unset, imported.Actions[0].Settings.Input);
+            Assert.AreEqual(AutomationInputIds.Unset, imported.Actions[0].Settings.MouseButton);
         }
         finally { Delete(path); }
     }
@@ -95,7 +96,7 @@ public sealed class AutomationProfileTests
         var path = TemporaryPath();
         try
         {
-            var action = new AutomationAction { Id = "hold-e", Settings = new AppDefaults { Input = "Custom", CustomKey = 69, ClickType = "Hold", Hotkey = 118, TargetExecutable = "game.exe", TargetWindowTitle = "Game", TargetWindowEnabled = true, HotkeyTrigger = HotkeyTrigger.Mouse4 } };
+            var action = new AutomationAction { Id = "hold-e", Settings = new AppDefaults { Input = AutomationInputIds.Custom, CustomKey = 69, ClickType = AutomationActionTypeIds.Hold, Hotkey = 118, TargetExecutable = "game.exe", TargetWindowTitle = "Game", TargetWindowEnabled = true, HotkeyTrigger = HotkeyTrigger.Mouse4 } };
             var profileDefaults = new AppDefaults { RepeatUntilStopped = false, RepeatCount = 8, FixedPosition = true, X = 120, Y = 340, InputJitterMaximumMilliseconds = 4 };
             var document = new AutomationProfileDocument { ActiveProfileId = "general", ActiveActionId = action.Id, Profiles = [new AutomationProfile { Id = "general", Name = "General", BehaviorDefaults = profileDefaults, Actions = [action] }] };
             AutomationProfileStore.Save(path, document);
@@ -285,7 +286,7 @@ public sealed class AutomationProfileTests
         var action = new AutomationAction
         {
             UsesSharedBehaviorDefaults = true,
-            Settings = new AppDefaults { Hours = 1, Milliseconds = 25, Input = "Space", Hotkey = 118 }
+            Settings = new AppDefaults { Hours = 1, Milliseconds = 25, Input = AutomationInputIds.Space, Hotkey = 118 }
         };
 
         var resolved = AutomationBehaviorSettingsResolver.Resolve(global, profile, action);
@@ -302,7 +303,7 @@ public sealed class AutomationProfileTests
         Assert.AreEqual(7L, resolved.InputJitterMaximumMilliseconds);
         Assert.AreEqual(1, resolved.Hours);
         Assert.AreEqual(25, resolved.Milliseconds);
-        Assert.AreEqual("Space", resolved.Input);
+        Assert.AreEqual(AutomationInputIds.Space, resolved.Input);
         Assert.AreEqual(118, resolved.Hotkey);
     }
 
@@ -312,7 +313,7 @@ public sealed class AutomationProfileTests
         var path = TemporaryPath();
         try
         {
-            var action = new AutomationAction { Settings = new AppDefaults { Input = "Left", ClickType = "While held", Hotkey = 117 } };
+            var action = new AutomationAction { Settings = new AppDefaults { Input = AutomationInputIds.Left, ClickType = AutomationActionTypeIds.WhileHeld, Hotkey = 117 } };
             var document = new AutomationProfileDocument
             {
                 ActiveProfileId = "general",
@@ -323,7 +324,7 @@ public sealed class AutomationProfileTests
             AutomationProfileStore.Save(path, document);
             var loaded = AutomationProfileStore.Load(path, new AppDefaults());
 
-            Assert.AreEqual("While held", loaded.Profiles[0].Actions[0].Settings.ClickType);
+            Assert.AreEqual(AutomationActionTypeIds.WhileHeld, loaded.Profiles[0].Actions[0].Settings.ClickType);
             Assert.AreEqual("Left click while held", loaded.Profiles[0].Actions[0].ActionDescription);
         }
         finally { Delete(path); }
@@ -607,7 +608,7 @@ public sealed class AutomationProfileTests
     {
         var action = new AutomationAction
         {
-            Settings = new AppDefaults { Hotkey = 117, Input = "Right" },
+            Settings = new AppDefaults { Hotkey = 117, Input = AutomationInputIds.Right },
             UsesSharedBehaviorDefaults = false
         };
 
@@ -615,7 +616,7 @@ public sealed class AutomationProfileTests
 
         Assert.AreEqual("F6", tile.HotkeyLabel);
         Assert.AreEqual("Hotkey: F6", tile.HotkeyTooltip);
-        Assert.AreEqual("Right click", tile.ActionLabel);
+        Assert.AreEqual(AutomationInputLabels.RightClick, tile.ActionLabel);
         Assert.AreEqual(Visibility.Collapsed, tile.RemoveButtonVisibility);
         Assert.AreEqual(Visibility.Visible, tile.RemovalConfirmationVisibility);
         Assert.AreEqual(Visibility.Collapsed, tile.BehaviorBadgeVisibility);
@@ -669,29 +670,29 @@ public sealed class AutomationProfileTests
     public void AdvancedActionLabelConverter_CompactsMouseActionsBeforeKeyboardActions()
     {
         var converter = new AdvancedActionLabelConverter();
-        var mouse = new AutomationAction { Settings = new AppDefaults { Input = "Right" } };
-        var key = new AutomationAction { Settings = new AppDefaults { Input = "Space" } };
+        var mouse = new AutomationAction { Settings = new AppDefaults { Input = AutomationInputIds.Right } };
+        var key = new AutomationAction { Settings = new AppDefaults { Input = AutomationInputIds.Space } };
 
-        Assert.AreEqual("Right click", converter.Convert([mouse, 120d], typeof(string), null!, CultureInfo.InvariantCulture));
-        Assert.AreEqual("Right click", converter.Convert([mouse, 95d], typeof(string), null!, CultureInfo.InvariantCulture));
+        Assert.AreEqual(AutomationInputLabels.RightClick, converter.Convert([mouse, 120d], typeof(string), null!, CultureInfo.InvariantCulture));
+        Assert.AreEqual(AutomationInputLabels.RightClick, converter.Convert([mouse, 95d], typeof(string), null!, CultureInfo.InvariantCulture));
         Assert.AreEqual("R", converter.Convert([mouse, 75d], typeof(string), null!, CultureInfo.InvariantCulture));
-        Assert.AreEqual("Right click", converter.Convert([mouse, 75d, false], typeof(string), null!, CultureInfo.InvariantCulture));
-        Assert.AreEqual("Space", converter.Convert([key, 95d], typeof(string), null!, CultureInfo.InvariantCulture));
+        Assert.AreEqual(AutomationInputLabels.RightClick, converter.Convert([mouse, 75d, false], typeof(string), null!, CultureInfo.InvariantCulture));
+        Assert.AreEqual(AutomationInputIds.Space, converter.Convert([key, 95d], typeof(string), null!, CultureInfo.InvariantCulture));
     }
 
     [TestMethod]
     public void AdvancedActionLabelConverter_ShowsPlaceholderForUnconfiguredActions()
     {
         var converter = new AdvancedActionLabelConverter();
-        var unconfigured = new AutomationAction { Settings = new AppDefaults { Input = "Unset", MouseButton = "Unset" } };
+        var unconfigured = new AutomationAction { Settings = new AppDefaults { Input = AutomationInputIds.Unset, MouseButton = AutomationInputIds.Unset } };
 
-        Assert.AreEqual("Set action", converter.Convert([unconfigured, 120d], typeof(string), null!, CultureInfo.InvariantCulture));
+        Assert.AreEqual(AutomationInputLabels.SetAction, converter.Convert([unconfigured, 120d], typeof(string), null!, CultureInfo.InvariantCulture));
     }
 
     [TestMethod]
     public void AdvancedActionLabels_ShowTheConfiguredActionType()
     {
-        var action = new AutomationAction { Settings = new AppDefaults { Input = "Left", ClickType = "Double", Hotkey = 117 } };
+        var action = new AutomationAction { Settings = new AppDefaults { Input = AutomationInputIds.Left, ClickType = AutomationActionTypeIds.Double, Hotkey = 117 } };
         var converter = new AdvancedActionLabelConverter();
 
         Assert.AreEqual("Double left click", action.DisplayName.Split('·')[1].Trim());
@@ -709,7 +710,7 @@ public sealed class AutomationProfileTests
                 Id = "source",
                 Name = "Games",
                 BehaviorDefaults = new AppDefaults { RepeatUntilStopped = false, RepeatCount = 4, InputPulseMilliseconds = 3 },
-                Actions = [new AutomationAction { Id = "f7", Settings = new AppDefaults { Hotkey = 118, Input = "Space", Milliseconds = 75 } }]
+                Actions = [new AutomationAction { Id = "f7", Settings = new AppDefaults { Hotkey = 118, Input = AutomationInputIds.Space, Milliseconds = 75 } }]
             };
 
             ProfileTransferStore.Save(path, profile);
@@ -720,7 +721,7 @@ public sealed class AutomationProfileTests
             Assert.AreEqual(1, imported.Actions.Count);
             Assert.AreNotEqual(profile.Actions[0].Id, imported.Actions[0].Id);
             Assert.AreEqual(118, imported.Actions[0].Settings.Hotkey);
-            Assert.AreEqual("Space", imported.Actions[0].Settings.Input);
+            Assert.AreEqual(AutomationInputIds.Space, imported.Actions[0].Settings.Input);
             Assert.IsFalse(imported.BehaviorDefaults!.RepeatUntilStopped);
             Assert.AreEqual(3, imported.BehaviorDefaults.InputPulseMilliseconds);
         }
@@ -734,11 +735,11 @@ public sealed class AutomationProfileTests
         {
             Actions =
             [
-                new AutomationAction { Id = "existing", Settings = new AppDefaults { Hotkey = 117, Input = "Right" } }
+                new AutomationAction { Id = "existing", Settings = new AppDefaults { Hotkey = 117, Input = AutomationInputIds.Right } }
             ]
         };
-        var conflicting = new AutomationAction { Id = "source-f6", Settings = new AppDefaults { Hotkey = 117, Input = "Space" } };
-        var available = new AutomationAction { Id = "source-f7", Settings = new AppDefaults { Hotkey = 118, Input = "Enter" } };
+        var conflicting = new AutomationAction { Id = "source-f6", Settings = new AppDefaults { Hotkey = 117, Input = AutomationInputIds.Space } };
+        var available = new AutomationAction { Id = "source-f7", Settings = new AppDefaults { Hotkey = 118, Input = AutomationInputIds.Enter } };
 
         var result = AutomationProfileCopy.CopyTo(destination, [conflicting, available], ProfileCopyConflictResolution.Skip);
 
@@ -746,8 +747,8 @@ public sealed class AutomationProfileTests
         Assert.AreEqual(0, result.ReplacedCount);
         Assert.AreEqual(1, result.SkippedCount);
         Assert.AreEqual(2, destination.Actions.Count);
-        Assert.AreEqual("Right", destination.Actions.Single(action => action.Settings.Hotkey == 117).Settings.Input);
-        Assert.AreEqual("Enter", destination.Actions.Single(action => action.Settings.Hotkey == 118).Settings.Input);
+        Assert.AreEqual(AutomationInputIds.Right, destination.Actions.Single(action => action.Settings.Hotkey == 117).Settings.Input);
+        Assert.AreEqual(AutomationInputIds.Enter, destination.Actions.Single(action => action.Settings.Hotkey == 118).Settings.Input);
     }
 
     [TestMethod]
@@ -755,9 +756,9 @@ public sealed class AutomationProfileTests
     {
         var destination = new AutomationProfile
         {
-            Actions = [new AutomationAction { Id = "existing", Settings = new AppDefaults { Hotkey = 117, Input = "Right" } }]
+            Actions = [new AutomationAction { Id = "existing", Settings = new AppDefaults { Hotkey = 117, Input = AutomationInputIds.Right } }]
         };
-        var source = new AutomationAction { Id = "source", Settings = new AppDefaults { Hotkey = 117, Input = "Space" } };
+        var source = new AutomationAction { Id = "source", Settings = new AppDefaults { Hotkey = 117, Input = AutomationInputIds.Space } };
 
         var result = AutomationProfileCopy.CopyTo(destination, [source], ProfileCopyConflictResolution.Replace);
 
@@ -765,7 +766,7 @@ public sealed class AutomationProfileTests
         Assert.AreEqual(1, result.ReplacedCount);
         Assert.AreEqual(0, result.SkippedCount);
         Assert.AreEqual(1, destination.Actions.Count);
-        Assert.AreEqual("Space", destination.Actions[0].Settings.Input);
+        Assert.AreEqual(AutomationInputIds.Space, destination.Actions[0].Settings.Input);
         Assert.AreNotEqual(source.Id, destination.Actions[0].Id);
         Assert.AreNotSame(source.Settings, destination.Actions[0].Settings);
     }
@@ -773,14 +774,14 @@ public sealed class AutomationProfileTests
     [TestMethod]
     public void ProfileCopy_PreservesUnselectedAction()
     {
-        var source = new AutomationAction { Id = "source", Settings = new AppDefaults { Hotkey = 118, Input = "Unset", MouseButton = "Unset" } };
+        var source = new AutomationAction { Id = "source", Settings = new AppDefaults { Hotkey = 118, Input = AutomationInputIds.Unset, MouseButton = AutomationInputIds.Unset } };
         var destination = new AutomationProfile();
 
         var result = AutomationProfileCopy.CopyTo(destination, [source], ProfileCopyConflictResolution.Skip);
 
         Assert.AreEqual(1, result.CopiedCount);
-        Assert.AreEqual("Unset", destination.Actions[0].Settings.Input);
-        Assert.AreEqual("Unset", destination.Actions[0].Settings.MouseButton);
+        Assert.AreEqual(AutomationInputIds.Unset, destination.Actions[0].Settings.Input);
+        Assert.AreEqual(AutomationInputIds.Unset, destination.Actions[0].Settings.MouseButton);
         Assert.AreNotEqual(source.Id, destination.Actions[0].Id);
     }
 
@@ -876,6 +877,6 @@ public sealed class AutomationProfileTests
         Assert.AreEqual(1, normal.ActionLabelColumnSpan);
     }
 
-    private static string TemporaryPath() => Path.Combine(Path.GetTempPath(), "AutoClicker.Tests", Guid.NewGuid().ToString("N"), "automation-profiles.json");
+    private static string TemporaryPath() => Path.Combine(Path.GetTempPath(), TestDirectoryName, Guid.NewGuid().ToString(AppIdentity.CompactGuidFormat), ConfigurationFileNames.AutomationProfiles);
     private static void Delete(string path) { var directory = Path.GetDirectoryName(path)!; if (Directory.Exists(directory)) Directory.Delete(directory, true); }
 }

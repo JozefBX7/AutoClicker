@@ -8,6 +8,7 @@ namespace AutoClicker.E2E;
 
 internal sealed class ProfileE2EFixture : IDisposable
 {
+    private const string TestDirectoryName = "AutoClicker.E2E";
     internal const string ProfileId = "e2e-profile";
     internal const string ActionId = "e2e-action";
     internal const string SecondActionId = "e2e-action-2";
@@ -20,7 +21,7 @@ internal sealed class ProfileE2EFixture : IDisposable
 
     internal ProfileE2EFixture(bool advancedMode = true, bool chordedKeyboardHotkeys = false)
     {
-        ConfigDirectory = Path.Combine(Path.GetTempPath(), "AutoClicker.E2E", Guid.NewGuid().ToString("N"));
+        ConfigDirectory = Path.Combine(Path.GetTempPath(), TestDirectoryName, Guid.NewGuid().ToString(AppIdentity.CompactGuidFormat));
         Directory.CreateDirectory(ConfigDirectory);
         SeedConfiguration(advancedMode, chordedKeyboardHotkeys);
     }
@@ -36,37 +37,40 @@ internal sealed class ProfileE2EFixture : IDisposable
     internal string TestFile(string fileName) => Path.Combine(ConfigDirectory, fileName);
 
     internal void WriteSequenceLibrary(IEnumerable<SequencePreset> presets) =>
-        SequenceLibraryStore.Save(Path.Combine(ConfigDirectory, "sequence-library.json"), presets);
+        SequenceLibraryStore.Save(Path.Combine(ConfigDirectory, ConfigurationFileNames.SequenceLibrary), presets);
 
     internal AppDefaults ReadGlobalDefaults() =>
-        JsonSerializer.Deserialize<AppDefaults>(File.ReadAllText(Path.Combine(ConfigDirectory, "global-defaults.json")))
+        JsonSerializer.Deserialize<AppDefaults>(File.ReadAllText(Path.Combine(ConfigDirectory, ConfigurationFileNames.AdvancedSharedDefaults)))
         ?? throw new InvalidDataException("Global defaults were not valid JSON.");
 
     internal AppDefaults ReadSimpleDefaults() =>
-        JsonSerializer.Deserialize<AppDefaults>(File.ReadAllText(Path.Combine(ConfigDirectory, "defaults.json")))
+        JsonSerializer.Deserialize<AppDefaults>(File.ReadAllText(Path.Combine(ConfigDirectory, ConfigurationFileNames.SimpleDefaults)))
         ?? throw new InvalidDataException("Simple defaults were not valid JSON.");
 
     internal AutomationProfileDocument ReadProfiles() =>
-        AutomationProfileStore.Load(Path.Combine(ConfigDirectory, "automation-profiles.json"), new AppDefaults());
+        AutomationProfileStore.Load(Path.Combine(ConfigDirectory, ConfigurationFileNames.AutomationProfiles), new AppDefaults());
 
     internal IReadOnlyList<SequencePreset> ReadSequenceLibrary() =>
-        SequenceLibraryStore.Load(Path.Combine(ConfigDirectory, "sequence-library.json"));
+        SequenceLibraryStore.Load(Path.Combine(ConfigDirectory, ConfigurationFileNames.SequenceLibrary));
 
-    internal UiPreferences ReadUiPreferences() =>
-        UiPreferencesStore.Load(Path.Combine(ConfigDirectory, "ui-preferences.json"));
+    internal ApplicationPreferences ReadApplicationPreferences() =>
+        ApplicationPreferencesStore.Load(Path.Combine(ConfigDirectory, ConfigurationFileNames.ApplicationPreferences));
+
+    internal void WriteApplicationPreferences(ApplicationPreferences preferences) =>
+        ApplicationPreferencesStore.Save(Path.Combine(ConfigDirectory, ConfigurationFileNames.ApplicationPreferences), preferences);
 
     internal RgbSettings ReadRgbSettings() =>
-        JsonSerializer.Deserialize<RgbSettings>(File.ReadAllText(Path.Combine(ConfigDirectory, "rgb-settings.json")))
+        JsonSerializer.Deserialize<RgbSettings>(File.ReadAllText(Path.Combine(ConfigDirectory, ConfigurationFileNames.RgbSettings)))
         ?? throw new InvalidDataException("RGB settings were not valid JSON.");
 
     internal string ReadAppearance() =>
-        File.Exists(Path.Combine(ConfigDirectory, "appearance.json"))
-            ? File.ReadAllText(Path.Combine(ConfigDirectory, "appearance.json"))
+        File.Exists(Path.Combine(ConfigDirectory, ConfigurationFileNames.AppearanceSettings))
+            ? File.ReadAllText(Path.Combine(ConfigDirectory, ConfigurationFileNames.AppearanceSettings))
             : string.Empty;
 
     internal IReadOnlyList<string> ReadRuntimeEvents()
     {
-        var path = Path.Combine(ConfigDirectory, "e2e-runtime-events.log");
+        var path = Path.Combine(ConfigDirectory, ConfigurationFileNames.EndToEndRuntimeLog);
         return File.Exists(path) ? File.ReadAllLines(path) : [];
     }
 
@@ -81,17 +85,17 @@ internal sealed class ProfileE2EFixture : IDisposable
         const uint controlAndShift = 0x2 | 0x4;
         var hotkeyModifiers = chordedKeyboardHotkeys ? controlAndShift : 0;
         var global = Defaults(GlobalMilliseconds, GlobalRepeatCount, 1, 2, "global.exe", hotkeyModifiers);
-        File.WriteAllText(Path.Combine(ConfigDirectory, "global-defaults.json"), JsonSerializer.Serialize(global));
-        File.WriteAllText(Path.Combine(ConfigDirectory, "defaults.json"), JsonSerializer.Serialize(Defaults(50, 5, 0, 0, "simple.exe", hotkeyModifiers)));
-        UiPreferencesStore.Save(Path.Combine(ConfigDirectory, "ui-preferences.json"), new UiPreferences
+        File.WriteAllText(Path.Combine(ConfigDirectory, ConfigurationFileNames.AdvancedSharedDefaults), JsonSerializer.Serialize(global));
+        File.WriteAllText(Path.Combine(ConfigDirectory, ConfigurationFileNames.SimpleDefaults), JsonSerializer.Serialize(Defaults(50, 5, 0, 0, "simple.exe", hotkeyModifiers)));
+        ApplicationPreferencesStore.Save(Path.Combine(ConfigDirectory, ConfigurationFileNames.ApplicationPreferences), new ApplicationPreferences
         {
             AdvancedMode = advancedMode,
             QuickStartSeen = true,
-            KeyboardHotkeyModifiersEnabled = chordedKeyboardHotkeys
+            KeyboardHotkeyModifiersEnabled = chordedKeyboardHotkeys,
+            CrashRecoveryEnabled = false
         });
-        File.WriteAllText(Path.Combine(ConfigDirectory, "rgb-settings.json"), JsonSerializer.Serialize(new RgbSettings
+        File.WriteAllText(Path.Combine(ConfigDirectory, ConfigurationFileNames.RgbSettings), JsonSerializer.Serialize(new RgbSettings
         {
-            CrashRecoveryEnabled = false,
             AutoStart = false
         }));
 
@@ -122,7 +126,7 @@ internal sealed class ProfileE2EFixture : IDisposable
             BehaviorOverrides = AutomationBehaviorOverride.All,
             Actions = [action, secondAction]
         };
-        AutomationProfileStore.Save(Path.Combine(ConfigDirectory, "automation-profiles.json"), new AutomationProfileDocument
+        AutomationProfileStore.Save(Path.Combine(ConfigDirectory, ConfigurationFileNames.AutomationProfiles), new AutomationProfileDocument
         {
             ActiveProfileId = ProfileId,
             ActiveActionId = ActionId,
@@ -140,9 +144,9 @@ internal sealed class ProfileE2EFixture : IDisposable
         uint hotkeyModifiers = 0) => new()
     {
         Milliseconds = milliseconds,
-        Input = "Left",
-        MouseButton = "Left",
-        ClickType = "Single",
+        Input = AutomationInputIds.Left,
+        MouseButton = AutomationInputIds.Left,
+        ClickType = AutomationActionTypeIds.Single,
         RepeatUntilStopped = false,
         RepeatCount = repeatCount,
         FixedPosition = true,

@@ -6,6 +6,7 @@ using OpenRGB.NET;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Text.Json.Serialization;
 
 namespace AutoClicker;
 
@@ -16,17 +17,17 @@ public sealed class RgbSettings
     public string DeviceName { get; set; } = string.Empty;
     public bool AutoStart { get; set; }
     public bool StopAutoStartedOnExit { get; set; } = true;
-    public bool CrashRecoveryEnabled { get; set; } = true;
     public string IdleProfileName { get; set; } = string.Empty;
     public string IndicatorColor { get; set; } = "#22D3EE";
-    public string LightingEffect { get; set; } = "Constant";
-    public int PulseSpeedMilliseconds { get; set; } = 450;
+    public string LightingEffect { get; set; } = RgbLightingEffectIds.Constant;
+    [JsonPropertyName(RgbSettingJsonNames.LegacyEffectSpeedMilliseconds)]
+    public int EffectSpeedMilliseconds { get; set; } = 450;
 
     // "Pulse" was the former name for the on/off effect. Keep it as a
     // backwards-compatible alias so existing saved settings become Blink.
-    public bool IsBlink => string.Equals(LightingEffect, "Blink", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(LightingEffect, "Pulse", StringComparison.OrdinalIgnoreCase);
-    public bool IsPulse => string.Equals(LightingEffect, "Fade", StringComparison.OrdinalIgnoreCase);
+    public bool UsesBlinkEffect => string.Equals(LightingEffect, RgbLightingEffectIds.Blink, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(LightingEffect, RgbLightingEffectIds.LegacyBlink, StringComparison.OrdinalIgnoreCase);
+    public bool UsesFadeEffect => string.Equals(LightingEffect, RgbLightingEffectIds.Fade, StringComparison.OrdinalIgnoreCase);
 
     public RgbSettings Clone() => new()
     {
@@ -35,11 +36,10 @@ public sealed class RgbSettings
         DeviceName = DeviceName,
         AutoStart = AutoStart,
         StopAutoStartedOnExit = StopAutoStartedOnExit,
-        CrashRecoveryEnabled = CrashRecoveryEnabled,
         IdleProfileName = IdleProfileName,
         IndicatorColor = IndicatorColor,
         LightingEffect = LightingEffect,
-        PulseSpeedMilliseconds = PulseSpeedMilliseconds
+        EffectSpeedMilliseconds = EffectSpeedMilliseconds
     };
 }
 
@@ -50,15 +50,17 @@ public sealed record KeyboardDevice(int Index, string Name)
 
 public static class OpenRgbHighlighter
 {
+    private const string OpenRgbClientName = AppIdentity.Name;
+    private const string OpenRgbReadinessClientName = AppIdentity.Name + " readiness probe";
     private const int SdkProbeTimeoutMilliseconds = 600;
     private const int SdkStartupPollDelayMilliseconds = 250;
     private const int AutoStartedSdkReadyTimeoutMilliseconds = 15_000;
     private const int ExistingProcessStartupGraceMilliseconds = 10_000;
-    internal const int PulseFramesPerCycle = 12;
-    internal const int MaximumPulseFramesPerCycle = 36;
-    internal const int PulseTargetFrameDurationMilliseconds = 100;
-    internal const int MinimumPulseCycleMilliseconds = 600;
-    internal const int MaximumPulseCycleMilliseconds = 3500;
+    internal const int FadeFramesPerCycle = 12;
+    internal const int MaximumFadeFramesPerCycle = 36;
+    internal const int FadeTargetFrameDurationMilliseconds = 100;
+    internal const int MinimumFadeCycleMilliseconds = 600;
+    internal const int MaximumFadeCycleMilliseconds = 3500;
     internal const int SolidPreviewDurationMilliseconds = 5000;
     // Never stop an OpenRGB instance we did not start.
     private static readonly object StartedProcessLock = new();
@@ -130,7 +132,7 @@ public static class OpenRgbHighlighter
             }
             catch (Exception exception)
             {
-                return new(false, $"Could not start OpenRGB: {exception.Message}");
+                return new(false, OpenRgbMessages.CouldNotStart(exception.Message));
             }
             return new(false, "OpenRGB started, but its SDK server did not become available. Open OpenRGB and enable its SDK server.");
         }
@@ -178,7 +180,7 @@ public static class OpenRgbHighlighter
 
     public static string[] GetProfiles()
     {
-        using var client = new OpenRgbClient(name: "AutoClicker");
+        using var client = new OpenRgbClient(name: OpenRgbClientName);
         return client.GetProfiles()
             .Where(profile => !string.IsNullOrWhiteSpace(profile))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -199,7 +201,7 @@ public static class OpenRgbHighlighter
         {
             lock (IndicatorWriteLock)
             {
-                using var client = new OpenRgbClient(name: "AutoClicker");
+                using var client = new OpenRgbClient(name: OpenRgbClientName);
                 client.LoadProfile(name);
                 ActiveIndicators.Clear();
             }
@@ -219,7 +221,7 @@ public static class OpenRgbHighlighter
         {
             // A TCP listener alone does not prove this is a ready OpenRGB SDK server.
             // Complete the protocol handshake and one small request before callers use it.
-            using var client = new OpenRgbClient(name: "AutoClicker readiness probe", timeoutMs: SdkProbeTimeoutMilliseconds);
+            using var client = new OpenRgbClient(name: OpenRgbReadinessClientName, timeoutMs: SdkProbeTimeoutMilliseconds);
             _ = client.GetControllerCount();
             return true;
         }
@@ -335,9 +337,9 @@ public static class OpenRgbHighlighter
 
     public static KeyboardDevice[] FindKeyboards()
     {
-        using var client = new OpenRgbClient(name: "AutoClicker");
+        using var client = new OpenRgbClient(name: OpenRgbClientName);
         return client.GetAllControllerData()
-            .Where(device => device.Type == DeviceType.Keyboard || LooksLikeKeyboard(device.Name) || LooksLikeKeyboard(device.Vendor))
+            .Where(OpenRgbDeviceClassifier.IsKeyboard)
             .Select(device => new KeyboardDevice(device.Index, device.Name))
             .ToArray();
     }
@@ -347,7 +349,7 @@ public static class OpenRgbHighlighter
         error = null;
         try
         {
-            using var client = new OpenRgbClient(name: "AutoClicker");
+            using var client = new OpenRgbClient(name: OpenRgbClientName);
             var keyboard = client.GetControllerData(settings.DeviceIndex);
 
             var ledIndex = FindLedIndex(keyboard, keyName);
@@ -362,7 +364,7 @@ public static class OpenRgbHighlighter
         catch (Exception exception)
         {
             AppLog.Error("OpenRGB indicator update failed", exception);
-            error = $"OpenRGB unavailable: {exception.Message}";
+            error = OpenRgbMessages.Unavailable(exception.Message);
             return null;
         }
     }
@@ -372,7 +374,7 @@ public static class OpenRgbHighlighter
         error = null;
         try
         {
-            using var client = new OpenRgbClient(name: "AutoClicker");
+            using var client = new OpenRgbClient(name: OpenRgbClientName);
             var keyboard = client.GetControllerData(settings.DeviceIndex);
             if (FindLedIndex(keyboard, keyName) is null)
             {
@@ -388,7 +390,7 @@ public static class OpenRgbHighlighter
         }
         catch (Exception exception)
         {
-            error = $"OpenRGB unavailable: {exception.Message}";
+            error = OpenRgbMessages.Unavailable(exception.Message);
             return false;
         }
     }
@@ -401,7 +403,7 @@ public static class OpenRgbHighlighter
     {
         try
         {
-            using var client = new OpenRgbClient(name: "AutoClicker");
+            using var client = new OpenRgbClient(name: OpenRgbClientName);
             var keyboard = client.GetControllerData(settings.DeviceIndex);
             if (keyboard.Colors.Length == 0)
                 return $"{keyboard.Name} does not expose colours that OpenRGB can refresh.";
@@ -455,10 +457,10 @@ public static class OpenRgbHighlighter
         catch (Exception exception) { AppLog.Error("OpenRGB blink effect failed", exception); }
     }
 
-    public static async Task FadePulseIndicatorAsync(RgbLightingSnapshot snapshot, int cycleMilliseconds, CancellationToken cancellation)
+    public static async Task FadeIndicatorAsync(RgbLightingSnapshot snapshot, int cycleMilliseconds, CancellationToken cancellation)
     {
-        var cycle = Math.Clamp(cycleMilliseconds, MinimumPulseCycleMilliseconds, MaximumPulseCycleMilliseconds);
-        var framesPerCycle = GetPulseFramesPerCycle(cycle);
+        var cycle = Math.Clamp(cycleMilliseconds, MinimumFadeCycleMilliseconds, MaximumFadeCycleMilliseconds);
+        var framesPerCycle = GetFadeFramesPerCycle(cycle);
         var frameDelay = TimeSpan.FromMilliseconds(cycle / framesPerCycle);
         try
         {
@@ -473,10 +475,10 @@ public static class OpenRgbHighlighter
         catch (Exception exception) { AppLog.Error("OpenRGB fade pulse effect failed", exception); }
     }
 
-    internal static int GetPulseFramesPerCycle(int cycleMilliseconds)
+    internal static int GetFadeFramesPerCycle(int cycleMilliseconds)
     {
-        var targetFrames = (int)Math.Ceiling(cycleMilliseconds / (double)PulseTargetFrameDurationMilliseconds);
-        return Math.Clamp(targetFrames, PulseFramesPerCycle, MaximumPulseFramesPerCycle);
+        var targetFrames = (int)Math.Ceiling(cycleMilliseconds / (double)FadeTargetFrameDurationMilliseconds);
+        return Math.Clamp(targetFrames, FadeFramesPerCycle, MaximumFadeFramesPerCycle);
     }
 
     public static async Task<string?> FlashKeyAsync(RgbSettings settings, string keyName)
@@ -560,10 +562,10 @@ public static class OpenRgbHighlighter
         catch (Exception exception) { AppLog.Error("OpenRGB keyboard blink effect failed", exception); }
     }
 
-    public static async Task FadePulseKeyboardAsync(RgbKeyboardSnapshot snapshot, int cycleMilliseconds, CancellationToken cancellation)
+    public static async Task FadeKeyboardAsync(RgbKeyboardSnapshot snapshot, int cycleMilliseconds, CancellationToken cancellation)
     {
-        var cycle = Math.Clamp(cycleMilliseconds, MinimumPulseCycleMilliseconds, MaximumPulseCycleMilliseconds);
-        var framesPerCycle = GetPulseFramesPerCycle(cycle);
+        var cycle = Math.Clamp(cycleMilliseconds, MinimumFadeCycleMilliseconds, MaximumFadeCycleMilliseconds);
+        var framesPerCycle = GetFadeFramesPerCycle(cycle);
         var frameDelay = TimeSpan.FromMilliseconds(cycle / framesPerCycle);
         try
         {
@@ -620,7 +622,7 @@ public static class OpenRgbHighlighter
         error = null;
         try
         {
-            using var client = new OpenRgbClient(name: "AutoClicker");
+            using var client = new OpenRgbClient(name: OpenRgbClientName);
             var keyboard = client.GetControllerData(settings.DeviceIndex);
             if (keyboard.Colors.Length == 0)
             {
@@ -632,14 +634,14 @@ public static class OpenRgbHighlighter
         catch (Exception exception)
         {
             AppLog.Error("OpenRGB keyboard test setup failed", exception);
-            error = $"OpenRGB unavailable: {exception.Message}";
+            error = OpenRgbMessages.Unavailable(exception.Message);
             return null;
         }
     }
 
     private static void LightKeyboard(RgbKeyboardSnapshot snapshot)
     {
-        using var client = new OpenRgbClient(name: "AutoClicker");
+        using var client = new OpenRgbClient(name: OpenRgbClientName);
         client.SetCustomMode(snapshot.DeviceIndex);
         client.UpdateLeds(snapshot.DeviceIndex, CreateKeyboardFlashColors(snapshot.Colors, snapshot.IndicatorColor));
     }
@@ -648,7 +650,7 @@ public static class OpenRgbHighlighter
     {
         try
         {
-            using var client = new OpenRgbClient(name: "AutoClicker");
+            using var client = new OpenRgbClient(name: OpenRgbClientName);
             client.SetCustomMode(snapshot.DeviceIndex);
             client.UpdateLeds(snapshot.DeviceIndex, snapshot.Colors);
             RestoreMode(client, snapshot.DeviceIndex, snapshot.Mode);
@@ -700,7 +702,7 @@ public static class OpenRgbHighlighter
         }
 
         ActiveIndicators.Remove(snapshot.DeviceIndex);
-        using var client = new OpenRgbClient(name: "AutoClicker");
+        using var client = new OpenRgbClient(name: OpenRgbClientName);
         client.SetCustomMode(snapshot.DeviceIndex);
         client.UpdateLeds(snapshot.DeviceIndex, state.Colors);
         RestoreMode(client, snapshot.DeviceIndex, state.Mode);
@@ -716,7 +718,7 @@ public static class OpenRgbHighlighter
     private static void PublishIndicators(int deviceIndex)
     {
         if (!ActiveIndicators.TryGetValue(deviceIndex, out var state)) return;
-        using var client = new OpenRgbClient(name: "AutoClicker");
+        using var client = new OpenRgbClient(name: OpenRgbClientName);
         client.SetCustomMode(deviceIndex);
         client.UpdateLeds(deviceIndex, state.Colors);
     }
@@ -748,7 +750,7 @@ public static class OpenRgbHighlighter
 
     private static void SetKeyboardBlend(RgbKeyboardSnapshot snapshot, double strength)
     {
-        using var client = new OpenRgbClient(name: "AutoClicker");
+        using var client = new OpenRgbClient(name: OpenRgbClientName);
         client.SetCustomMode(snapshot.DeviceIndex);
         client.UpdateLeds(snapshot.DeviceIndex, CreateKeyboardBlendColors(snapshot.Colors, snapshot.IndicatorColor, strength));
     }
@@ -946,13 +948,6 @@ public static class OpenRgbHighlighter
         }
     }
 
-    private static bool LooksLikeKeyboard(string? value)
-    {
-        var name = value ?? string.Empty;
-        return name.Contains("keyboard", StringComparison.OrdinalIgnoreCase)
-            || name.Contains("corsair", StringComparison.OrdinalIgnoreCase)
-            || name.Contains("k70", StringComparison.OrdinalIgnoreCase);
-    }
 }
 
 public sealed record RgbDeviceModeSnapshot(int Index, uint? Speed, Direction? Direction, Color[] Colors);

@@ -112,15 +112,15 @@ public class ClickCadenceBenchmark
             CloseHandle(handle);
         }
 
-        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [DllImport(NativeLibraryNames.Kernel32, CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern nint CreateWaitableTimerEx(nint attributes, string? name, uint flags, uint desiredAccess);
-        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [DllImport(NativeLibraryNames.Kernel32, CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern nint CreateWaitableTimer(nint attributes, bool manualReset, string? name);
-        [DllImport("kernel32.dll", SetLastError = true)]
+        [DllImport(NativeLibraryNames.Kernel32, SetLastError = true)]
         private static extern bool SetWaitableTimer(nint timer, ref long dueTime, int period, nint completionRoutine, nint argument, bool resume);
-        [DllImport("kernel32.dll")]
+        [DllImport(NativeLibraryNames.Kernel32)]
         private static extern uint WaitForSingleObject(nint handle, uint milliseconds);
-        [DllImport("kernel32.dll")]
+        [DllImport(NativeLibraryNames.Kernel32)]
         private static extern bool CloseHandle(nint handle);
     }
 }

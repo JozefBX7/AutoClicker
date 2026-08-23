@@ -23,6 +23,9 @@ internal sealed class SettingsRobot
     internal void SelectMode(string mode) => SelectCombo("ModeCombo", mode);
     internal void SelectWorkerPriority(string priority) => SelectCombo("WorkerPriorityCombo", priority);
     internal void SetKeyboardModifiers(bool enabled) => SetCheckBox("EnableKeyboardHotkeyModifiers", enabled);
+    internal void SetRememberPinned(bool enabled) => SetCheckBox("RememberPinned", enabled);
+    internal void SetApplyPinnedOnLaunch(bool enabled) => SetCheckBox("ApplyPinnedOnLaunch", enabled);
+    internal bool ApplyPinnedOnLaunchEnabled => Element("ApplyPinnedOnLaunch").IsEnabled;
     internal void SetCrashRecovery(bool enabled) => SetCheckBox("EnableCrashRecovery", enabled);
     internal void SetCadenceDiagnostics(bool enabled) => SetCheckBox("EnableCadenceDiagnostics", enabled);
     internal void SetOpenRgb(bool enabled) => SetCheckBox("EnableOpenRgb", enabled);

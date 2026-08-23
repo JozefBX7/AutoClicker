@@ -20,7 +20,7 @@ public sealed class AdvancedActionLabelConverter : IMultiValueConverter
         var tileWidth = values[1] is double actualWidth ? actualWidth : double.MaxValue;
         var hasInlineActionControls = values.Length < 3 || values[2] is not bool visible || visible;
         var labelWidth = Math.Max(0, tileWidth - (hasInlineActionControls ? NonLabelWidth : 0));
-        if (action.Settings.Input == "Unset") return "Set action";
+        if (action.Settings.Input == AutomationInputIds.Unset) return AutomationInputLabels.SetAction;
         var label = Describe(action.Settings, out var isMouseAction, out var compactSymbol);
 
         if (labelWidth >= EstimateWidth(label)) return label;
@@ -36,26 +36,26 @@ public sealed class AdvancedActionLabelConverter : IMultiValueConverter
         string input;
         switch (settings.Input)
         {
-            case "Space": input = "Space"; break;
-            case "Enter": input = "Enter"; break;
-            case "Custom" when settings.CustomKey != 0: input = KeyInterop.KeyFromVirtualKey(settings.CustomKey).ToString(); break;
-            case "Sequence": return InputRules.IsWhileHeldAction(settings.ClickType) ? "Sequence while held" : "Sequence";
+            case AutomationInputIds.Space: input = AutomationInputIds.Space; break;
+            case AutomationInputIds.Enter: input = AutomationInputIds.Enter; break;
+            case AutomationInputIds.Custom when settings.CustomKey != 0: input = KeyInterop.KeyFromVirtualKey(settings.CustomKey).ToString(); break;
+            case AutomationInputIds.Sequence: return InputRules.IsWhileHeldAction(settings.ClickType) ? "Sequence while held" : AutomationInputIds.Sequence;
             default:
                 isMouseAction = true;
                 input = (settings.Input ?? settings.MouseButton) switch
                 {
-                    "Right" => SetMouse("Right click", "R", out compactSymbol),
-                    "Middle" => SetMouse("Middle click", "M", out compactSymbol),
-                    _ => SetMouse("Left click", "L", out compactSymbol)
+                    AutomationInputIds.Right => SetMouse(AutomationInputLabels.RightClick, "R", out compactSymbol),
+                    AutomationInputIds.Middle => SetMouse(AutomationInputLabels.MiddleClick, "M", out compactSymbol),
+                    _ => SetMouse(AutomationInputLabels.LeftClick, "L", out compactSymbol)
                 };
                 break;
         }
         var typedInput = isMouseAction ? char.ToLowerInvariant(input[0]) + input[1..] : input;
         return settings.ClickType switch
         {
-            "Double" => $"Double {typedInput}",
-            "Hold" => $"Hold {typedInput}",
-            "While held" => $"{input} while held",
+            AutomationActionTypeIds.Double => $"Double {typedInput}",
+            AutomationActionTypeIds.Hold => $"Hold {typedInput}",
+            AutomationActionTypeIds.WhileHeld => $"{input} while held",
             _ => input
         };
     }

@@ -89,12 +89,12 @@ internal static class WindowTargeting
     [StructLayout(LayoutKind.Sequential)]
     private struct NativePoint { public int X; public int Y; }
 
-    [DllImport("user32.dll")] private static extern nint GetForegroundWindow();
-    [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc callback, nint parameter);
-    [DllImport("user32.dll")] private static extern bool IsWindowVisible(nint window);
-    [DllImport("user32.dll")] private static extern int GetWindowTextLength(nint window);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(nint window, StringBuilder text, int maxCount);
-    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(nint window, out uint processId);
-    [DllImport("user32.dll")] private static extern bool GetClientRect(nint window, out NativeRect rectangle);
-    [DllImport("user32.dll")] private static extern bool ClientToScreen(nint window, ref NativePoint point);
+    [DllImport(NativeLibraryNames.User32)] private static extern nint GetForegroundWindow();
+    [DllImport(NativeLibraryNames.User32)] private static extern bool EnumWindows(EnumWindowsProc callback, nint parameter);
+    [DllImport(NativeLibraryNames.User32)] private static extern bool IsWindowVisible(nint window);
+    [DllImport(NativeLibraryNames.User32)] private static extern int GetWindowTextLength(nint window);
+    [DllImport(NativeLibraryNames.User32, CharSet = CharSet.Unicode)] private static extern int GetWindowText(nint window, StringBuilder text, int maxCount);
+    [DllImport(NativeLibraryNames.User32)] private static extern uint GetWindowThreadProcessId(nint window, out uint processId);
+    [DllImport(NativeLibraryNames.User32)] private static extern bool GetClientRect(nint window, out NativeRect rectangle);
+    [DllImport(NativeLibraryNames.User32)] private static extern bool ClientToScreen(nint window, ref NativePoint point);
 }

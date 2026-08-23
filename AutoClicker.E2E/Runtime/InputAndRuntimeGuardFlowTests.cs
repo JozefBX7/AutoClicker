@@ -13,11 +13,11 @@ namespace AutoClicker.E2E;
 public sealed class InputAndRuntimeGuardFlowTests
 {
     [DataTestMethod]
-    [DataRow("Left click", "mouse:2", "mouse:4")]
-    [DataRow("Right click", "mouse:8", "mouse:16")]
-    [DataRow("Middle click", "mouse:32", "mouse:64")]
-    [DataRow("Space", "scan=57:flags=8", "scan=57:flags=10")]
-    [DataRow("Enter", "scan=28:flags=8", "scan=28:flags=10")]
+    [DataRow(AutomationInputLabels.LeftClick, "mouse:2", "mouse:4")]
+    [DataRow(AutomationInputLabels.RightClick, "mouse:8", "mouse:16")]
+    [DataRow(AutomationInputLabels.MiddleClick, "mouse:32", "mouse:64")]
+    [DataRow(AutomationInputIds.Space, "scan=57:flags=8", "scan=57:flags=10")]
+    [DataRow(AutomationInputIds.Enter, "scan=28:flags=8", "scan=28:flags=10")]
     public void EveryDirectInput_CanRunFiniteAndAutoCompleteThroughTheSafeSink(
         string input,
         string downSignature,
@@ -28,7 +28,7 @@ public sealed class InputAndRuntimeGuardFlowTests
         var app = new MainWindowRobot(session);
         app.DisableTargetWindow();
         app.SelectInput(input);
-        app.SelectActionType("Single");
+        app.SelectActionType(AutomationActionTypeIds.Single);
         app.SetIntervalMilliseconds(100);
         app.SetFiniteRepeat(5);
 
@@ -50,8 +50,8 @@ public sealed class InputAndRuntimeGuardFlowTests
         using var session = fixture.Launch();
         var app = new MainWindowRobot(session);
         app.DisableTargetWindow();
-        app.SelectInput("Left click");
-        app.SelectActionType("Double");
+        app.SelectInput(AutomationInputLabels.LeftClick);
+        app.SelectActionType(AutomationActionTypeIds.Double);
         app.SetIntervalMilliseconds(100);
         app.SetFiniteRepeat(4);
         app.Start();
@@ -80,8 +80,8 @@ public sealed class InputAndRuntimeGuardFlowTests
         using var fixture = new ProfileE2EFixture(advancedMode: false);
         using var session = fixture.Launch();
         var app = new MainWindowRobot(session);
-        app.SelectInput("Left click");
-        app.SelectActionType("Hold");
+        app.SelectInput(AutomationInputLabels.LeftClick);
+        app.SelectActionType(AutomationActionTypeIds.Hold);
         app.TryStart();
         session.WaitFor(() => app.Status.Contains("does not support held input", StringComparison.OrdinalIgnoreCase),
             "target-window hold validation was not shown");
@@ -96,8 +96,8 @@ public sealed class InputAndRuntimeGuardFlowTests
         using var fixture = new ProfileE2EFixture(advancedMode: false);
         using var session = fixture.Launch();
         var app = new MainWindowRobot(session);
-        app.SelectInput("Left click");
-        app.SelectActionType("Single");
+        app.SelectInput(AutomationInputLabels.LeftClick);
+        app.SelectActionType(AutomationActionTypeIds.Single);
         app.SetRepeatUntilStopped();
         app.Start();
         Thread.Sleep(250);

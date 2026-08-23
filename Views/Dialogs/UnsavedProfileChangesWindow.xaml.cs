@@ -20,7 +20,7 @@ public partial class UnsavedProfileChangesWindow : Window
         this.needsProfileName = needsProfileName;
         MessageLabel.Text = $"Save or discard the current profile changes before {nextStep}?";
         ProfileNamePanel.Visibility = needsProfileName ? Visibility.Visible : Visibility.Collapsed;
-        ProfileNameBox.Text = suggestedProfileName ?? "New profile";
+        ProfileNameBox.Text = suggestedProfileName ?? AutomationProfileNames.New;
     }
 
     private void Header_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)

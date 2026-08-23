@@ -68,14 +68,14 @@ public sealed class ResetScopeFlowTests
         app.OpenSettings();
         new SettingsRobot(session).Reset("Reset everything");
 
-        session.WaitFor(() => !fixture.ReadUiPreferences().AdvancedMode, "factory reset did not persist UI preferences");
-        var preferences = fixture.ReadUiPreferences();
+        session.WaitFor(() => !fixture.ReadApplicationPreferences().AdvancedMode, "factory reset did not persist application preferences");
+        var preferences = fixture.ReadApplicationPreferences();
         Assert.IsFalse(preferences.AdvancedMode);
         Assert.IsFalse(preferences.Pinned);
         Assert.IsFalse(preferences.CompactMode);
         Assert.AreEqual(100, fixture.ReadSimpleDefaults().Milliseconds);
         Assert.AreEqual(100, fixture.ReadGlobalDefaults().Milliseconds);
         Assert.AreEqual("General", fixture.ReadProfiles().Profiles.Single().Name);
-        Assert.IsTrue(fixture.ReadRgbSettings().CrashRecoveryEnabled);
+        Assert.IsTrue(preferences.CrashRecoveryEnabled);
     }
 }

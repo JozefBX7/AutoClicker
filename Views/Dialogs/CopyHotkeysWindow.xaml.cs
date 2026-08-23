@@ -28,7 +28,7 @@ public partial class CopyHotkeysWindow : Window
         DescriptionLabel.Text = $"Copy {hotkeyCount} selected hotkey{(hotkeyCount == 1 ? string.Empty : "s")} to another profile.";
         DestinationCombo.ItemsSource = destinations.Select(profile => new ProfileCopyDestination(profile)).Append(new ProfileCopyDestination(null)).ToList();
         DestinationCombo.SelectedItem = DestinationCombo.Items.Cast<ProfileCopyDestination>().Last();
-        NewProfileNameBox.Text = "New profile";
+        NewProfileNameBox.Text = AutomationProfileNames.New;
     }
 
     private void DestinationCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)

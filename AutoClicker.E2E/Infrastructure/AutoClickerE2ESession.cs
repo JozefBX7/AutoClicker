@@ -27,6 +27,8 @@ internal sealed class AutoClickerE2ESession : IDisposable
     internal UIA3Automation Automation { get; }
     internal Window Window { get; }
     internal ProfileEditorRobot Editor { get; }
+    internal bool IsMainWindowTopmost => (GetWindowLong(new nint(Window.Properties.NativeWindowHandle.Value), -20) & 0x00000008) != 0;
+    internal System.Drawing.Rectangle MainWindowBounds => Window.BoundingRectangle;
 
     internal AutomationElement MainElement(string automationId) => WaitUntilNotNull(
         () => Window.FindFirstDescendant(condition => condition.ByAutomationId(automationId)),
@@ -81,6 +83,22 @@ internal sealed class AutoClickerE2ESession : IDisposable
 
     internal void WaitFor(Func<bool> condition, string failure) => WaitUntil(condition, failure);
 
+    internal void MoveMainWindow(int left, int top)
+    {
+        var handle = new nint(Window.Properties.NativeWindowHandle.Value);
+        if (!SetWindowPos(handle, 0, left, top, 0, 0, 0x0001 | 0x0004 | 0x0010))
+            throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        WaitUntil(
+            () => Math.Abs(MainWindowBounds.Left - left) <= 1 && Math.Abs(MainWindowBounds.Top - top) <= 1,
+            "the main window did not move to the requested E2E position");
+    }
+
+    internal void CloseMainWindow()
+    {
+        Window.Close();
+        WaitUntil(() => Application.HasExited, "the main window did not close cleanly");
+    }
+
     internal static AutoClickerE2ESession Launch(
         string configDirectory,
         string? saveFile = null,
@@ -89,20 +107,20 @@ internal sealed class AutoClickerE2ESession : IDisposable
     {
         var executable = ResolveExecutablePath();
         var startInfo = new ProcessStartInfo(executable) { UseShellExecute = false };
-        startInfo.ArgumentList.Add("--e2e");
-        startInfo.ArgumentList.Add("--config-directory");
+        startInfo.ArgumentList.Add(AppCommandLineOptions.EndToEnd);
+        startInfo.ArgumentList.Add(AppCommandLineOptions.ConfigDirectory);
         startInfo.ArgumentList.Add(configDirectory);
-        startInfo.ArgumentList.Add("--instance-id");
-        startInfo.ArgumentList.Add(Guid.NewGuid().ToString("N"));
-        if (registerKeyboardHotkeys) startInfo.ArgumentList.Add("--e2e-register-keyboard-hotkeys");
+        startInfo.ArgumentList.Add(AppCommandLineOptions.InstanceId);
+        startInfo.ArgumentList.Add(Guid.NewGuid().ToString(AppIdentity.CompactGuidFormat));
+        if (registerKeyboardHotkeys) startInfo.ArgumentList.Add(AppCommandLineOptions.RegisterEndToEndKeyboardHotkeys);
         if (saveFile is not null)
         {
-            startInfo.ArgumentList.Add("--save-file");
+            startInfo.ArgumentList.Add(AppCommandLineOptions.SaveFile);
             startInfo.ArgumentList.Add(saveFile);
         }
         if (openFile is not null)
         {
-            startInfo.ArgumentList.Add("--open-file");
+            startInfo.ArgumentList.Add(AppCommandLineOptions.OpenFile);
             startInfo.ArgumentList.Add(openFile);
         }
 
@@ -202,11 +220,17 @@ internal sealed class AutoClickerE2ESession : IDisposable
         return 0;
     }
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [DllImport(NativeLibraryNames.User32, CharSet = CharSet.Unicode)]
     private static extern nint FindWindowEx(nint parent, nint childAfter, string? className, string? windowName);
 
-    [DllImport("user32.dll")]
+    [DllImport(NativeLibraryNames.User32)]
     private static extern uint GetWindowThreadProcessId(nint window, out int processId);
+
+    [DllImport(NativeLibraryNames.User32)]
+    private static extern int GetWindowLong(nint window, int index);
+
+    [DllImport(NativeLibraryNames.User32, SetLastError = true)]
+    private static extern bool SetWindowPos(nint window, nint insertAfter, int x, int y, int width, int height, uint flags);
 
     private sealed class HeldKeyboardChord(params IDisposable[] keys) : IDisposable
     {

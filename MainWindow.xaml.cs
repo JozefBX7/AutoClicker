@@ -21,12 +21,12 @@ public partial class MainWindow : Window
     private const int HotkeyId = 0xC11C;
     private const int WmHotkey = 0x0312;
     private const int WmEnable = 0x000A;
-    private static readonly string DefaultsPath = AppPaths.ConfigFile("defaults.json");
-    private static readonly string GlobalDefaultsPath = AppPaths.ConfigFile("global-defaults.json");
-    private static readonly string RgbSettingsPath = AppPaths.ConfigFile("rgb-settings.json");
-    private static readonly string UiPreferencesPath = AppPaths.ConfigFile("ui-preferences.json");
-    private static readonly string SequenceLibraryPath = AppPaths.ConfigFile("sequence-library.json");
-    private static readonly string ProfilesPath = AppPaths.ConfigFile("automation-profiles.json");
+    private const uint HotkeyNoRepeat = 0x4000;
+    private static readonly string SimpleDefaultsPath = AppPaths.ConfigFile(ConfigurationFileNames.SimpleDefaults);
+    private static readonly string AdvancedSharedDefaultsPath = AppPaths.ConfigFile(ConfigurationFileNames.AdvancedSharedDefaults);
+    private static readonly string RgbSettingsPath = AppPaths.ConfigFile(ConfigurationFileNames.RgbSettings);
+    private static readonly string SequenceLibraryPath = AppPaths.ConfigFile(ConfigurationFileNames.SequenceLibrary);
+    private static readonly string AutomationProfilesPath = AppPaths.ConfigFile(ConfigurationFileNames.AutomationProfiles);
     private const double ExpandedWindowHeight = 580;
     private const double AdvancedExpandedWindowHeight = 600;
     private const double CompactWindowHeight = 166;
@@ -41,8 +41,8 @@ public partial class MainWindow : Window
     private nint hwnd;
     private bool hotkeyRegistered;
     private readonly List<int> primaryHotkeyIds = [];
-    private readonly Dictionary<int, AutomationAction> additionalHotkeys = [];
-    private readonly Dictionary<MouseHotkey, AutomationAction?> mouseHotkeys = [];
+    private readonly Dictionary<int, RegisteredHotkeyTarget> registeredProfileHotkeys = [];
+    private readonly Dictionary<MouseHotkey, RegisteredHotkeyTarget> mouseHotkeys = [];
     private AutomationAction? pendingActionDrag;
     private Point actionDragStart;
     private Border? actionDragTarget;
@@ -52,6 +52,7 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, Task> profileTasks = [];
     private readonly HashSet<CancellationTokenSource> heldTriggerMonitors = [];
     private volatile bool capturingHotkey;
+    private AutomationAction? enableToggleHotkeyCaptureAction;
     private string? pendingNewActionId;
     private volatile bool capturingSpamKey;
     private bool updatingActionSelection;
@@ -77,7 +78,7 @@ public partial class MainWindow : Window
     private const string SimpleRgbIndicatorId = "simple";
     private long lastGuiHeartbeat;
     private int statusRevision;
-    private string statusBrushKey = "SuccessBrush";
+    private string statusBrushKey = ThemeResourceKeys.SuccessBrush;
     private bool compactMode;
     private bool quickStartSeen;
     private string? targetWindowTitle;
@@ -91,10 +92,19 @@ public partial class MainWindow : Window
     private string? pendingRemovalActionId;
     private WorkerPriorityOption workerPriority = WorkerPriorityOption.Normal;
     private bool cadenceDiagnosticsEnabled;
+    private bool crashRecoveryEnabled = true;
     private bool keyboardHotkeyModifiersEnabled;
+    private bool rememberPinned = true;
+    private bool applyPinnedOnLaunch = true;
+    private bool pinnedPreference;
+    private bool deferredPinPending;
+    private WindowPixelPosition? lastNormalWindowPosition;
     private AutomationProfileDocument automationProfiles = new();
     private bool advancedMode;
     private readonly SettingsEditorSession editorSession = new();
+
+    private enum RegisteredHotkeyPurpose { RunAction, ToggleEnabled }
+    private sealed record RegisteredHotkeyTarget(AutomationAction? Action, RegisteredHotkeyPurpose Purpose);
 
     public MainWindow()
     {
@@ -103,12 +113,12 @@ public partial class MainWindow : Window
         InitializeComponent();
         LoadSequenceLibrary();
         RefreshSequencePresetActions();
-        LoadDefaults();
+        LoadSimpleDefaults();
         LoadAutomationProfiles();
         UpdateInputPulseButton();
         UpdateInputJitterButton();
         LoadRgbSettings();
-        LoadUiPreferences();
+        LoadApplicationPreferences();
         UpdateHotkeyLabel();
         UpdateThemeButton();
         UpdateLiveInputMode();
@@ -188,22 +198,22 @@ public partial class MainWindow : Window
                 var defaults = LoadSavedDefaults();
                 defaults.InputPulseMilliseconds = inputPulseMilliseconds;
                 defaults.InputJitterMaximumMilliseconds = inputJitterMaximumMilliseconds;
-                if (WriteDefaults(GlobalDefaultsPath, defaults))
-                    Status($"{settingName} saved to global Advanced defaults.", ThemeManager.Brush("SuccessBrush"));
+                if (WriteDefaults(AdvancedSharedDefaultsPath, defaults))
+                    Status($"{settingName} saved to global Advanced defaults.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
                 else
-                    Status($"Could not save the global {settingName.ToLowerInvariant()} default.", ThemeManager.Brush("ErrorBrush"));
+                    Status($"Could not save the global {settingName.ToLowerInvariant()} default.", ThemeManager.Brush(ThemeResourceKeys.ErrorBrush));
                 break;
             }
             case SettingsEditorStorageTarget.ProfileDefaults:
                 MarkProfileDefaultsEdited();
-                Status($"{settingName} updated for {ActiveProfile()?.Name ?? "this"} profile defaults - save the profile when ready.", ThemeManager.Brush("SuccessBrush"));
+                Status($"{settingName} updated for {ActiveProfile()?.Name ?? "this"} profile defaults - save the profile when ready.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
                 break;
             case SettingsEditorStorageTarget.HotkeyOverride:
                 CaptureCurrentActionToProfile();
-                Status($"{settingName} updated for the {FormatHotkey()} hotkey override.", ThemeManager.Brush("SuccessBrush"));
+                Status($"{settingName} updated for the {FormatHotkey()} hotkey override.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
                 break;
             default:
-                Status($"{settingName} updated for Simple mode.", ThemeManager.Brush("SuccessBrush"));
+                Status($"{settingName} updated for Simple mode.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
                 break;
         }
     }
@@ -252,10 +262,44 @@ public partial class MainWindow : Window
     private void Window_SourceInitialized(object? sender, EventArgs e)
     {
         hwnd = new WindowInteropHelper(this).Handle;
+        RestoreMainWindowPosition();
         hwndSource = HwndSource.FromHwnd(hwnd);
         hwndSource?.AddHook(WndProc);
         RegisterConfiguredHotkey();
     }
+
+    private void Window_LocationChanged(object? sender, EventArgs e) => CaptureNormalWindowPosition();
+
+    private void RestoreMainWindowPosition()
+    {
+        if (lastNormalWindowPosition is not { } saved || !TryGetWindowBounds(out var currentBounds)) return;
+        var savedBounds = currentBounds with { Left = saved.Left, Top = saved.Top };
+        var restored = WindowPlacementRules.RestoreToVisibleWorkArea(savedBounds, CurrentWorkAreas());
+        SetWindowPosition(restored);
+        lastNormalWindowPosition = restored;
+        _ = Dispatcher.BeginInvoke(() =>
+        {
+            if (!TryGetWindowBounds(out var actualBounds)) return;
+            var visible = WindowPlacementRules.RestoreToVisibleWorkArea(actualBounds, CurrentWorkAreas());
+            SetWindowPosition(visible);
+            lastNormalWindowPosition = visible;
+        }, DispatcherPriority.Loaded);
+    }
+
+    private void CaptureNormalWindowPosition()
+    {
+        if (hwnd == 0 || WindowState != WindowState.Normal || !TryGetWindowBounds(out var bounds)) return;
+        lastNormalWindowPosition = new WindowPixelPosition(bounds.Left, bounds.Top);
+    }
+
+    private bool TryGetWindowBounds(out WindowPixelBounds bounds)
+        => WindowPlacementPlatform.TryGetBounds(hwnd, out bounds);
+
+    private void SetWindowPosition(WindowPixelPosition position) =>
+        WindowPlacementPlatform.Move(hwnd, position);
+
+    private static IReadOnlyList<WindowWorkArea> CurrentWorkAreas() =>
+        WindowPlacementPlatform.CurrentWorkAreas();
 
     private nint WndProc(nint handle, int msg, nint wParam, nint lParam, ref bool handled)
     {
@@ -273,11 +317,13 @@ public partial class MainWindow : Window
             ActivateHotkey(advancedMode ? ActiveProfileAction() : null, hotkey, hotkeyModifiers, HotkeyTrigger.Keyboard);
             handled = true;
         }
-        else if (!capturingHotkey && !capturingSpamKey && msg == WmHotkey && additionalHotkeys.TryGetValue(wParam.ToInt32(), out var action))
+        else if (!capturingHotkey && !capturingSpamKey && msg == WmHotkey && registeredProfileHotkeys.TryGetValue(wParam.ToInt32(), out var target))
         {
-            if (action.Settings.HotkeyTrigger == HotkeyTrigger.Keyboard
-                && !IsKeyboardModifierMatch(keyboardHotkeyModifiersEnabled, action.Settings.HotkeyModifiers, HotkeyMessageModifiers(lParam))) return 0;
-            ActivateHotkey(action, action.Settings.Hotkey, action.Settings.HotkeyModifiers, HotkeyTrigger.Keyboard);
+            var binding = target.Purpose == RegisteredHotkeyPurpose.ToggleEnabled
+                ? target.Action?.EnableToggleHotkey
+                : target.Action is null ? null : AutomationHotkeyBindingRules.RunBinding(target.Action);
+            if (binding is null || !IsKeyboardModifierMatch(keyboardHotkeyModifiersEnabled, binding.Modifiers, HotkeyMessageModifiers(lParam))) return 0;
+            HandleRegisteredHotkey(target, binding);
             handled = true;
         }
         return 0;
@@ -298,7 +344,7 @@ public partial class MainWindow : Window
         // editor, picker, confirmation, or system file dialog that prevents access to the main controls.
         if (clickCancellation is not null) StopClicking();
         foreach (var actionId in profileRuns.Keys.ToList()) StopProfileAction(actionId);
-        Status("Automation stopped while a dialog is open.", ThemeManager.Brush("WarningBrush"));
+        Status("Automation stopped while a dialog is open.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
     }
 
     internal static bool IsKeyboardModifierMatch(bool modifiersEnabled, uint configuredModifiers, uint messageModifiers)
@@ -367,16 +413,37 @@ public partial class MainWindow : Window
     }
     private void PinButton_Click(object sender, RoutedEventArgs e)
     {
-        Topmost = !Topmost;
+        if (deferredPinPending)
+        {
+            deferredPinPending = false;
+            Topmost = true;
+        }
+        else
+        {
+            Topmost = !Topmost;
+        }
+        pinnedPreference = Topmost;
         UpdatePinUi();
-        SaveUiPreferences();
+        SaveApplicationPreferences();
+    }
+
+    private void Window_PreviewMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e) =>
+        ApplyDeferredPinAfterInteraction(e.OriginalSource as DependencyObject);
+
+    private void ApplyDeferredPinAfterInteraction(DependencyObject? source)
+    {
+        if (!deferredPinPending || (source is not null && IsWithin(source, PinButton))) return;
+        deferredPinPending = false;
+        Topmost = true;
+        pinnedPreference = true;
+        UpdatePinUi();
     }
 
     private void CollapseButton_Click(object sender, RoutedEventArgs e)
     {
         compactMode = !compactMode;
         ApplyCompactMode();
-        SaveUiPreferences();
+        SaveApplicationPreferences();
     }
 
     private void UpdatePinUi()
@@ -391,34 +458,40 @@ public partial class MainWindow : Window
         var dialog = new QuickStartWindow { Owner = this };
         dialog.ShowDialog();
         quickStartSeen = true;
-        SaveUiPreferences();
+        SaveApplicationPreferences();
     }
     private void SettingsButton_Click(object sender, RoutedEventArgs e)
     {
         if (clickCancellation is not null || profileRuns.Count > 0)
         {
-            Status($"Stop {ActivityVerb().ToLowerInvariant()} before opening Settings.", ThemeManager.Brush("WarningBrush"));
+            Status($"Stop {ActivityVerb().ToLowerInvariant()} before opening Settings.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return;
         }
         if (settingsOpen) return;
         settingsOpen = true;
-        var dialog = new SettingsWindow(rgbSettings, workerPriority, cadenceDiagnosticsEnabled, advancedMode, keyboardHotkeyModifiersEnabled, FormatHotkey(), HotkeyKeyName(), ResetSettings, ExportFullBackup, ImportFullBackup) { Owner = this };
+        var dialog = new SettingsWindow(rgbSettings, CurrentApplicationPreferences(), FormatHotkey(), HotkeyKeyName(), ResetSettings, ExportFullBackup, ImportFullBackup) { Owner = this };
         try
         {
             if (dialog.ShowDialog() == true)
             {
-                var modifiersSettingChanged = keyboardHotkeyModifiersEnabled != dialog.KeyboardHotkeyModifiersEnabled;
-                rgbSettings = dialog.Settings;
-                workerPriority = dialog.WorkerPriority;
-                cadenceDiagnosticsEnabled = dialog.CadenceDiagnosticsEnabled;
-                keyboardHotkeyModifiersEnabled = dialog.KeyboardHotkeyModifiersEnabled;
-                if (dialog.AdvancedMode != advancedMode) SetAdvancedMode(dialog.AdvancedMode);
+                var savedPreferences = dialog.ApplicationPreferences;
+                var modifiersSettingChanged = keyboardHotkeyModifiersEnabled != savedPreferences.KeyboardHotkeyModifiersEnabled;
+                rgbSettings = dialog.RgbSettings;
+                workerPriority = WorkerPriorityRules.Normalize(savedPreferences.WorkerPriority);
+                cadenceDiagnosticsEnabled = savedPreferences.CadenceDiagnosticsEnabled;
+                crashRecoveryEnabled = savedPreferences.CrashRecoveryEnabled;
+                keyboardHotkeyModifiersEnabled = savedPreferences.KeyboardHotkeyModifiersEnabled;
+                rememberPinned = savedPreferences.RememberPinned;
+                applyPinnedOnLaunch = savedPreferences.ApplyPinnedOnLaunch;
+                pinnedPreference = Topmost;
+                deferredPinPending = false;
+                if (savedPreferences.AdvancedMode != advancedMode) SetAdvancedMode(savedPreferences.AdvancedMode);
                 if (modifiersSettingChanged) RegisterConfiguredHotkey();
                 SaveRgbSettings();
-                SaveUiPreferences();
-                CrashRecovery.UpdateEnabled(rgbSettings.CrashRecoveryEnabled);
+                SaveApplicationPreferences();
+                CrashRecovery.UpdateEnabled(crashRecoveryEnabled);
                 if (!rgbSettings.Enabled) ClearOpenRgbWarning();
-                Status(rgbSettings.Enabled ? "OpenRGB hotkey lighting enabled." : "OpenRGB hotkey lighting disabled.", rgbSettings.Enabled ? ThemeManager.Brush("SuccessBrush") : ThemeManager.Brush("TextMutedBrush"));
+                Status(rgbSettings.Enabled ? "OpenRGB hotkey lighting enabled." : "OpenRGB hotkey lighting disabled.", rgbSettings.Enabled ? ThemeManager.Brush(ThemeResourceKeys.SuccessBrush) : ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush));
             }
         }
         finally { settingsOpen = false; }
@@ -438,15 +511,7 @@ public partial class MainWindow : Window
     {
         if (capturingHotkey) return;
         var button = ActiveHotkeyButton();
-        if (hotkeyRegistered) UnregisterPrimaryHotkeys();
-        if (advancedMode)
-        {
-            foreach (var registeredId in additionalHotkeys.Keys.ToList()) UnregisterHotKey(hwnd, registeredId);
-            additionalHotkeys.Clear();
-        }
-        mouseHotkeys.Clear();
-        capturingHotkey = true;
-        UpdateMouseHook();
+        SuspendHotkeysForCapture();
         if (!advancedMode)
         {
             button.Content = "Cancel";
@@ -455,12 +520,32 @@ public partial class MainWindow : Window
             button.Padding = new Thickness(0);
         }
         button.ToolTip = "Keep the current hotkey";
-        Status(advancedMode ? "Press a key combination or supported mouse input, or Escape to keep the current hotkey." : "Press a key combination or supported mouse input, or click Cancel to keep the current hotkey.", ThemeManager.Brush("WarningBrush"));
+        Status(advancedMode ? "Press a key combination or supported mouse input, or Escape to keep the current hotkey." : "Press a key combination or supported mouse input, or click Cancel to keep the current hotkey.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
         Focus();
+    }
+
+    private void BeginEnableToggleHotkeyCapture(AutomationAction action)
+    {
+        if (capturingHotkey || profileRuns.Count > 0) return;
+        enableToggleHotkeyCaptureAction = action;
+        SuspendHotkeysForCapture();
+        Status($"Press the key combination or supported mouse input that will enable or disable {HotkeyFormatter.Format(action.Settings.Hotkey, action.Settings.HotkeyModifiers, action.Settings.HotkeyTrigger)}, or Escape to cancel.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
+        Focus();
+    }
+
+    private void SuspendHotkeysForCapture()
+    {
+        if (hotkeyRegistered) UnregisterPrimaryHotkeys();
+        foreach (var registeredId in registeredProfileHotkeys.Keys.ToList()) UnregisterHotKey(hwnd, registeredId);
+        registeredProfileHotkeys.Clear();
+        mouseHotkeys.Clear();
+        capturingHotkey = true;
+        UpdateMouseHook();
     }
 
     private void Window_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
+        ApplyDeferredPinAfterInteraction(e.OriginalSource as DependencyObject);
         if (TrySubmitEditorTextField(e)) return;
 
         if (capturingSpamKey)
@@ -477,15 +562,15 @@ public partial class MainWindow : Window
             if (virtualKey == 0) return;
             if (virtualKey == hotkey && hotkeyModifiers == 0)
             {
-                Status($"{FormatInputKey(virtualKey)} is also the start/stop hotkey. Choose another key or change the hotkey first.", ThemeManager.Brush("WarningBrush"));
+                Status($"{FormatInputKey(virtualKey)} is also the start/stop hotkey. Choose another key or change the hotkey first.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
                 return;
             }
             customSpamVirtualKey = virtualKey;
             CustomKeyItem.Content = $"Key: {FormatInputKey(virtualKey)}";
             capturingSpamKey = false;
-            Select(ButtonCombo, "Custom");
+            Select(ButtonCombo, AutomationInputIds.Custom);
             if (!CommitSelectedActionChange()) ShowReadyActionStatus();
-            Status($"Ready - {FormatInputKey(virtualKey)} will be repeated.", ThemeManager.Brush("SuccessBrush"));
+            Status($"Ready - {FormatInputKey(virtualKey)} will be repeated.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
             return;
         }
         if (!capturingHotkey) return;
@@ -498,7 +583,7 @@ public partial class MainWindow : Window
         if (IsProfileHotkeyAlreadyAssigned(candidate, modifiers, HotkeyTrigger.Keyboard))
         {
             CancelHotkeyCapture(keepStatus: true);
-            Status($"{FormatHotkey(candidate, modifiers)} is already assigned in this profile.", ThemeManager.Brush("WarningBrush"));
+            Status($"{FormatHotkey(candidate, modifiers)} is already assigned in this profile.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return;
         }
         CompleteCapturedHotkey(candidate, modifiers, HotkeyTrigger.Keyboard);
@@ -549,30 +634,51 @@ public partial class MainWindow : Window
         if (IsProfileHotkeyAlreadyAssigned(virtualKey, modifiers, trigger))
         {
             CancelHotkeyCapture(keepStatus: true);
-            Status($"{FormatHotkey(virtualKey, modifiers, trigger)} is already assigned in this profile.", ThemeManager.Brush("WarningBrush"));
+            Status($"{FormatHotkey(virtualKey, modifiers, trigger)} is already assigned in this profile.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return;
         }
-        hotkey = virtualKey;
-        hotkeyModifiers = modifiers;
-        hotkeyTrigger = trigger;
-        CaptureCurrentActionToProfile();
-        pendingNewActionId = null;
+        var toggleTarget = enableToggleHotkeyCaptureAction;
+        if (toggleTarget is not null)
+        {
+            toggleTarget.EnableToggleHotkey = new AutomationHotkeyBinding { VirtualKey = virtualKey, Modifiers = modifiers, Trigger = trigger };
+            MarkProfilesDirty();
+        }
+        else
+        {
+            hotkey = virtualKey;
+            hotkeyModifiers = modifiers;
+            hotkeyTrigger = trigger;
+            CaptureCurrentActionToProfile();
+            pendingNewActionId = null;
+            UpdateHotkeyLabel();
+        }
         RefreshAdvancedFooterUi();
-        UpdateHotkeyLabel();
         var registered = CancelHotkeyCapture(keepStatus: true);
         if (registered)
         {
-            Status($"Ready - press {FormatHotkey()} to start or stop.", ThemeManager.Brush("SuccessBrush"));
-            FlashSelectedHotkey();
+            if (toggleTarget is not null)
+                Status($"{FormatHotkey(virtualKey, modifiers, trigger)} will enable or disable {HotkeyFormatter.Format(toggleTarget.Settings.Hotkey, toggleTarget.Settings.HotkeyModifiers, toggleTarget.Settings.HotkeyTrigger)}.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
+            else
+            {
+                Status($"Ready - press {FormatHotkey()} to start or stop.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
+                FlashSelectedHotkey();
+            }
         }
         else
-            Status($"{FormatHotkey(virtualKey, modifiers, trigger)} is in use - choose another key.", ThemeManager.Brush("ErrorBrush"));
+            Status($"{FormatHotkey(virtualKey, modifiers, trigger)} is in use - choose another key.", ThemeManager.Brush(ThemeResourceKeys.ErrorBrush));
     }
 
     private bool IsProfileHotkeyAlreadyAssigned(int candidate, uint modifiers, HotkeyTrigger trigger)
     {
         if (!advancedMode || ActiveProfile() is not { } profile) return false;
-        return profile.Actions.Any(action => action.Id != automationProfiles.ActiveActionId && action.MatchesHotkey(candidate, modifiers, trigger));
+        var target = enableToggleHotkeyCaptureAction ?? ActiveProfileAction();
+        if (target is null) return false;
+        return AutomationHotkeyBindingRules.IsAssigned(
+            profile,
+            new AutomationHotkeyBinding { VirtualKey = candidate, Modifiers = modifiers, Trigger = trigger },
+            keyboardHotkeyModifiersEnabled,
+            target.Id,
+            enableToggleHotkeyCaptureAction is null ? AutomationHotkeyAssignmentKind.RunAction : AutomationHotkeyAssignmentKind.ToggleEnabled);
     }
 
     private void Window_PreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -753,7 +859,7 @@ public partial class MainWindow : Window
         var defaults = LoadSavedDefaults();
         if (HasSameInterval(interval, defaults)) return;
         CopyBehaviorOverride(interval, defaults, AutomationBehaviorOverride.Interval);
-        WriteDefaults(GlobalDefaultsPath, defaults);
+        WriteDefaults(AdvancedSharedDefaultsPath, defaults);
     }
 
     private static bool HasSameInterval(AppDefaults left, AppDefaults right) =>
@@ -788,22 +894,28 @@ public partial class MainWindow : Window
 
     private bool CancelHotkeyCapture(bool keepStatus = false)
     {
+        var wasEnableToggleCapture = enableToggleHotkeyCaptureAction is not null;
+        enableToggleHotkeyCaptureAction = null;
         var button = ActiveHotkeyButton();
         capturingHotkey = false;
-        button.Content = "Edit";
-        button.ContentTemplate = (DataTemplate)FindResource("HotkeyEditIcon");
-        button.Width = 31;
-        button.Padding = new Thickness(0);
-        button.ToolTip = "Change hotkey";
+        if (!wasEnableToggleCapture)
+        {
+            button.Content = "Edit";
+            button.ContentTemplate = (DataTemplate)FindResource("HotkeyEditIcon");
+            button.Width = 31;
+            button.Padding = new Thickness(0);
+            button.ToolTip = "Change hotkey";
+        }
         if (pendingNewActionId is { } pendingActionId)
         {
             pendingNewActionId = null;
             AbandonPendingNewAction(pendingActionId);
-            if (!keepStatus) Status("New hotkey was not added.", ThemeManager.Brush("TextMutedBrush"));
+            if (!keepStatus) Status("New hotkey was not added.", ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush));
             return false;
         }
         var registered = !(advancedMode || !hotkeyRegistered) || RegisterConfiguredHotkey();
-        if (!keepStatus) Status($"Ready - press {FormatHotkey()} to start or stop.", ThemeManager.Brush("SuccessBrush"));
+        if (!keepStatus)
+            Status(wasEnableToggleCapture ? "Enable-toggle hotkey unchanged." : $"Ready - press {FormatHotkey()} to start or stop.", ThemeManager.Brush(wasEnableToggleCapture ? ThemeResourceKeys.TextMutedBrush : ThemeResourceKeys.SuccessBrush));
         return registered;
     }
 
@@ -834,10 +946,10 @@ public partial class MainWindow : Window
             if (preset is not null) ApplySequencePreset(preset);
             return;
         }
-        if (selectedAction == "Sequence")
+        if (selectedAction == AutomationInputIds.Sequence)
         {
-            if (!InputRules.IsWhileHeldAction(Selected(TypeCombo))) Select(TypeCombo, "Single");
-            SequenceItem.Content = "Custom sequence";
+            if (!InputRules.IsWhileHeldAction(Selected(TypeCombo))) Select(TypeCombo, AutomationActionTypeIds.Single);
+            SequenceItem.Content = AutomationInputLabels.CustomSequence;
             UpdateLiveInputMode();
             if (!CommitSelectedActionChange()) ShowReadyActionStatus();
             return;
@@ -859,13 +971,13 @@ public partial class MainWindow : Window
                 RefreshSequencePresetActions();
             }
             if (!accepted && previous is not null) { updatingActionSelection = true; ButtonCombo.SelectedItem = previous; updatingActionSelection = false; UpdateLiveInputMode(); return; }
-            if (customSequence.Count >= 2) { SequenceItem.Content = "Custom sequence"; updatingActionSelection = true; ButtonCombo.SelectedItem = SequenceItem; updatingActionSelection = false; }
+            if (customSequence.Count >= 2) { SequenceItem.Content = AutomationInputLabels.CustomSequence; updatingActionSelection = true; ButtonCombo.SelectedItem = SequenceItem; updatingActionSelection = false; }
             else if (previous is not null) { updatingActionSelection = true; ButtonCombo.SelectedItem = previous; updatingActionSelection = false; }
             UpdateLiveInputMode();
             if (!accepted || !CommitSelectedActionChange()) ShowReadyActionStatus();
             return;
         }
-        if (Selected(ButtonCombo) != "Custom")
+        if (Selected(ButtonCombo) != AutomationInputIds.Custom)
         {
             UpdateLiveInputMode();
             if (!CommitSelectedActionChange()) ShowReadyActionStatus();
@@ -874,7 +986,7 @@ public partial class MainWindow : Window
 
         actionBeforeKeyCapture = e.RemovedItems.OfType<ComboBoxItem>().FirstOrDefault();
         capturingSpamKey = true;
-        Status("Press the key to repeat, or Escape to cancel.", ThemeManager.Brush("WarningBrush"));
+        Status("Press the key to repeat, or Escape to cancel.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
         Focus();
     }
 
@@ -884,7 +996,7 @@ public partial class MainWindow : Window
         updatingActionSelection = true;
         ButtonCombo.SelectedItem = actionBeforeKeyCapture ?? ButtonCombo.Items.OfType<ComboBoxItem>().First();
         updatingActionSelection = false;
-        Status("Key selection cancelled.", ThemeManager.Brush("TextMutedBrush"));
+        Status("Key selection cancelled.", ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush));
     }
 
     // Input selection is the one part of a hotkey that always belongs to the tile, even when it uses shared behavior defaults.
@@ -894,7 +1006,7 @@ public partial class MainWindow : Window
         action.Settings = CreateCurrentDefaults();
         MarkProfilesDirty();
         UpdateActionEditorHint();
-        Status($"Updated {FormatHotkey()} - {action.ActionDescription}.", ThemeManager.Brush("SuccessBrush"));
+        Status($"Updated {FormatHotkey()} - {action.ActionDescription}.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
         return true;
     }
 
@@ -916,8 +1028,8 @@ public partial class MainWindow : Window
             return true;
         }
         if (hotkeyRegistered) UnregisterPrimaryHotkeys();
-        foreach (var registeredId in additionalHotkeys.Keys.ToList()) UnregisterHotKey(hwnd, registeredId);
-        additionalHotkeys.Clear();
+        foreach (var registeredId in registeredProfileHotkeys.Keys.ToList()) UnregisterHotKey(hwnd, registeredId);
+        registeredProfileHotkeys.Clear();
         primaryHotkeyIds.Clear();
         mouseHotkeys.Clear();
         var activeAction = ActiveProfileAction();
@@ -931,17 +1043,17 @@ public partial class MainWindow : Window
         var activeRegistrationSucceeded = !registerActiveHotkey;
         if (registerActiveHotkey && hotkeyTrigger == HotkeyTrigger.Keyboard && hotkey > 0)
         {
-            var nextId = RegisterKeyboardHotkeyVariants(HotkeyId, hotkeyModifiers, hotkey, action: null, trackAsPrimary: true);
+            var nextId = RegisterKeyboardHotkeyVariants(HotkeyId, hotkeyModifiers, hotkey, target: null, trackAsPrimary: true);
             hotkeyRegistered = primaryHotkeyIds.Count > 0;
             activeRegistrationSucceeded = hotkeyRegistered;
-            if (!hotkeyRegistered) Status($"{FormatHotkey()} is in use - choose another key.", ThemeManager.Brush("ErrorBrush"));
-            if (nextId > HotkeyId + 1) additionalHotkeys.Clear();
+            if (!hotkeyRegistered) Status($"{FormatHotkey()} is in use - choose another key.", ThemeManager.Brush(ThemeResourceKeys.ErrorBrush));
+            if (nextId > HotkeyId + 1) registeredProfileHotkeys.Clear();
         }
         else hotkeyRegistered = false;
         if (registerActiveHotkey && hotkeyTrigger != HotkeyTrigger.Keyboard)
         {
             var binding = new MouseHotkey(hotkeyTrigger, hotkeyModifiers);
-            RegisterMouseHotkey(binding, advancedMode ? activeAction : null);
+            RegisterMouseHotkey(binding, new RegisteredHotkeyTarget(advancedMode ? activeAction : null, RegisteredHotkeyPurpose.RunAction));
             activeRegistrationSucceeded = mouseHotkeys.ContainsKey(binding);
         }
         if (!advancedMode) { UpdateMouseHook(); return activeRegistrationSucceeded; }
@@ -953,30 +1065,41 @@ public partial class MainWindow : Window
             if (action.Settings.HotkeyTrigger == hotkeyTrigger && action.Settings.Hotkey == hotkey && NormalizeKeyboardHotkeyModifiers(action.Settings.HotkeyModifiers) == NormalizeKeyboardHotkeyModifiers(hotkeyModifiers)) continue;
             if (action.Settings.HotkeyTrigger != HotkeyTrigger.Keyboard)
             {
-                RegisterMouseHotkey(new MouseHotkey(action.Settings.HotkeyTrigger, action.Settings.HotkeyModifiers), action);
+                RegisterMouseHotkey(new MouseHotkey(action.Settings.HotkeyTrigger, action.Settings.HotkeyModifiers), new RegisteredHotkeyTarget(action, RegisteredHotkeyPurpose.RunAction));
                 continue;
             }
-            additionalId = RegisterKeyboardHotkeyVariants(additionalId, action.Settings.HotkeyModifiers, action.Settings.Hotkey, action, trackAsPrimary: false);
+            additionalId = RegisterKeyboardHotkeyVariants(additionalId, action.Settings.HotkeyModifiers, action.Settings.Hotkey, new RegisteredHotkeyTarget(action, RegisteredHotkeyPurpose.RunAction), trackAsPrimary: false);
+        }
+        foreach (var action in profile.Actions.Where(action => action.EnableToggleHotkey?.IsConfigured == true))
+        {
+            var binding = action.EnableToggleHotkey!;
+            var target = new RegisteredHotkeyTarget(action, RegisteredHotkeyPurpose.ToggleEnabled);
+            if (binding.Trigger != HotkeyTrigger.Keyboard)
+            {
+                RegisterMouseHotkey(new MouseHotkey(binding.Trigger, binding.Modifiers), target);
+                continue;
+            }
+            additionalId = RegisterKeyboardHotkeyVariants(additionalId, binding.Modifiers, binding.VirtualKey, target, trackAsPrimary: false);
         }
         UpdateMouseHook();
         return activeRegistrationSucceeded;
     }
 
-    private int RegisterKeyboardHotkeyVariants(int startId, uint modifiers, int virtualKey, AutomationAction? action, bool trackAsPrimary)
+    private int RegisterKeyboardHotkeyVariants(int startId, uint modifiers, int virtualKey, RegisteredHotkeyTarget? target, bool trackAsPrimary)
     {
         var id = startId;
         foreach (var variantModifiers in KeyboardHotkeyModifierVariants(modifiers))
         {
-            var registered = RegisterHotKey(hwnd, id, variantModifiers, (uint)virtualKey);
+            var registered = RegisterHotKey(hwnd, id, WindowsHotkeyRegistrationModifiers(variantModifiers), (uint)virtualKey);
             AppRuntime.RecordEndToEndEvent(
                 "hotkey-registration",
-                $"id={id};key={virtualKey};modifiers={variantModifiers};action={action?.Id ?? "primary"};success={registered}");
+                $"id={id};key={virtualKey};modifiers={variantModifiers};action={target?.Action?.Id ?? "primary"};success={registered};purpose={target?.Purpose.ToString() ?? RegisteredHotkeyPurpose.RunAction.ToString()}");
             if (registered)
             {
                 if (trackAsPrimary) primaryHotkeyIds.Add(id);
-                else if (action is not null) additionalHotkeys[id] = action;
+                else if (target is not null) registeredProfileHotkeys[id] = target;
             }
-            else AppLog.Info($"Could not register {(action is null ? "active" : "profile")} hotkey variant {HotkeyFormatter.Format(virtualKey, variantModifiers)}.");
+            else AppLog.Info($"Could not register {(target is null ? "active" : target.Purpose == RegisteredHotkeyPurpose.ToggleEnabled ? "enable-toggle" : "profile")} hotkey variant {HotkeyFormatter.Format(virtualKey, variantModifiers)}.");
             id++;
         }
         return id;
@@ -1003,6 +1126,8 @@ public partial class MainWindow : Window
         yield return requiredAlt | control | shift;
     }
 
+    internal static uint WindowsHotkeyRegistrationModifiers(uint configuredModifiers) => configuredModifiers | HotkeyNoRepeat;
+
     private void UnregisterPrimaryHotkeys()
     {
         foreach (var id in primaryHotkeyIds)
@@ -1018,9 +1143,9 @@ public partial class MainWindow : Window
         return modifiers & alt;
     }
 
-    private void RegisterMouseHotkey(MouseHotkey hotkeyBinding, AutomationAction? action)
+    private void RegisterMouseHotkey(MouseHotkey hotkeyBinding, RegisteredHotkeyTarget target)
     {
-        if (!mouseHotkeys.TryAdd(hotkeyBinding, action))
+        if (!mouseHotkeys.TryAdd(hotkeyBinding, target))
             AppLog.Info($"Could not register duplicate mouse hotkey {HotkeyFormatter.Format(0, hotkeyBinding.Modifiers, hotkeyBinding.Trigger)}.");
     }
 
@@ -1063,16 +1188,26 @@ public partial class MainWindow : Window
             });
             return 1;
         }
-        if (!CanExecuteAutomation() || !mouseHotkeys.TryGetValue(binding, out var action))
+        if (!CanExecuteAutomation() || !mouseHotkeys.TryGetValue(binding, out var target))
             return CallNextHookEx(mouseHook, code, wParam, lParam);
 
         _ = Dispatcher.BeginInvoke(() =>
         {
             if (!CanExecuteAutomation()) return;
-            ActivateHotkey(action, 0, binding.Modifiers, binding.Trigger);
+            HandleRegisteredHotkey(target, new AutomationHotkeyBinding { Modifiers = binding.Modifiers, Trigger = binding.Trigger });
         });
         // A mouse hotkey behaves like a keyboard hotkey: it is reserved for AutoClicker, not forwarded to the target app.
         return 1;
+    }
+
+    private void HandleRegisteredHotkey(RegisteredHotkeyTarget target, AutomationHotkeyBinding binding)
+    {
+        if (target.Purpose == RegisteredHotkeyPurpose.ToggleEnabled)
+        {
+            if (target.Action is not null) SetHotkeysEnabled([target.Action], !target.Action.HotkeyEnabled);
+            return;
+        }
+        ActivateHotkey(target.Action, binding.VirtualKey, binding.Modifiers, binding.Trigger);
     }
 
     private static bool TryGetMouseTrigger(int message, LowLevelMouseData data, out HotkeyTrigger trigger)
@@ -1118,7 +1253,7 @@ public partial class MainWindow : Window
     private void LoadAutomationProfiles()
     {
         // Advanced profiles start from their own global defaults, never from Simple mode's saved values.
-        automationProfiles = AutomationProfileStore.Load(ProfilesPath, LoadSavedDefaults());
+        automationProfiles = AutomationProfileStore.Load(AutomationProfilesPath, LoadSavedDefaults());
         var profile = ActiveProfile() ?? automationProfiles.Profiles.First();
         var action = profile.Actions.FirstOrDefault(action => action.Id == automationProfiles.ActiveActionId) ?? profile.Actions.FirstOrDefault();
         automationProfiles.ActiveProfileId = profile.Id;
@@ -1133,7 +1268,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            AutomationProfileStore.Save(ProfilesPath, automationProfiles);
+            AutomationProfileStore.Save(AutomationProfilesPath, automationProfiles);
             savedProfileConfiguration = AutomationProfileConfiguration.Fingerprint(automationProfiles);
             profilesDirty = false;
         }
@@ -1144,7 +1279,7 @@ public partial class MainWindow : Window
     private void PersistProfileNavigation()
     {
         if (profilesDirty) return;
-        try { AutomationProfileStore.Save(ProfilesPath, automationProfiles); }
+        try { AutomationProfileStore.Save(AutomationProfilesPath, automationProfiles); }
         catch (Exception exception) { AppLog.Error("Could not save selected automation profile", exception); }
     }
 
@@ -1215,7 +1350,7 @@ public partial class MainWindow : Window
         }
         UpdateSharedBehaviorDefaultsUi();
         RefreshAdvancedFooterUi();
-        if (announce) Status("Ready - editing shared defaults.", ThemeManager.Brush("SuccessBrush"));
+        if (announce) Status("Ready - editing shared defaults.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
     }
 
     private AppDefaults ResolveActionSettings(AutomationAction action)
@@ -1227,8 +1362,8 @@ public partial class MainWindow : Window
     {
         try
         {
-            return File.Exists(GlobalDefaultsPath)
-                ? JsonSerializer.Deserialize<AppDefaults>(File.ReadAllText(GlobalDefaultsPath)) ?? new AppDefaults()
+            return File.Exists(AdvancedSharedDefaultsPath)
+                ? JsonSerializer.Deserialize<AppDefaults>(File.ReadAllText(AdvancedSharedDefaultsPath)) ?? new AppDefaults()
                 : new AppDefaults();
         }
         catch { return new AppDefaults(); }
@@ -1275,7 +1410,7 @@ public partial class MainWindow : Window
             RefreshAdvancedEditorAfterActionChange();
             MarkProfilesDirty();
             var detail = reverted == AutomationBehaviorOverride.All ? "all behavior settings" : DescribeBehaviorOverrides(reverted);
-            Status($"Shared defaults restored for {detail}.", ThemeManager.Brush("SuccessBrush"));
+            Status($"Shared defaults restored for {detail}.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
             return;
         }
 
@@ -1288,7 +1423,7 @@ public partial class MainWindow : Window
         }
         RefreshAdvancedEditorAfterActionChange();
         MarkProfilesDirty();
-        Status(targets.Count == 1 ? "This hotkey now has its own behavior settings." : $"{targets.Count} hotkeys now have their own behavior settings.", ThemeManager.Brush("SuccessBrush"));
+        Status(targets.Count == 1 ? "This hotkey now has its own behavior settings." : $"{targets.Count} hotkeys now have their own behavior settings.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
     }
 
     private void SharedBehaviorSurface_PreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -1297,13 +1432,13 @@ public partial class MainWindow : Window
         if (IsClicking || !advancedMode) return;
         if (aspect == AutomationBehaviorOverride.Position && IsKeyboardInputSelected())
         {
-            Status("Position settings apply to mouse actions only.", ThemeManager.Brush("TextMutedBrush"));
+            Status("Position settings apply to mouse actions only.", ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush));
             e.Handled = true;
             return;
         }
         if (aspect == AutomationBehaviorOverride.Interval && IsEditingAdvancedAction() && ActiveProfileAction() is { } activeAction && InputRules.IsHoldAction(activeAction.Settings.ClickType))
         {
-            Status("Hold hotkeys do not use an interval.", ThemeManager.Brush("TextMutedBrush"));
+            Status("Hold hotkeys do not use an interval.", ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush));
             e.Handled = true;
             return;
         }
@@ -1318,7 +1453,7 @@ public partial class MainWindow : Window
             RefreshAdvancedFooterUi();
             UpdateSharedBehaviorDefaultsUi();
             MarkProfilesDirty();
-            Status($"This profile now uses its own {DescribeBehaviorOverrides(aspect)} settings.", ThemeManager.Brush("SuccessBrush"));
+            Status($"This profile now uses its own {DescribeBehaviorOverrides(aspect)} settings.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
             e.Handled = true;
             return;
         }
@@ -1330,7 +1465,7 @@ public partial class MainWindow : Window
         action.BehaviorOverrides |= aspect;
         RefreshAdvancedEditorAfterActionChange();
         MarkProfilesDirty();
-        Status($"This hotkey now uses its own {DescribeBehaviorOverrides(aspect)} settings.", ThemeManager.Brush("SuccessBrush"));
+        Status($"This hotkey now uses its own {DescribeBehaviorOverrides(aspect)} settings.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
         e.Handled = true;
     }
 
@@ -1432,7 +1567,7 @@ public partial class MainWindow : Window
         var message = useSharedSettings
             ? targets.Count == 1 ? "Inherited lighting settings enabled for this hotkey." : $"Inherited lighting settings enabled for {targets.Count} hotkeys."
             : targets.Count == 1 ? "This hotkey now has its own lighting settings." : $"{targets.Count} hotkeys now have their own lighting settings.";
-        Status(message, ThemeManager.Brush("SuccessBrush"));
+        Status(message, ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
     }
 
     private void ConfigureLightingOverride(IEnumerable<AutomationAction> actions)
@@ -1447,11 +1582,11 @@ public partial class MainWindow : Window
         foreach (var action in targets)
         {
             action.UsesSharedLightingSettings = false;
-            action.LightingOverride = CloneLighting(dialog.Settings);
+            action.LightingOverride = CloneLighting(dialog.RgbSettings);
         }
         MarkProfilesDirty();
         RefreshAdvancedEditorAfterActionChange();
-        Status(targets.Count == 1 ? "Lighting override saved for this hotkey." : "Lighting override saved for the selected hotkeys.", ThemeManager.Brush("SuccessBrush"));
+        Status(targets.Count == 1 ? "Lighting override saved for this hotkey." : "Lighting override saved for the selected hotkeys.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
     }
 
     private void RefreshAdvancedEditorAfterActionChange()
@@ -1462,7 +1597,7 @@ public partial class MainWindow : Window
 
     private void NewProfileButton_Click(object sender, RoutedEventArgs e)
     {
-        if (clickCancellation is not null || profileRuns.Count > 0) { Status("Stop active hotkeys before creating a profile.", ThemeManager.Brush("WarningBrush")); return; }
+        if (clickCancellation is not null || profileRuns.Count > 0) { Status("Stop active hotkeys before creating a profile.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush)); return; }
         var replacingDraft = ActiveProfile()?.Id == unsavedProfileId;
         if (replacingDraft) DiscardActiveDraft();
         else if (!ResolveUnsavedProfileChanges("creating a new profile")) return;
@@ -1475,7 +1610,7 @@ public partial class MainWindow : Window
         ShowAdvancedSharedDefaults();
         MarkProfilesDirty();
         RegisterConfiguredHotkey();
-        Status("New profile - add a hotkey when you are ready.", ThemeManager.Brush("SuccessBrush"));
+        Status("New profile - add a hotkey when you are ready.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
     }
 
     private void DiscardActiveDraft()
@@ -1502,7 +1637,7 @@ public partial class MainWindow : Window
             var name = savedProfileName;
             if (name is null)
             {
-                var dialog = new ProfileNameWindow("Save profile", "Give this profile a name before saving it.", "New profile") { Owner = this };
+                var dialog = new ProfileNameWindow("Save profile", "Give this profile a name before saving it.", AutomationProfileNames.New) { Owner = this };
                 if (dialog.ShowDialog() != true) return false;
                 name = dialog.ProfileName;
             }
@@ -1513,7 +1648,7 @@ public partial class MainWindow : Window
         PersistAutomationProfiles();
         profilesDirty = false;
         RefreshAdvancedFooterUi();
-        Status($"{profile.Name} saved.", ThemeManager.Brush("SuccessBrush"));
+        Status($"{profile.Name} saved.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
         return true;
     }
 
@@ -1550,7 +1685,7 @@ public partial class MainWindow : Window
         // the same ID, so a stale profile scope would otherwise capture the old controls back into the fresh model.
         editorSession.EnterSharedDefaults(clearSelection: false);
         // Reloading from the atomic store restores the current profile exactly as it was last saved.
-        automationProfiles = AutomationProfileStore.Load(ProfilesPath, CreateCurrentDefaults());
+        automationProfiles = AutomationProfileStore.Load(AutomationProfilesPath, CreateCurrentDefaults());
         unsavedProfileId = null;
         savedProfileConfiguration = AutomationProfileConfiguration.Fingerprint(automationProfiles);
         profilesDirty = false;
@@ -1573,7 +1708,7 @@ public partial class MainWindow : Window
         var sharedTarget = editingProfileDefaults ? profile?.UsesSharedBehavior(AutomationBehaviorOverride.TargetWindow) == true : action?.UsesSharedBehavior(AutomationBehaviorOverride.TargetWindow) == true;
         var sharedJitter = editingProfileDefaults ? profile?.UsesSharedBehavior(AutomationBehaviorOverride.InputJitter) == true : action?.UsesSharedBehavior(AutomationBehaviorOverride.InputJitter) == true;
         var sharedPulse = editingProfileDefaults ? profile?.UsesSharedBehavior(AutomationBehaviorOverride.InputPulse) == true : action?.UsesSharedBehavior(AutomationBehaviorOverride.InputPulse) == true;
-        var positionAvailable = editingSharedDefaults || (!IsKeyboardInputSelected() && Selected(ButtonCombo) != "Sequence");
+        var positionAvailable = editingSharedDefaults || (!IsKeyboardInputSelected() && Selected(ButtonCombo) != AutomationInputIds.Sequence);
         IntervalCard.IsEnabled = !locked && !holdingHotkey;
         ActionCard.IsEnabled = !locked;
         ButtonCombo.IsEnabled = !locked && !editingSharedDefaults;
@@ -1660,7 +1795,7 @@ public partial class MainWindow : Window
     {
         if (clickCancellation is not null || profileRuns.Count > 0)
         {
-            Status("Stop all active hotkeys before changing profiles.", ThemeManager.Brush("WarningBrush"));
+            Status("Stop all active hotkeys before changing profiles.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return;
         }
         var menu = new ContextMenu { PlacementTarget = ManageProfilesButton };
@@ -1682,10 +1817,10 @@ public partial class MainWindow : Window
         {
             var dialog = new Microsoft.Win32.SaveFileDialog
             {
-                Title = "Export AutoClicker profile",
-                Filter = "AutoClicker profile (*.autoclicker-profile.json)|*.autoclicker-profile.json",
-                FileName = SafeProfileFileName(profile.Name) + ".autoclicker-profile.json",
-                DefaultExt = ".autoclicker-profile.json",
+                Title = $"Export {AppIdentity.Name} profile",
+                Filter = $"{AppIdentity.Name} profile (*{ConfigurationFileExtensions.Profile})|*{ConfigurationFileExtensions.Profile}",
+                FileName = SafeProfileFileName(profile.Name) + ConfigurationFileExtensions.Profile,
+                DefaultExt = ConfigurationFileExtensions.Profile,
                 AddExtension = true
             };
             if (dialog.ShowDialog(this) != true) return;
@@ -1694,12 +1829,12 @@ public partial class MainWindow : Window
         try
         {
             ProfileTransferStore.Save(fileName, profile);
-            Status($"{profile.Name} exported.", ThemeManager.Brush("SuccessBrush"));
+            Status($"{profile.Name} exported.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
         }
         catch (Exception exception)
         {
             AppLog.Error($"Could not export profile '{profile.Name}'", exception);
-            Status("Could not export that profile. See the log for details.", ThemeManager.Brush("ErrorBrush"));
+            Status("Could not export that profile. See the log for details.", ThemeManager.Brush(ThemeResourceKeys.ErrorBrush));
         }
     }
 
@@ -1707,7 +1842,7 @@ public partial class MainWindow : Window
     {
         if (profilesDirty)
         {
-            Status("Save or discard current profile changes before importing a profile.", ThemeManager.Brush("WarningBrush"));
+            Status("Save or discard current profile changes before importing a profile.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return;
         }
         var fileName = AppRuntime.OpenFilePathOverride;
@@ -1715,8 +1850,8 @@ public partial class MainWindow : Window
         {
             var dialog = new Microsoft.Win32.OpenFileDialog
             {
-                Title = "Import AutoClicker profile",
-                Filter = "AutoClicker profiles (*.autoclicker-profile.json)|*.autoclicker-profile.json|Other JSON files (*.json)|*.json",
+                Title = $"Import {AppIdentity.Name} profile",
+                Filter = $"{AppIdentity.Name} profiles (*{ConfigurationFileExtensions.Profile})|*{ConfigurationFileExtensions.Profile}|Other JSON files (*.json)|*.json",
                 Multiselect = false
             };
             if (dialog.ShowDialog(this) != true) return;
@@ -1739,12 +1874,12 @@ public partial class MainWindow : Window
             PersistAutomationProfiles();
             RegisterConfiguredHotkey();
             RefreshAdvancedFooterUi();
-            Status($"{profile.Name} imported.", ThemeManager.Brush("SuccessBrush"));
+            Status($"{profile.Name} imported.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
         }
         catch (Exception exception)
         {
             AppLog.Error("Could not import profile", exception);
-            Status("Could not import that profile. See the log for details.", ThemeManager.Brush("ErrorBrush"));
+            Status("Could not import that profile. See the log for details.", ThemeManager.Brush(ThemeResourceKeys.ErrorBrush));
         }
     }
 
@@ -1767,20 +1902,20 @@ public partial class MainWindow : Window
         if (advancedMode == enabled) return;
         if (clickCancellation is not null || profileRuns.Count > 0)
         {
-            Status("Stop all active hotkeys before changing modes.", ThemeManager.Brush("WarningBrush"));
+            Status("Stop all active hotkeys before changing modes.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return;
         }
         if (hotkeyRegistered) UnregisterPrimaryHotkeys();
         if (!enabled)
         {
             CaptureCurrentActionToProfile();
-            LoadDefaults();
+            LoadSimpleDefaults();
         }
         advancedMode = enabled;
         ApplyModeUi();
         RegisterConfiguredHotkey();
-        SaveUiPreferences();
-        Status(enabled ? "Advanced mode enabled - use the footer to manage hotkeys." : "Simple mode enabled.", ThemeManager.Brush("SuccessBrush"));
+        SaveApplicationPreferences();
+        Status(enabled ? "Advanced mode enabled - use the footer to manage hotkeys." : "Simple mode enabled.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
     }
 
     private void ApplyModeUi()
@@ -1793,7 +1928,7 @@ public partial class MainWindow : Window
         AdvancedFooter.Visibility = advancedMode ? Visibility.Visible : Visibility.Collapsed;
         FooterRow.Height = advancedMode ? new GridLength(102) : new GridLength(82);
         if (!compactMode) Height = advancedMode ? AdvancedExpandedWindowHeight : ExpandedWindowHeight;
-        ModeButton.Content = advancedMode ? "Advanced" : "S";
+        ModeButton.Content = advancedMode ? AppModeIds.Advanced : "S";
         ModeButton.ToolTip = advancedMode ? "Switch to Simple mode" : "Switch to Advanced profiles";
         if (!advancedMode) editorSession.EnterSimple();
         else if (editorSession.Scope.Kind == SettingsEditorScopeKind.Simple) ShowAdvancedSharedDefaults(clearSelection: false);
@@ -1850,7 +1985,7 @@ public partial class MainWindow : Window
         if (hotkeyRegistered) UnregisterPrimaryHotkeys();
         RegisterConfiguredHotkey();
         RefreshAdvancedFooterUi();
-        if (!editProfileDefaults) Status($"{profile.Name} selected - shared defaults are ready.", ThemeManager.Brush("SuccessBrush"));
+        if (!editProfileDefaults) Status($"{profile.Name} selected - shared defaults are ready.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
     }
 
     private void SelectAdvancedAction(AutomationAction action, bool startHotkeyCapture = false)
@@ -1872,7 +2007,7 @@ public partial class MainWindow : Window
         RefreshAdvancedFooterUi();
         UpdateSharedBehaviorDefaultsUi();
         UpdateActionEditorHint();
-        Status($"Editing {action.DisplayName}.", ThemeManager.Brush("SuccessBrush"));
+        Status($"Editing {action.DisplayName}.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
         if (startHotkeyCapture) BeginHotkeyCapture();
     }
 
@@ -1899,7 +2034,7 @@ public partial class MainWindow : Window
         ApplyDefaults(AutomationBehaviorSettingsResolver.ResolveProfileDefaults(LoadSavedDefaults(), profile));
         RefreshAdvancedFooterUi();
         UpdateSharedBehaviorDefaultsUi();
-        Status($"Editing {profile.Name} profile defaults - save the profile when ready.", ThemeManager.Brush("SuccessBrush"));
+        Status($"Editing {profile.Name} profile defaults - save the profile when ready.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
     }
 
     private void UseSharedProfileBehaviorDefaults_Click(object sender, RoutedEventArgs e)
@@ -1914,7 +2049,7 @@ public partial class MainWindow : Window
         var overridden = profile.ActiveBehaviorOverrides;
         if (overridden == AutomationBehaviorOverride.None)
         {
-            Status("This profile already uses the global Advanced defaults.", ThemeManager.Brush("TextMutedBrush"));
+            Status("This profile already uses the global Advanced defaults.", ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush));
             return;
         }
         var dialog = new SharedBehaviorDefaultsWindow(overridden, scopeLabel: "this profile") { Owner = this };
@@ -1935,7 +2070,7 @@ public partial class MainWindow : Window
         }
         if (profile.ActiveBehaviorOverrides == AutomationBehaviorOverride.None)
         {
-            Status("This profile already uses the app defaults.", ThemeManager.Brush("TextMutedBrush"));
+            Status("This profile already uses the app defaults.", ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush));
             return;
         }
         RevertProfileBehaviorToAppDefaults(profile, AutomationBehaviorOverride.All);
@@ -1950,7 +2085,7 @@ public partial class MainWindow : Window
         BeginProfileDefaultsEdit(profile);
         MarkProfilesDirty();
         var detail = reverted == AutomationBehaviorOverride.All ? "all behavior settings" : DescribeBehaviorOverrides(reverted);
-        Status($"Profile now uses app defaults for {detail}.", ThemeManager.Brush("SuccessBrush"));
+        Status($"Profile now uses app defaults for {detail}.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
     }
 
     private void ConfigureProfileLighting_Click(object sender, RoutedEventArgs e)
@@ -1964,9 +2099,9 @@ public partial class MainWindow : Window
         }
         var dialog = new HotkeyLightingWindow(profile.LightingDefaults ?? rgbSettings, profile.Name) { Owner = this };
         if (dialog.ShowDialog() != true) return;
-        profile.LightingDefaults = CloneLighting(dialog.Settings);
+        profile.LightingDefaults = CloneLighting(dialog.RgbSettings);
         MarkProfilesDirty();
-        Status($"Profile lighting saved for {profile.Name}.", ThemeManager.Brush("SuccessBrush"));
+        Status($"Profile lighting saved for {profile.Name}.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
     }
 
     private void UseAppLightingDefaultsForProfile_Click(object sender, RoutedEventArgs e)
@@ -1980,12 +2115,12 @@ public partial class MainWindow : Window
         }
         if (profile.LightingDefaults is null)
         {
-            Status("This profile already uses the app lighting defaults.", ThemeManager.Brush("TextMutedBrush"));
+            Status("This profile already uses the app lighting defaults.", ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush));
             return;
         }
         profile.LightingDefaults = null;
         MarkProfilesDirty();
-        Status($"Profile lighting reset to app defaults for {profile.Name}.", ThemeManager.Brush("SuccessBrush"));
+        Status($"Profile lighting reset to app defaults for {profile.Name}.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
     }
 
     private void RenameProfile_Click(object sender, RoutedEventArgs e)
@@ -2017,8 +2152,8 @@ public partial class MainWindow : Window
         var updated = defaults.Clone();
         CopyBehaviorOverride(CreateCurrentDefaults(), updated, aspect);
         if (JsonSerializer.Serialize(defaults) == JsonSerializer.Serialize(updated)) return;
-        if (!WriteDefaults(GlobalDefaultsPath, updated))
-            Status("Could not save the global Advanced default.", ThemeManager.Brush("ErrorBrush"));
+        if (!WriteDefaults(AdvancedSharedDefaultsPath, updated))
+            Status("Could not save the global Advanced default.", ThemeManager.Brush(ThemeResourceKeys.ErrorBrush));
     }
 
     private void ProfileContextMenu_Opened(object sender, RoutedEventArgs e)
@@ -2042,7 +2177,7 @@ public partial class MainWindow : Window
         RestoreEditorScopeAfterDocumentReload(previousScope);
         RegisterConfiguredHotkey();
         RefreshAdvancedFooterUi();
-        Status($"{ActiveProfile()?.Name ?? profile.Name} restored to its last saved state.", ThemeManager.Brush("SuccessBrush"));
+        Status($"{ActiveProfile()?.Name ?? profile.Name} restored to its last saved state.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
     }
 
     private void RestoreEditorScopeAfterDocumentReload(SettingsEditorScope previousScope)
@@ -2080,7 +2215,7 @@ public partial class MainWindow : Window
         if ((sender as FrameworkElement)?.Tag is not AutomationProfile profile || profile.Id == ActiveProfile()?.Id) return;
         if (profilesDirty)
         {
-            Status("Save or discard current profile changes before deleting another profile.", ThemeManager.Brush("WarningBrush"));
+            Status("Save or discard current profile changes before deleting another profile.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return;
         }
 
@@ -2090,7 +2225,7 @@ public partial class MainWindow : Window
         automationProfiles.RecentProfileIds.Remove(profile.Id);
         PersistAutomationProfiles();
         RefreshAdvancedFooterUi();
-        Status($"{profile.Name} deleted.", ThemeManager.Brush("SuccessBrush"));
+        Status($"{profile.Name} deleted.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
     }
 
     private void DuplicateProfile_Click(object sender, RoutedEventArgs e)
@@ -2102,8 +2237,8 @@ public partial class MainWindow : Window
         if (sourceProfile is null) return;
         profile = sourceProfile;
         var copy = profile.Clone();
-        copy.Id = Guid.NewGuid().ToString("N");
-        foreach (var action in copy.Actions) action.Id = Guid.NewGuid().ToString("N");
+        copy.Id = Guid.NewGuid().ToString(AppIdentity.CompactGuidFormat);
+        foreach (var action in copy.Actions) action.Id = Guid.NewGuid().ToString(AppIdentity.CompactGuidFormat);
         copy.Name = "Unsaved";
         automationProfiles.Profiles.Add(copy);
         automationProfiles.ActiveProfileId = copy.Id;
@@ -2153,7 +2288,7 @@ public partial class MainWindow : Window
         }
 
         ShowAdvancedSharedDefaults(clearSelection: false);
-        Status(selected.Count == 0 ? "Shared defaults selected." : $"{selected.Count} hotkeys selected - use their menu for shared options.", ThemeManager.Brush("SuccessBrush"));
+        Status(selected.Count == 0 ? "Shared defaults selected." : $"{selected.Count} hotkeys selected - use their menu for shared options.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
     }
 
     private void AdvancedActionRemove_Click(object sender, RoutedEventArgs e)
@@ -2181,6 +2316,21 @@ public partial class MainWindow : Window
     {
         if (profileRuns.Count > 0) return;
         if ((sender as FrameworkElement)?.Tag is AutomationAction action) SelectAdvancedAction(action, startHotkeyCapture: true);
+    }
+
+    private void ConfigureEnableToggleHotkey_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is AutomationAction action) BeginEnableToggleHotkeyCapture(action);
+    }
+
+    private void RemoveEnableToggleHotkey_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not AutomationAction action || action.EnableToggleHotkey is null) return;
+        action.EnableToggleHotkey = null;
+        RegisterConfiguredHotkey();
+        MarkProfilesDirty();
+        RefreshAdvancedFooterUi();
+        Status("Enable-toggle hotkey removed.", ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush));
     }
 
     private void AdvancedActionHeader_RightClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -2258,7 +2408,7 @@ public partial class MainWindow : Window
         if (!AutomationProfileActionOrder.Move(profile, actionId, target.Action.Id, placeAfter)) return;
         MarkProfilesDirty();
         RefreshAdvancedFooterUi();
-        Status("Hotkey order changed - save the profile when ready.", ThemeManager.Brush("SuccessBrush"));
+        Status("Hotkey order changed - save the profile when ready.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
         e.Handled = true;
     }
 
@@ -2267,7 +2417,7 @@ public partial class MainWindow : Window
         if (ReferenceEquals(actionDragTarget, target)) return;
         ClearActionDragTarget();
         actionDragTarget = target;
-        target.BorderBrush = ThemeManager.Brush("AccentFocusBrush");
+        target.BorderBrush = ThemeManager.Brush(ThemeResourceKeys.AccentFocusBrush);
         target.BorderThickness = new Thickness(2);
     }
 
@@ -2290,6 +2440,24 @@ public partial class MainWindow : Window
             AutomationProperties.SetAutomationId(changeHotkey, "ChangeActionHotkey");
             changeHotkey.Click += ChangeAdvancedActionHotkey_Click;
             menu.Items.Add(changeHotkey);
+            var enableToggleBinding = action.EnableToggleHotkey;
+            var configureEnableToggle = new MenuItem
+            {
+                Header = enableToggleBinding?.IsConfigured == true
+                    ? $"Change enable-toggle hotkey… ({enableToggleBinding})"
+                    : "Configure enable-toggle hotkey…",
+                Tag = action
+            };
+            AutomationProperties.SetAutomationId(configureEnableToggle, "ConfigureEnableToggleHotkey");
+            configureEnableToggle.Click += ConfigureEnableToggleHotkey_Click;
+            menu.Items.Add(configureEnableToggle);
+            if (enableToggleBinding?.IsConfigured == true)
+            {
+                var removeEnableToggle = new MenuItem { Header = "Remove enable-toggle hotkey", Tag = action };
+                AutomationProperties.SetAutomationId(removeEnableToggle, "RemoveEnableToggleHotkey");
+                removeEnableToggle.Click += RemoveEnableToggleHotkey_Click;
+                menu.Items.Add(removeEnableToggle);
+            }
         }
         else menu.Items.Add(new MenuItem { Header = $"{targets.Count} selected hotkeys", IsEnabled = false });
 
@@ -2353,7 +2521,7 @@ public partial class MainWindow : Window
         if (profilesDirty)
         {
             // This operation can create a new draft; keep the one-draft model unambiguous.
-            Status("Save or discard current profile changes before copying hotkeys.", ThemeManager.Brush("WarningBrush"));
+            Status("Save or discard current profile changes before copying hotkeys.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return;
         }
 
@@ -2381,14 +2549,14 @@ public partial class MainWindow : Window
         else
         {
             destination = dialog.DestinationProfile;
-            result = AutomationProfileCopy.CopyTo(destination, actions, dialog.ConflictResolution);
+            result = AutomationProfileCopy.CopyTo(destination, actions, dialog.ConflictResolution, keyboardHotkeyModifiersEnabled);
         }
 
         MarkProfilesDirty();
         RefreshAdvancedFooterUi();
         var details = result.ReplacedCount > 0 ? $" Replaced {result.ReplacedCount}." : string.Empty;
         details += result.SkippedCount > 0 ? $" Skipped {result.SkippedCount}." : string.Empty;
-        Status($"Copied {result.CopiedCount} hotkey{(result.CopiedCount == 1 ? string.Empty : "s")} to {destination.Name}.{details} Save to keep the change.", ThemeManager.Brush("SuccessBrush"));
+        Status($"Copied {result.CopiedCount} hotkey{(result.CopiedCount == 1 ? string.Empty : "s")} to {destination.Name}.{details} Save to keep the change.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
     }
 
     private static string SharedBehaviorMenuState(IEnumerable<AutomationAction> actions)
@@ -2409,12 +2577,33 @@ public partial class MainWindow : Window
     {
         var targets = actions.DistinctBy(action => action.Id).ToList();
         if (targets.Count == 0) return;
+        if (!enabled)
+            foreach (var action in targets) StopProfileAction(action.Id);
         foreach (var action in targets) action.HotkeyEnabled = enabled;
         RegisterConfiguredHotkey();
         MarkProfilesDirty();
         RefreshAdvancedFooterUi();
+        if (enabled)
+            foreach (var action in targets) ActivateWhileHeldActionIfTriggerIsDown(action);
         var noun = targets.Count == 1 ? "hotkey" : "hotkeys";
-        Status(enabled ? $"{targets.Count} {noun} enabled." : $"{targets.Count} {noun} disabled.", ThemeManager.Brush(enabled ? "SuccessBrush" : "TextMutedBrush"));
+        Status(enabled ? $"{targets.Count} {noun} enabled." : $"{targets.Count} {noun} disabled.", ThemeManager.Brush(enabled ? ThemeResourceKeys.SuccessBrush : ThemeResourceKeys.TextMutedBrush));
+    }
+
+    private void ActivateWhileHeldActionIfTriggerIsDown(AutomationAction action)
+    {
+        if (!AutomationHotkeyBindingRules.ShouldActivateWhileHeldOnEnable(action, IsBindingTriggerDown)) return;
+        var binding = AutomationHotkeyBindingRules.RunBinding(action);
+        ActivateHotkey(action, binding.VirtualKey, binding.Modifiers, binding.Trigger);
+    }
+
+    private bool IsBindingTriggerDown(AutomationHotkeyBinding binding)
+    {
+        var physicalKey = HotkeyHoldSafety.PhysicalVirtualKey(binding.Trigger, binding.VirtualKey);
+        if (physicalKey is null) return false;
+        var requiredModifiers = binding.Trigger == HotkeyTrigger.Keyboard
+            ? HotkeyHoldSafety.RequiredKeyboardModifiers(keyboardHotkeyModifiersEnabled, binding.Modifiers)
+            : binding.Modifiers & 0x7;
+        return HotkeyHoldSafety.IsTriggerDown(physicalKey.Value, requiredModifiers, IsKeyPressed);
     }
 
     private void AdvancedActionStart_Click(object sender, RoutedEventArgs e)
@@ -2452,7 +2641,7 @@ public partial class MainWindow : Window
         RegisterConfiguredHotkey();
         RefreshAdvancedFooterUi();
         UpdateLiveInputMode();
-        Status("Hotkey removed.", ThemeManager.Brush("SuccessBrush"));
+        Status("Hotkey removed.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
     }
 
     private void DeleteAdvancedActions(IEnumerable<AutomationAction> actions)
@@ -2477,14 +2666,14 @@ public partial class MainWindow : Window
         RegisterConfiguredHotkey();
         RefreshAdvancedFooterUi();
         UpdateLiveInputMode();
-        Status($"{targets.Count} hotkeys removed.", ThemeManager.Brush("SuccessBrush"));
+        Status($"{targets.Count} hotkeys removed.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
     }
 
     private void AddAdvancedAction_Click(object sender, RoutedEventArgs e)
     {
         if (profileRuns.Count > 0)
         {
-            Status("Stop active hotkeys before adding another.", ThemeManager.Brush("WarningBrush"));
+            Status("Stop active hotkeys before adding another.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return;
         }
         if (capturingHotkey)
@@ -2497,7 +2686,7 @@ public partial class MainWindow : Window
             }
             else
             {
-                Status("Finish choosing the hotkey, or press Escape to cancel it.", ThemeManager.Brush("WarningBrush"));
+                Status("Finish choosing the hotkey, or press Escape to cancel it.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
                 return;
             }
         }
@@ -2505,7 +2694,7 @@ public partial class MainWindow : Window
         if (profile is null) return;
         if (profile.Actions.Count >= AutomationProfileLimits.MaximumHotkeys)
         {
-            Status($"A profile can have up to {AutomationProfileLimits.MaximumHotkeys} hotkeys.", ThemeManager.Brush("WarningBrush"));
+            Status($"A profile can have up to {AutomationProfileLimits.MaximumHotkeys} hotkeys.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return;
         }
         CaptureCurrentActionToProfile();
@@ -2528,7 +2717,7 @@ public partial class MainWindow : Window
     private void ToggleProfileAction(AutomationAction action)
     {
         if (!action.HotkeyEnabled) return;
-        if (settingsOpen) { Status("Close Settings before starting another hotkey.", ThemeManager.Brush("WarningBrush")); return; }
+        if (settingsOpen) { Status("Close Settings before starting another hotkey.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush)); return; }
         if (profileRuns.ContainsKey(action.Id)) StopProfileAction(action.Id); else StartProfileAction(action);
     }
 
@@ -2547,14 +2736,14 @@ public partial class MainWindow : Window
         var physicalKey = HotkeyHoldSafety.PhysicalVirtualKey(trigger, virtualKey);
         if (physicalKey is null)
         {
-            Status("While held requires a keyboard key, Middle mouse, Mouse 4, or Mouse 5; wheel gestures cannot be held.", ThemeManager.Brush("WarningBrush"));
+            Status("While held requires a keyboard key, Middle mouse, Mouse 4, or Mouse 5; wheel gestures cannot be held.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return;
         }
         var input = string.IsNullOrWhiteSpace(effectiveSettings.Input) ? effectiveSettings.MouseButton : effectiveSettings.Input;
         if (trigger == HotkeyTrigger.Keyboard
             && InputRules.ActionUsesVirtualKey(input, effectiveSettings.CustomKey, effectiveSettings.CustomSequence, virtualKey))
         {
-            Status("A While held action cannot send its own hotkey key. Choose a different action or hotkey.", ThemeManager.Brush("WarningBrush"));
+            Status("A While held action cannot send its own hotkey key. Choose a different action or hotkey.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return;
         }
 
@@ -2638,18 +2827,27 @@ public partial class MainWindow : Window
         var input = string.IsNullOrWhiteSpace(effectiveSettings.Input) ? effectiveSettings.MouseButton : effectiveSettings.Input;
         if (!InputRules.IsConfiguredAction(input, effectiveSettings.CustomKey, effectiveSettings.CustomSequence?.Count ?? 0))
         {
-            Status($"Set an action for {HotkeyFormatter.Format(action.Settings.Hotkey, action.Settings.HotkeyModifiers, action.Settings.HotkeyTrigger)} before starting it.", ThemeManager.Brush("WarningBrush"));
+            Status($"Set an action for {HotkeyFormatter.Format(action.Settings.Hotkey, action.Settings.HotkeyModifiers, action.Settings.HotkeyTrigger)} before starting it.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
+            return;
+        }
+        if (input == AutomationInputIds.Sequence && SequenceHoldRules.ValidationError(effectiveSettings.CustomSequence ?? []) is { } sequenceError)
+        {
+            Status($"Custom sequence cannot run: {sequenceError}", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return;
         }
         if (InputRules.IsHoldAction(effectiveSettings.ClickType) && effectiveSettings.TargetWindowEnabled && !string.IsNullOrWhiteSpace(effectiveSettings.TargetExecutable))
         {
-            Status("Target-window mode does not support held input. Override target window on the hotkey if desired.", ThemeManager.Brush("WarningBrush"));
+            Status("Target-window mode does not support held input. Override target window on the hotkey if desired.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return;
         }
-        var repeatedKey = input switch { "Space" => 0x20, "Enter" => 0x0D, "Custom" => effectiveSettings.CustomKey, _ => 0 };
-        if (action.Settings.HotkeyTrigger == HotkeyTrigger.Keyboard && repeatedKey == action.Settings.Hotkey && action.Settings.HotkeyModifiers == 0)
+        if (input == AutomationInputIds.Sequence && SequenceHoldRules.ContainsHold(effectiveSettings.CustomSequence ?? []) && effectiveSettings.TargetWindowEnabled && !string.IsNullOrWhiteSpace(effectiveSettings.TargetExecutable))
         {
-            Status("Choose a different hotkey from the key being repeated.", ThemeManager.Brush("WarningBrush"));
+            Status("Target-window mode does not support held sequence events. Override target window on the hotkey if desired.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
+            return;
+        }
+        if (AutomationHotkeyBindingRules.ActionEmitsOwnKeyboardBinding(action, effectiveSettings))
+        {
+            Status("Choose run and enable-toggle hotkeys that this action never sends. Generated input must not trigger its own bindings.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return;
         }
         var cancellation = new CancellationTokenSource();
@@ -2659,7 +2857,7 @@ public partial class MainWindow : Window
         AppLog.Info($"Starting profile action {action.DisplayName} | IntervalMs={interval.TotalMilliseconds:0.###} | PulseMs={settings.InputPulseMilliseconds} | JitterMaxMs={settings.JitterMaximumMilliseconds} | WorkerPriority={settings.WorkerPriority} | Repeat={(settings.MaximumClicks?.ToString() ?? "until stopped")}");
         profileTasks[action.Id] = AutomationWorkerScheduler.Start(() => ProfileClickLoop(action.Id, interval, settings, cancellation));
         CollapseButton.IsEnabled = false;
-        Status($"{action.DisplayName} active.", ThemeManager.Brush("ErrorBrush"));
+        Status($"{action.DisplayName} active.", ThemeManager.Brush(ThemeResourceKeys.ErrorBrush));
         RefreshTaskbarActivityIndicator();
         RefreshAdvancedFooterUi();
         UpdateSharedBehaviorDefaultsUi();
@@ -2674,7 +2872,7 @@ public partial class MainWindow : Window
         heldTriggerMonitors.Remove(cancellation);
         cancellation.Cancel();
         profileTasks.Remove(actionId);
-        Status("Profile hotkey stopped.", ThemeManager.Brush("SuccessBrush"));
+        Status("Profile hotkey stopped.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
         if (clickCancellation is null && profileRuns.Count == 0) CollapseButton.IsEnabled = true;
         RefreshTaskbarActivityIndicator();
         RefreshAdvancedFooterUi();
@@ -2688,7 +2886,7 @@ public partial class MainWindow : Window
     {
         if (settingsOpen)
         {
-            Status($"Close Settings before {ActivityVerb().ToLowerInvariant()}.", ThemeManager.Brush("WarningBrush"));
+            Status($"Close Settings before {ActivityVerb().ToLowerInvariant()}.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return;
         }
         if (clickCancellation is null) StartClicking(); else StopClicking();
@@ -2698,31 +2896,42 @@ public partial class MainWindow : Window
         // Reject states that cannot produce a valid worker configuration.
         if (!CanExecuteAutomation())
         {
-            Status("Close the open dialog or finish key capture before starting automation.", ThemeManager.Brush("WarningBrush"));
+            Status("Close the open dialog or finish key capture before starting automation.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return;
         }
         if (clickCancellation is not null) return;
         if (capturingSpamKey)
         {
-            Status("Finish choosing the key to repeat first.", ThemeManager.Brush("WarningBrush"));
+            Status("Finish choosing the key to repeat first.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return;
         }
         var input = Selected(ButtonCombo);
         if (!InputRules.IsConfiguredAction(input, customSpamVirtualKey, customSequence.Count))
         {
-            Status("Set an action before starting.", ThemeManager.Brush("WarningBrush"));
+            Status("Set an action before starting.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
+            return;
+        }
+        if (input == AutomationInputIds.Sequence && SequenceHoldRules.ValidationError(customSequence) is { } sequenceError)
+        {
+            Status($"Custom sequence cannot run: {sequenceError}", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return;
         }
         if (InputRules.IsHoldAction(Selected(TypeCombo)) && EnableTargetWindowCheckBox.IsChecked == true && !string.IsNullOrWhiteSpace(TargetExecutableBox.Text))
         {
-            Status("Target-window mode does not support held input.", ThemeManager.Brush("WarningBrush"));
+            Status("Target-window mode does not support held input.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
+            return;
+        }
+        if (input == AutomationInputIds.Sequence && SequenceHoldRules.ContainsHold(customSequence) && EnableTargetWindowCheckBox.IsChecked == true && !string.IsNullOrWhiteSpace(TargetExecutableBox.Text))
+        {
+            Status("Target-window mode does not support held sequence events.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return;
         }
         // Resolve keyboard shortcuts before handing work to the background thread.
-        var keyboardVirtualKey = input switch { "Space" => 0x20, "Enter" => 0x0D, "Custom" => customSpamVirtualKey, _ => 0 };
-        if (keyboardVirtualKey == hotkey && hotkeyModifiers == 0)
+        var keyboardVirtualKey = input switch { AutomationInputIds.Space => 0x20, AutomationInputIds.Enter => 0x0D, AutomationInputIds.Custom => customSpamVirtualKey, _ => 0 };
+        var sequenceUsesHotkey = input == AutomationInputIds.Sequence && InputRules.ActionUsesVirtualKey(input, customSpamVirtualKey, customSequence, hotkey);
+        if (hotkeyTrigger == HotkeyTrigger.Keyboard && (keyboardVirtualKey == hotkey || sequenceUsesHotkey))
         {
-            Status($"{FormatInputKey(keyboardVirtualKey)} is also the start/stop hotkey. Choose another key or change the hotkey first.", ThemeManager.Brush("WarningBrush"));
+            Status("The action sends its own start/stop hotkey. Choose another input or change the hotkey first.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return;
         }
         // Take a snapshot of the UI; the worker must not read WPF controls.
@@ -2737,18 +2946,18 @@ public partial class MainWindow : Window
             ? new TargetWindowRule(TargetExecutableBox.Text, targetWindowTitle)
             : new TargetWindowRule(string.Empty, null);
         var sequencePulseMilliseconds = customSequenceUsesGlobalInputPulse ? inputPulseMilliseconds : 0;
-        var settings = new ClickSettings(FixedPositionRadio.IsChecked == true, Read(XBox, -32768, 32767), Read(YBox, -32768, 32767), input, keyboardVirtualKey == 0 ? null : keyboardVirtualKey, Selected(TypeCombo) == "Double", hold, InputRules.RequiresContinuousRun(Selected(TypeCombo)) ? null : CountRadio.IsChecked == true ? Read(CountBox, 1, 999999) : null, input == "Sequence" ? BuildSequence(customSequence) : null, InputRules.NormalizeInputPulseMilliseconds(input == "Sequence" ? sequencePulseMilliseconds : inputPulseMilliseconds), inputJitterMaximumMilliseconds, workerPriority, cadenceDiagnosticsEnabled, target);
+        var settings = new ClickSettings(FixedPositionRadio.IsChecked == true, Read(XBox, -32768, 32767), Read(YBox, -32768, 32767), input, keyboardVirtualKey == 0 ? null : keyboardVirtualKey, Selected(TypeCombo) == AutomationActionTypeIds.Double, hold, InputRules.RequiresContinuousRun(Selected(TypeCombo)) ? null : CountRadio.IsChecked == true ? Read(CountBox, 1, 999999) : null, input == AutomationInputIds.Sequence ? BuildSequence(customSequence) : null, InputRules.NormalizeInputPulseMilliseconds(input == AutomationInputIds.Sequence ? sequencePulseMilliseconds : inputPulseMilliseconds), inputJitterMaximumMilliseconds, workerPriority, cadenceDiagnosticsEnabled, target);
         // Reflect the running state before the worker can send its first input.
         CaptureCurrentActionToProfile();
         AppLog.Info($"Starting {ActivityVerb().ToLowerInvariant()} | Input={input} | IntervalMs={delay.TotalMilliseconds:0.###} | PulseMs={settings.InputPulseMilliseconds} | JitterMaxMs={settings.JitterMaximumMilliseconds} | WorkerPriority={settings.WorkerPriority} | Repeat={(settings.MaximumClicks?.ToString() ?? "until stopped")}");
         StartButton.IsEnabled = false; StopButton.IsEnabled = true;
         CollapseButton.IsEnabled = false;
         UpdateSharedBehaviorDefaultsUi();
-        LiveArea.Background = ThemeManager.Brush("AccentBrush");
-        LiveArea.BorderBrush = ThemeManager.Brush("AccentHoverBrush");
+        LiveArea.Background = ThemeManager.Brush(ThemeResourceKeys.AccentBrush);
+        LiveArea.BorderBrush = ThemeManager.Brush(ThemeResourceKeys.AccentHoverBrush);
         LiveCountLabel.Text = liveClickCount == 0 ? "0 clicks" : $"{liveClickCount:N0} clicks";
         UpdateLiveInputMode();
-        Status($"{ActivityVerb()} - press {FormatHotkey()} to stop.", ThemeManager.Brush("ErrorBrush"));
+        Status($"{ActivityVerb()} - press {FormatHotkey()} to stop.", ThemeManager.Brush(ThemeResourceKeys.ErrorBrush));
         RefreshTaskbarActivityIndicator();
         StartRgbIndicator();
         clickTask = AutomationWorkerScheduler.Start(() => ClickLoop(delay, settings, cancellation));
@@ -2761,6 +2970,7 @@ public partial class MainWindow : Window
         Exception? failure = null;
         var originalPriority = Thread.CurrentThread.Priority;
         Input[]? heldRelease = null;
+        var heldSequenceInputs = new Dictionary<SequenceInputIdentity, HeldSequenceInput>();
         CadenceDiagnostics? cadence = null;
         try
         {
@@ -2803,25 +3013,7 @@ public partial class MainWindow : Window
                 if (now - nextClickAt > intervalTicks) nextClickAt = now;
                 if (settings.Sequence is { Length: > 0 })
                 {
-                    // A sequence has its own ordered actions and optional waits.
-                    var sentSequenceAction = false;
-                    foreach (var step in settings.Sequence)
-                    {
-                        if (step.IsDelay)
-                        {
-                            if (!WaitUntilGuiIsHealthy(timer, Stopwatch.GetTimestamp() + step.DelayAfterMilliseconds * Stopwatch.Frequency / 1000d, cancellation, ref watchdogExpired)) break;
-                            continue;
-                        }
-                        if (CanSendAction(settings, step.IsMouse))
-                        {
-                            if (settings.FixedPosition && step.IsMouse) MoveCursor(settings.X, settings.Y);
-                            if (!SendAction(step.Inputs, false, settings.InputPulseMilliseconds, timer, cancellation, ref watchdogExpired)) break;
-                            sentSequenceAction = true;
-                        }
-                        if (step.DelayAfterMilliseconds > 0)
-                            if (!WaitUntilGuiIsHealthy(timer, Stopwatch.GetTimestamp() + step.DelayAfterMilliseconds * Stopwatch.Frequency / 1000d, cancellation, ref watchdogExpired)) break;
-                    }
-                    if (watchdogExpired || cancellation.IsCancellationRequested) break;
+                    if (!ExecuteSequence(settings, timer, cancellation, ref watchdogExpired, cadence, nextClickAt, heldSequenceInputs, out var sentSequenceAction)) break;
                     if (sentSequenceAction) sent++;
                 }
                 else
@@ -2853,6 +3045,7 @@ public partial class MainWindow : Window
         }
         finally
         {
+            ReleaseHeldSequenceInputs(heldSequenceInputs);
             if (heldRelease is not null)
             {
                 try { SendNativeInput((uint)heldRelease.Length, heldRelease); }
@@ -2869,8 +3062,8 @@ public partial class MainWindow : Window
                         if (ReferenceEquals(clickCancellation, cancellation))
                         {
                             StopClicking();
-                            if (watchdogExpired) Status("Stopped - the GUI heartbeat timed out.", ThemeManager.Brush("WarningBrush"));
-                            else if (failure is not null) Status("Stopped - details were written to AutoClicker.log.", ThemeManager.Brush("ErrorBrush"));
+                            if (watchdogExpired) Status("Stopped - the GUI heartbeat timed out.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
+                            else if (failure is not null) Status("Stopped - details were written to AutoClicker.log.", ThemeManager.Brush(ThemeResourceKeys.ErrorBrush));
                         }
                     }
                     finally
@@ -2887,15 +3080,15 @@ public partial class MainWindow : Window
     private ClickSettings CreateClickSettings(AppDefaults source)
     {
         var input = string.IsNullOrWhiteSpace(source.Input) ? source.MouseButton : source.Input;
-        var key = input switch { "Space" => 0x20, "Enter" => 0x0D, "Custom" => source.CustomKey, _ => 0 };
+        var key = input switch { AutomationInputIds.Space => 0x20, AutomationInputIds.Enter => 0x0D, AutomationInputIds.Custom => source.CustomKey, _ => 0 };
         var hold = InputRules.IsHoldAction(source.ClickType);
         var target = source.TargetWindowEnabled
             ? new TargetWindowRule(source.TargetExecutable, source.TargetWindowTitle)
             : new TargetWindowRule(string.Empty, null);
         var sequencePulse = source.CustomSequenceUsesGlobalInputPulse ? source.InputPulseMilliseconds : 0;
-        return new ClickSettings(source.FixedPosition, source.X, source.Y, input, key == 0 ? null : key, source.ClickType == "Double", hold,
-            InputRules.RequiresContinuousRun(source.ClickType) || source.RepeatUntilStopped ? null : Math.Clamp(source.RepeatCount, 1, 999999), input == "Sequence" ? BuildSequence(source.CustomSequence ?? []) : null,
-            InputRules.NormalizeInputPulseMilliseconds(input == "Sequence" ? sequencePulse ?? 0 : source.InputPulseMilliseconds ?? 0), source.InputJitterMaximumMilliseconds,
+        return new ClickSettings(source.FixedPosition, source.X, source.Y, input, key == 0 ? null : key, source.ClickType == AutomationActionTypeIds.Double, hold,
+            InputRules.RequiresContinuousRun(source.ClickType) || source.RepeatUntilStopped ? null : Math.Clamp(source.RepeatCount, 1, 999999), input == AutomationInputIds.Sequence ? BuildSequence(source.CustomSequence ?? []) : null,
+            InputRules.NormalizeInputPulseMilliseconds(input == AutomationInputIds.Sequence ? sequencePulse ?? 0 : source.InputPulseMilliseconds ?? 0), source.InputJitterMaximumMilliseconds,
             workerPriority, cadenceDiagnosticsEnabled, target);
     }
 
@@ -2903,6 +3096,7 @@ public partial class MainWindow : Window
     private void ProfileClickLoop(string actionId, TimeSpan delay, ClickSettings settings, CancellationTokenSource cancellation)
     {
         Input[]? heldRelease = null;
+        var heldSequenceInputs = new Dictionary<SequenceInputIdentity, HeldSequenceInput>();
         var watchdogExpired = false;
         var originalPriority = Thread.CurrentThread.Priority;
         CadenceDiagnostics? cadence = null;
@@ -2945,22 +3139,7 @@ public partial class MainWindow : Window
                 if (now - next > intervalTicks) next = now;
                 if (settings.Sequence is { Length: > 0 })
                 {
-                    var sentSequenceAction = false;
-                    foreach (var step in settings.Sequence)
-                    {
-                        if (step.IsDelay) { if (!WaitUntilGuiIsHealthy(timer, Stopwatch.GetTimestamp() + step.DelayAfterMilliseconds * Stopwatch.Frequency / 1000d, cancellation, ref watchdogExpired)) break; continue; }
-                        if (CanSendAction(settings, step.IsMouse))
-                        {
-                            if (settings.FixedPosition && step.IsMouse) MoveCursor(settings.X, settings.Y);
-                            var sentAction = cadence is null
-                                ? SendAction(step.Inputs, false, settings.InputPulseMilliseconds, timer, cancellation, ref watchdogExpired)
-                                : SendActionWithDiagnostics(step.Inputs, false, settings.InputPulseMilliseconds, timer, cancellation, ref watchdogExpired, cadence, next);
-                            if (!sentAction) break;
-                            sentSequenceAction = true;
-                        }
-                        if (step.DelayAfterMilliseconds > 0 && !WaitUntilGuiIsHealthy(timer, Stopwatch.GetTimestamp() + step.DelayAfterMilliseconds * Stopwatch.Frequency / 1000d, cancellation, ref watchdogExpired)) break;
-                    }
-                    if (watchdogExpired || cancellation.IsCancellationRequested) break;
+                    if (!ExecuteSequence(settings, timer, cancellation, ref watchdogExpired, cadence, next, heldSequenceInputs, out var sentSequenceAction)) break;
                     if (sentSequenceAction) sent++;
                 }
                 else if (CanSendAction(settings, settings.KeyboardVirtualKey is null))
@@ -2984,6 +3163,7 @@ public partial class MainWindow : Window
         catch (Exception exception) { AppLog.Error("Profile hotkey worker failed", exception); }
         finally
         {
+            ReleaseHeldSequenceInputs(heldSequenceInputs);
             if (heldRelease is not null) { try { SendNativeInput((uint)heldRelease.Length, heldRelease); } catch { } }
             try { Thread.CurrentThread.Priority = originalPriority; } catch { }
             cadence?.LogSummary();
@@ -2994,7 +3174,7 @@ public partial class MainWindow : Window
                     profileRuns.Remove(actionId);
                     heldTriggerMonitors.Remove(cancellation);
                     profileTasks.Remove(actionId);
-                    if (!isClosing) Status(watchdogExpired ? "A profile hotkey stopped because the GUI heartbeat timed out." : "Profile hotkey stopped.", ThemeManager.Brush(watchdogExpired ? "WarningBrush" : "SuccessBrush"));
+                    if (!isClosing) Status(watchdogExpired ? "A profile hotkey stopped because the GUI heartbeat timed out." : "Profile hotkey stopped.", ThemeManager.Brush(watchdogExpired ? ThemeResourceKeys.WarningBrush : ThemeResourceKeys.SuccessBrush));
                     if (clickCancellation is null && profileRuns.Count == 0) CollapseButton.IsEnabled = true;
                     RefreshTaskbarActivityIndicator();
                     RefreshAdvancedFooterUi();
@@ -3020,11 +3200,11 @@ public partial class MainWindow : Window
         StartButton.IsEnabled = true; StopButton.IsEnabled = false;
         CollapseButton.IsEnabled = true;
         UpdateSharedBehaviorDefaultsUi();
-        LiveArea.Background = ThemeManager.Brush("ControlBrush");
-        LiveArea.BorderBrush = ThemeManager.Brush("LiveBorderBrush");
+        LiveArea.Background = ThemeManager.Brush(ThemeResourceKeys.ControlBrush);
+        LiveArea.BorderBrush = ThemeManager.Brush(ThemeResourceKeys.LiveBorderBrush);
         if (liveClickCount == 0) LiveCountLabel.Text = "Start to test";
         UpdateLiveInputMode();
-        Status($"Ready - press {FormatHotkey()} to start or stop.", ThemeManager.Brush("SuccessBrush"));
+        Status($"Ready - press {FormatHotkey()} to start or stop.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
         RefreshTaskbarActivityIndicator();
         StopRgbIndicator(SimpleRgbIndicatorId);
     }
@@ -3083,7 +3263,7 @@ public partial class MainWindow : Window
     {
         if (!IsTestAreaRunning || HasMultipleActiveProfileActions || IsKeyboardInputSelectedForTest()) return;
         var now = DateTime.UtcNow;
-        var doubleClickMode = string.Equals(TestAreaSettings().ClickType, "Double", StringComparison.OrdinalIgnoreCase);
+        var doubleClickMode = string.Equals(TestAreaSettings().ClickType, AutomationActionTypeIds.Double, StringComparison.OrdinalIgnoreCase);
         TimeSpan? interval;
         if (doubleClickMode)
         {
@@ -3109,11 +3289,11 @@ public partial class MainWindow : Window
             ? (doubleClickMode ? "Waiting for next double click" : "Waiting for next click")
             : $"Last interval: ~{FormatInterval(interval.Value)}";
         // Keep live feedback visible without changing label colours.
-        LiveArea.Background = ThemeManager.Brush("LiveFlashBrush");
-        LiveArea.BorderBrush = ThemeManager.Brush("LiveFlashBorderBrush");
+        LiveArea.Background = ThemeManager.Brush(ThemeResourceKeys.LiveFlashBrush);
+        LiveArea.BorderBrush = ThemeManager.Brush(ThemeResourceKeys.LiveFlashBorderBrush);
         if (ThemeManager.Current == AppTheme.Light)
         {
-            var flashText = ThemeManager.Brush("TextSecondaryBrush");
+            var flashText = ThemeManager.Brush(ThemeResourceKeys.TextSecondaryBrush);
             LiveTitleLabel.Foreground = flashText;
             LiveIntervalLabel.Foreground = flashText;
             LiveMouseHint.Foreground = flashText;
@@ -3154,8 +3334,8 @@ public partial class MainWindow : Window
     {
         flashTimer.Stop();
         var running = IsTestAreaRunning;
-        LiveArea.Background = ThemeManager.Brush(running ? "AccentBrush" : "ControlBrush");
-        LiveArea.BorderBrush = ThemeManager.Brush(running ? "AccentHoverBrush" : "LiveBorderBrush");
+        LiveArea.Background = ThemeManager.Brush(running ? ThemeResourceKeys.AccentBrush : ThemeResourceKeys.ControlBrush);
+        LiveArea.BorderBrush = ThemeManager.Brush(running ? ThemeResourceKeys.AccentHoverBrush : ThemeResourceKeys.LiveBorderBrush);
         UpdateLiveAreaTextContrast();
     }
     private void ResetCounterWhenIdle()
@@ -3186,7 +3366,7 @@ public partial class MainWindow : Window
         var testSettings = TestAreaSettings();
         var testInput = string.IsNullOrWhiteSpace(testSettings.Input) ? testSettings.MouseButton : testSettings.Input;
         var targetWindowEnabled = testSettings.TargetWindowEnabled && !string.IsNullOrWhiteSpace(testSettings.TargetExecutable);
-        var sequenceInput = testInput == "Sequence";
+        var sequenceInput = testInput == AutomationInputIds.Sequence;
         var keyboardInput = InputRules.IsKeyboardAction(testInput!);
         var hold = InputRules.IsHoldAction(testSettings.ClickType);
         var whileHeld = InputRules.IsWhileHeldAction(testSettings.ClickType);
@@ -3230,7 +3410,7 @@ public partial class MainWindow : Window
             LiveKeyFocusBox.Visibility = Visibility.Collapsed;
             LiveTitleLabel.Text = "SEQUENCE MODE";
             LiveMouseHint.Text = "Test area disabled";
-            LiveCountLabel.Text = "Custom sequence";
+            LiveCountLabel.Text = AutomationInputLabels.CustomSequence;
             LiveIntervalLabel.Text = "Configure steps from the Input menu";
             IntervalHint.Text = whileHeld ? "Time between sequences while the hotkey is held" : "Time between sequences";
             UpdateLiveAreaTextContrast();
@@ -3266,12 +3446,12 @@ public partial class MainWindow : Window
     private void ShowReadyActionStatus()
     {
         if (clickCancellation is not null || StatusLabel is null) return;
-        Status($"Ready - {SelectedActionDescription()} will be repeated.", ThemeManager.Brush("SuccessBrush"));
+        Status($"Ready - {SelectedActionDescription()} will be repeated.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
     }
 
     private string SelectedActionDescription() => InputRules.DescribeAction(Selected(ButtonCombo), customSpamVirtualKey);
 
-    private string ActivityVerb() => Selected(ButtonCombo) == "Sequence"
+    private string ActivityVerb() => Selected(ButtonCombo) == AutomationInputIds.Sequence
         ? "Running sequence"
         : InputRules.IsHoldAction(Selected(TypeCombo))
             ? IsKeyboardInputSelected() ? "Holding key" : "Holding mouse button"
@@ -3280,7 +3460,7 @@ public partial class MainWindow : Window
     private void UpdateLiveAreaTextContrast()
     {
         if (LiveTitleLabel is null) return;
-        var brush = ThemeManager.Brush(ThemeManager.Current == AppTheme.Light && IsTestAreaRunning ? "LiveAccentTextBrush" : "TextMutedBrush");
+        var brush = ThemeManager.Brush(ThemeManager.Current == AppTheme.Light && IsTestAreaRunning ? ThemeResourceKeys.LiveAccentTextBrush : ThemeResourceKeys.TextMutedBrush);
         LiveTitleLabel.Foreground = brush;
         LiveIntervalLabel.Foreground = brush;
         LiveMouseHint.Foreground = brush;
@@ -3324,7 +3504,7 @@ public partial class MainWindow : Window
                     var availability = await OpenRgbHighlighter.EnsureSdkAsync(settings);
                     if (!availability.IsAvailable)
                     {
-                        indicatorError = availability.Message ?? "OpenRGB's SDK server is unavailable.";
+                        indicatorError = availability.Message ?? OpenRgbMessages.SdkServerUnavailable;
                         if (!settings.AutoStart || Stopwatch.GetTimestamp() >= retryDeadline) break;
                         await Task.Delay(openRgbStartupRetryDelayMilliseconds, cancellation.Token);
                         continue;
@@ -3374,30 +3554,30 @@ public partial class MainWindow : Window
                     {
                         ShowOpenRgbWarning(indicatorError);
                         if (!Dispatcher.HasShutdownStarted)
-                            Dispatcher.BeginInvoke(() => Status(indicatorError, ThemeManager.Brush("ErrorBrush")));
+                            _ = Dispatcher.BeginInvoke(() => Status(indicatorError, ThemeManager.Brush(ThemeResourceKeys.ErrorBrush)));
                     }
                     return;
                 }
 
-                if (!settings.IsPulse) OpenRgbHighlighter.LightIndicator(snapshot);
-                if (settings.IsBlink)
-                    await OpenRgbHighlighter.BlinkIndicatorAsync(snapshot, settings.PulseSpeedMilliseconds, cancellation.Token);
-                else if (settings.IsPulse)
-                    await OpenRgbHighlighter.FadePulseIndicatorAsync(snapshot, settings.PulseSpeedMilliseconds, cancellation.Token);
+                if (!settings.UsesFadeEffect) OpenRgbHighlighter.LightIndicator(snapshot);
+                if (settings.UsesBlinkEffect)
+                    await OpenRgbHighlighter.BlinkIndicatorAsync(snapshot, settings.EffectSpeedMilliseconds, cancellation.Token);
+                else if (settings.UsesFadeEffect)
+                    await OpenRgbHighlighter.FadeIndicatorAsync(snapshot, settings.EffectSpeedMilliseconds, cancellation.Token);
                 else
                     await Task.Delay(Timeout.InfiniteTimeSpan, cancellation.Token);
                 if (updateSharedDevice && !Dispatcher.HasShutdownStarted && (settings.DeviceIndex != rgbSettings.DeviceIndex || !string.Equals(settings.DeviceName, rgbSettings.DeviceName, StringComparison.Ordinal)))
-                    Dispatcher.BeginInvoke(() => { rgbSettings = settings; SaveRgbSettings(); });
+                    _ = Dispatcher.BeginInvoke(() => { rgbSettings = settings; SaveRgbSettings(); });
                 if (indicatorError is not null && !Dispatcher.HasShutdownStarted)
                 {
-                    Dispatcher.BeginInvoke(() => Status(indicatorError, ThemeManager.Brush("ErrorBrush")));
+                    _ = Dispatcher.BeginInvoke(() => Status(indicatorError, ThemeManager.Brush(ThemeResourceKeys.ErrorBrush)));
                 }
             }
             catch (OperationCanceledException) { }
             catch (Exception exception) when (!Dispatcher.HasShutdownStarted)
             {
                 AppLog.Error("OpenRGB hotkey indicator failed", exception);
-                Dispatcher.BeginInvoke(() => Status($"OpenRGB unavailable: {exception.Message}", ThemeManager.Brush("ErrorBrush")));
+                _ = Dispatcher.BeginInvoke(() => Status(OpenRgbMessages.Unavailable(exception.Message), ThemeManager.Brush(ThemeResourceKeys.ErrorBrush)));
             }
             finally
             {
@@ -3482,7 +3662,7 @@ public partial class MainWindow : Window
                 }
                 else
                 {
-                    var message = availability.Message ?? "OpenRGB's SDK server is unavailable.";
+                    var message = availability.Message ?? OpenRgbMessages.SdkServerUnavailable;
                     AppLog.Info($"OpenRGB could not be started at application launch: {message}");
                     ShowOpenRgbWarning(message);
                 }
@@ -3490,7 +3670,7 @@ public partial class MainWindow : Window
             catch (Exception exception)
             {
                 AppLog.Error("Could not start OpenRGB at application launch", exception);
-                ShowOpenRgbWarning($"Could not start OpenRGB: {exception.Message}");
+                ShowOpenRgbWarning(OpenRgbMessages.CouldNotStart(exception.Message));
             }
         });
     }
@@ -3637,7 +3817,7 @@ public partial class MainWindow : Window
 
     private void PickPositionButton_Click(object sender, RoutedEventArgs e)
     {
-        Status("Select a position anywhere on screen. Press Escape to cancel.", ThemeManager.Brush("WarningBrush"));
+        Status("Select a position anywhere on screen. Press Escape to cancel.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
         var picker = new PositionPickerWindow { Owner = this };
         if (picker.ShowDialog() != true) return;
         ApplyPickedPosition(PositionSelection.FromPickedPoint(picker.SelectedX, picker.SelectedY));
@@ -3648,7 +3828,7 @@ public partial class MainWindow : Window
         FixedPositionRadio.IsChecked = selection.FixedPosition;
         XBox.Text = selection.X.ToString();
         YBox.Text = selection.Y.ToString();
-        Status($"Fixed position set to X: {selection.X}, Y: {selection.Y}.", ThemeManager.Brush("SuccessBrush"));
+        Status($"Fixed position set to X: {selection.X}, Y: {selection.Y}.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
     }
 
     private void UpdatePositionInputEnabled()
@@ -3670,7 +3850,7 @@ public partial class MainWindow : Window
 
     private bool ResetSettings(ResetScope scope)
     {
-        if (clickCancellation is not null || profileRuns.Count > 0) { Status("Stop all active hotkeys before resetting settings.", ThemeManager.Brush("WarningBrush")); return false; }
+        if (clickCancellation is not null || profileRuns.Count > 0) { Status("Stop all active hotkeys before resetting settings.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush)); return false; }
         if (scope == ResetScope.Everything) return ResetToFactoryDefaults();
         if (SettingsScopeRules.ResetsSimple(scope)) return ResetSimpleMode();
         if (SettingsScopeRules.ResetsAdvancedProfiles(scope)) return ResetAdvancedMode();
@@ -3679,15 +3859,15 @@ public partial class MainWindow : Window
 
     private bool ResetSimpleMode()
     {
-        if (!WriteDefaults(DefaultsPath, new AppDefaults())) return false;
+        if (!WriteDefaults(SimpleDefaultsPath, new AppDefaults())) return false;
         if (!advancedMode) ApplyDefaults(new AppDefaults());
-        Status("Simple mode defaults restored.", ThemeManager.Brush("SuccessBrush"));
+        Status("Simple mode defaults restored.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
         return true;
     }
 
     private bool ResetSharedDefaults()
     {
-        if (!WriteDefaults(GlobalDefaultsPath, new AppDefaults())) return false;
+        if (!WriteDefaults(AdvancedSharedDefaultsPath, new AppDefaults())) return false;
         if (advancedMode)
         {
             switch (CurrentEditorStorageTarget())
@@ -3704,7 +3884,7 @@ public partial class MainWindow : Window
             }
             UpdateSharedBehaviorDefaultsUi();
         }
-        Status("Shared Advanced-mode defaults restored.", ThemeManager.Brush("SuccessBrush"));
+        Status("Shared Advanced-mode defaults restored.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
         return true;
     }
 
@@ -3723,7 +3903,7 @@ public partial class MainWindow : Window
         RegisterConfiguredHotkey();
         RefreshAdvancedFooterUi();
         UpdateSharedBehaviorDefaultsUi();
-        Status("Advanced profiles restored to General.", ThemeManager.Brush("SuccessBrush"));
+        Status("Advanced profiles restored to General.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
         return true;
     }
 
@@ -3737,18 +3917,27 @@ public partial class MainWindow : Window
     {
         if (clickCancellation is not null || profileRuns.Count > 0)
         {
-            Status($"Stop {ActivityVerb().ToLowerInvariant()} before resetting defaults.", ThemeManager.Brush("WarningBrush"));
+            Status($"Stop {ActivityVerb().ToLowerInvariant()} before resetting defaults.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return false;
         }
 
         // Re-register after restoring F6 and its modifiers.
         if (hotkeyRegistered) UnregisterPrimaryHotkeys();
         rgbSettings = new RgbSettings();
+        var defaultPreferences = new ApplicationPreferences();
         ApplyDefaults(new AppDefaults());
         automationProfiles = AutomationProfileStore.CreateInitial(CreateCurrentDefaults());
         PersistAutomationProfiles();
         profilesDirty = false;
-        advancedMode = false;
+        advancedMode = defaultPreferences.AdvancedMode;
+        workerPriority = WorkerPriorityRules.Normalize(defaultPreferences.WorkerPriority);
+        cadenceDiagnosticsEnabled = defaultPreferences.CadenceDiagnosticsEnabled;
+        crashRecoveryEnabled = defaultPreferences.CrashRecoveryEnabled;
+        keyboardHotkeyModifiersEnabled = defaultPreferences.KeyboardHotkeyModifiersEnabled;
+        rememberPinned = defaultPreferences.RememberPinned;
+        applyPinnedOnLaunch = defaultPreferences.ApplyPinnedOnLaunch;
+        pinnedPreference = defaultPreferences.Pinned;
+        deferredPinPending = false;
         ThemeManager.Apply(AppTheme.Dark);
         UpdateThemeButton();
         RestoreLiveArea();
@@ -3756,19 +3945,19 @@ public partial class MainWindow : Window
         RegisterConfiguredHotkey();
         try
         {
-            WriteDefaults(DefaultsPath, new AppDefaults());
-            WriteDefaults(GlobalDefaultsPath, new AppDefaults());
+            WriteDefaults(SimpleDefaultsPath, new AppDefaults());
+            WriteDefaults(AdvancedSharedDefaultsPath, new AppDefaults());
         }
         catch { }
         SaveRgbSettings();
-        CrashRecovery.UpdateEnabled(rgbSettings.CrashRecoveryEnabled);
-        Topmost = false;
-        compactMode = false;
-        quickStartSeen = false;
+        Topmost = defaultPreferences.Pinned;
+        compactMode = defaultPreferences.CompactMode;
+        quickStartSeen = defaultPreferences.QuickStartSeen;
         UpdatePinUi();
         ApplyCompactMode();
-        SaveUiPreferences();
-        Status("Factory default values restored.", ThemeManager.Brush("SuccessBrush"));
+        SaveApplicationPreferences();
+        CrashRecovery.UpdateEnabled(crashRecoveryEnabled);
+        Status("Factory default values restored.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
         return true;
     }
 
@@ -3777,12 +3966,12 @@ public partial class MainWindow : Window
         try
         {
             var settings = CreateCurrentDefaults();
-            var path = advancedMode ? GlobalDefaultsPath : DefaultsPath;
+            var path = advancedMode ? AdvancedSharedDefaultsPath : SimpleDefaultsPath;
             if (!WriteDefaults(path, settings)) throw new IOException("Could not write default settings.");
             CaptureCurrentActionToProfile();
-            Status("Current settings saved as the default.", ThemeManager.Brush("SuccessBrush"));
+            Status("Current settings saved as the default.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
         }
-        catch { Status("Could not save the default settings.", ThemeManager.Brush("ErrorBrush")); }
+        catch { Status("Could not save the default settings.", ThemeManager.Brush(ThemeResourceKeys.ErrorBrush)); }
     }
 
     private AppDefaults CreateCurrentDefaults()
@@ -3794,8 +3983,8 @@ public partial class MainWindow : Window
     private AppDefaults CreateUnconfiguredActionDefaults()
     {
         var settings = CreateCurrentDefaults();
-        settings.Input = "Unset";
-        settings.MouseButton = "Unset";
+        settings.Input = AutomationInputIds.Unset;
+        settings.MouseButton = AutomationInputIds.Unset;
         settings.CustomKey = 0;
         settings.CustomSequence = [];
         return settings;
@@ -3806,14 +3995,14 @@ public partial class MainWindow : Window
         try
         {
             CaptureCurrentActionToProfile();
-            var simpleDefaults = WithoutRgb(ReadDefaultsFile(DefaultsPath, new AppDefaults()));
-            var advancedDefaults = WithoutRgb(ReadDefaultsFile(GlobalDefaultsPath, new AppDefaults()));
+            var simpleDefaults = WithoutRgb(ReadDefaultsFile(SimpleDefaultsPath, new AppDefaults()));
+            var advancedDefaults = WithoutRgb(ReadDefaultsFile(AdvancedSharedDefaultsPath, new AppDefaults()));
             var document = new ConfigBackupDocument { Scope = scope };
 
             if (SettingsScopeRules.IncludesSimple(scope))
             {
-                document.DefaultsJson = JsonSerializer.Serialize(simpleDefaults);
-                document.SimpleDefaultsJson = document.DefaultsJson;
+                document.LegacySharedDefaultsJson = JsonSerializer.Serialize(simpleDefaults);
+                document.SimpleDefaultsJson = document.LegacySharedDefaultsJson;
             }
             if (SettingsScopeRules.IncludesAdvanced(scope))
             {
@@ -3825,7 +4014,7 @@ public partial class MainWindow : Window
             if (SettingsScopeRules.IncludesAppSettings(scope))
             {
                 document.RgbJson = JsonSerializer.Serialize(rgbSettings);
-                document.UiPreferencesJson = JsonSerializer.Serialize(CurrentUiPreferences());
+                document.ApplicationPreferencesJson = JsonSerializer.Serialize(CurrentApplicationPreferences());
                 document.AppearanceJson = ThemeManager.ExportConfiguration();
             }
 
@@ -3856,7 +4045,7 @@ public partial class MainWindow : Window
                     RestoreEverything(backup);
                     break;
             }
-            Status($"{BackupScopeInfo.DisplayName(scope)} restored from backup.", ThemeManager.Brush("SuccessBrush"));
+            Status($"{BackupScopeInfo.DisplayName(scope)} restored from backup.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
             return null;
         }
         catch (Exception exception) { AppLog.Error($"Could not restore {BackupScopeInfo.DisplayName(scope)}", exception); return $"Could not restore backup: {exception.Message}"; }
@@ -3867,28 +4056,37 @@ public partial class MainWindow : Window
         var simpleDefaults = ReadSimpleDefaults(backup);
         var advancedDefaults = ReadAdvancedDefaults(backup);
         var rgb = string.IsNullOrWhiteSpace(backup.RgbJson) ? new RgbSettings() : JsonSerializer.Deserialize<RgbSettings>(backup.RgbJson) ?? throw new InvalidDataException("Backup RGB settings are invalid.");
-        var ui = string.IsNullOrWhiteSpace(backup.UiPreferencesJson) ? new UiPreferences() : JsonSerializer.Deserialize<UiPreferences>(backup.UiPreferencesJson) ?? throw new InvalidDataException("Backup interface settings are invalid.");
+        var preferences = ReadApplicationPreferences(backup);
         var library = ReadSequenceLibrary(backup);
         var profiles = ReadProfiles(backup, advancedDefaults);
         if (!string.IsNullOrWhiteSpace(backup.AppearanceJson) && !ThemeManager.TryImportConfiguration(backup.AppearanceJson)) throw new InvalidDataException("Backup appearance settings are invalid.");
 
         rgbSettings = rgb;
         SaveRgbSettings();
-        CrashRecovery.UpdateEnabled(rgb.CrashRecoveryEnabled);
-        workerPriority = WorkerPriorityRules.Normalize(ui.WorkerPriority);
-        cadenceDiagnosticsEnabled = ui.CadenceDiagnosticsEnabled;
-        advancedMode = ui.AdvancedMode;
-        Topmost = ui.Pinned;
-        compactMode = ui.CompactMode;
-        quickStartSeen = ui.QuickStartSeen;
-        WriteOrThrow(DefaultsPath, simpleDefaults);
+        crashRecoveryEnabled = preferences.CrashRecoveryEnabled;
+        workerPriority = WorkerPriorityRules.Normalize(preferences.WorkerPriority);
+        cadenceDiagnosticsEnabled = preferences.CadenceDiagnosticsEnabled;
+        advancedMode = preferences.AdvancedMode;
+        keyboardHotkeyModifiersEnabled = preferences.KeyboardHotkeyModifiersEnabled;
+        rememberPinned = preferences.RememberPinned;
+        applyPinnedOnLaunch = preferences.ApplyPinnedOnLaunch;
+        pinnedPreference = PinnedWindowPreferenceRules.PersistedPinnedState(rememberPinned, preferences.Pinned);
+        lastNormalWindowPosition = preferences.MainWindowPosition is { } restoredPosition
+            ? new WindowPixelPosition(restoredPosition.Left, restoredPosition.Top)
+            : null;
+        deferredPinPending = false;
+        Topmost = pinnedPreference;
+        compactMode = preferences.CompactMode;
+        quickStartSeen = preferences.QuickStartSeen;
+        WriteOrThrow(SimpleDefaultsPath, simpleDefaults);
         RestoreAdvancedSettings(advancedDefaults, profiles, refreshUi: false);
         RestoreSequenceLibrary(library);
         ApplyDefaults(advancedMode ? ActiveProfileAction() is { } action ? ResolveActionSettings(action) : advancedDefaults : simpleDefaults);
         UpdatePinUi();
         ApplyCompactMode();
         ApplyModeUi();
-        SaveUiPreferences();
+        SaveApplicationPreferences();
+        CrashRecovery.UpdateEnabled(crashRecoveryEnabled);
         UpdateThemeButton();
         RestoreLiveArea();
         RegisterConfiguredHotkey();
@@ -3897,7 +4095,7 @@ public partial class MainWindow : Window
     private void RestoreSimpleSettings(AppDefaults settings)
     {
         settings = WithoutRgb(settings);
-        WriteOrThrow(DefaultsPath, settings);
+        WriteOrThrow(SimpleDefaultsPath, settings);
         if (!advancedMode)
         {
             ApplyDefaults(settings);
@@ -3909,7 +4107,7 @@ public partial class MainWindow : Window
     private void RestoreAdvancedSettings(AppDefaults sharedDefaults, AutomationProfileDocument profiles, bool refreshUi = true)
     {
         sharedDefaults = WithoutRgb(sharedDefaults);
-        WriteOrThrow(GlobalDefaultsPath, sharedDefaults);
+        WriteOrThrow(AdvancedSharedDefaultsPath, sharedDefaults);
         automationProfiles = profiles.Profiles.Count == 0 ? AutomationProfileStore.CreateInitial(sharedDefaults) : profiles;
         var activeProfile = ActiveProfile() ?? automationProfiles.Profiles.First();
         var activeAction = activeProfile.Actions.FirstOrDefault(action => action.Id == automationProfiles.ActiveActionId) ?? activeProfile.Actions.FirstOrDefault();
@@ -3938,13 +4136,13 @@ public partial class MainWindow : Window
 
     private static AppDefaults ReadSimpleDefaults(ConfigBackupDocument backup)
     {
-        var json = !string.IsNullOrWhiteSpace(backup.SimpleDefaultsJson) ? backup.SimpleDefaultsJson : backup.DefaultsJson;
+        var json = !string.IsNullOrWhiteSpace(backup.SimpleDefaultsJson) ? backup.SimpleDefaultsJson : backup.LegacySharedDefaultsJson;
         return JsonSerializer.Deserialize<AppDefaults>(json) ?? throw new InvalidDataException("The backup does not contain valid Simple mode settings.");
     }
 
     private static AppDefaults ReadAdvancedDefaults(ConfigBackupDocument backup)
     {
-        var json = !string.IsNullOrWhiteSpace(backup.AdvancedDefaultsJson) ? backup.AdvancedDefaultsJson : backup.DefaultsJson;
+        var json = !string.IsNullOrWhiteSpace(backup.AdvancedDefaultsJson) ? backup.AdvancedDefaultsJson : backup.LegacySharedDefaultsJson;
         return JsonSerializer.Deserialize<AppDefaults>(json) ?? throw new InvalidDataException("The backup does not contain valid Advanced mode settings.");
     }
 
@@ -3974,19 +4172,47 @@ public partial class MainWindow : Window
         return copy;
     }
 
-    private UiPreferences CurrentUiPreferences() => new() { Pinned = Topmost, CompactMode = compactMode, QuickStartSeen = quickStartSeen, WorkerPriority = workerPriority.ToString(), CadenceDiagnosticsEnabled = cadenceDiagnosticsEnabled, AdvancedMode = advancedMode };
+    private ApplicationPreferences CurrentApplicationPreferences() => new()
+    {
+        Pinned = PinnedWindowPreferenceRules.PersistedPinnedState(rememberPinned, pinnedPreference),
+        RememberPinned = rememberPinned,
+        ApplyPinnedOnLaunch = applyPinnedOnLaunch,
+        CompactMode = compactMode,
+        QuickStartSeen = quickStartSeen,
+        WorkerPriority = workerPriority.ToString(),
+        CadenceDiagnosticsEnabled = cadenceDiagnosticsEnabled,
+        AdvancedMode = advancedMode,
+        KeyboardHotkeyModifiersEnabled = keyboardHotkeyModifiersEnabled,
+        CrashRecoveryEnabled = crashRecoveryEnabled,
+        MainWindowPosition = lastNormalWindowPosition is { } position
+            ? new PersistedWindowPosition { Left = position.Left, Top = position.Top }
+            : null
+    };
+
+    private static ApplicationPreferences ReadApplicationPreferences(ConfigBackupDocument backup)
+    {
+        var usesLegacyPreferences = string.IsNullOrWhiteSpace(backup.ApplicationPreferencesJson);
+        var json = usesLegacyPreferences ? backup.LegacyApplicationPreferencesJson : backup.ApplicationPreferencesJson;
+        var preferences = string.IsNullOrWhiteSpace(json)
+            ? new ApplicationPreferences()
+            : JsonSerializer.Deserialize<ApplicationPreferences>(json) ?? throw new InvalidDataException("Backup application preferences are invalid.");
+
+        if (usesLegacyPreferences && ApplicationPreferencesStore.TryReadLegacyCrashRecoveryEnabledFromJson(backup.RgbJson) is { } enabled)
+            preferences.CrashRecoveryEnabled = enabled;
+        return preferences;
+    }
 
     private static void WriteOrThrow(string path, AppDefaults settings)
     {
         if (!WriteDefaults(path, settings)) throw new IOException("Could not write restored settings.");
     }
 
-    private bool LoadDefaults()
+    private bool LoadSimpleDefaults()
     {
         try
         {
-            if (!File.Exists(DefaultsPath)) return false;
-            var s = JsonSerializer.Deserialize<AppDefaults>(File.ReadAllText(DefaultsPath)); if (s is null) return false;
+            if (!File.Exists(SimpleDefaultsPath)) return false;
+            var s = JsonSerializer.Deserialize<AppDefaults>(File.ReadAllText(SimpleDefaultsPath)); if (s is null) return false;
             ApplyDefaults(s);
             return true;
         }
@@ -4002,7 +4228,7 @@ public partial class MainWindow : Window
             customSpamVirtualKey = s.CustomKey;
             customSequence = s.CustomSequence?.Select(step => step.Clone()).ToList() ?? [];
             customSequenceUsesGlobalInputPulse = s.CustomSequenceUsesGlobalInputPulse;
-            SequenceItem.Content = "Custom sequence";
+            SequenceItem.Content = AutomationInputLabels.CustomSequence;
             CustomKeyItem.Content = customSpamVirtualKey != 0 ? $"Key: {FormatInputKey(customSpamVirtualKey)}" : "Custom key";
             Select(ButtonCombo, string.IsNullOrWhiteSpace(s.Input) ? s.MouseButton : s.Input); UpdateActionPlaceholder(); Select(TypeCombo, s.ClickType); UntilStoppedRadio.IsChecked = s.RepeatUntilStopped; CountRadio.IsChecked = !s.RepeatUntilStopped; CountBox.Text = s.RepeatCount.ToString();
             CurrentPositionRadio.IsChecked = !s.FixedPosition; FixedPositionRadio.IsChecked = s.FixedPosition; XBox.Text = s.X.ToString(); YBox.Text = s.Y.ToString();
@@ -4074,11 +4300,11 @@ public partial class MainWindow : Window
     {
         customSequence = preset.Steps.Select(step => step.Clone()).ToList();
         customSequenceUsesGlobalInputPulse = preset.UseGlobalInputPulse;
-        SequenceItem.Content = "Custom sequence";
+        SequenceItem.Content = AutomationInputLabels.CustomSequence;
         updatingActionSelection = true; ButtonCombo.SelectedItem = SequenceItem; updatingActionSelection = false;
         UpdateLiveInputMode();
         CommitSelectedActionChange();
-        Status($"Ready - {preset.Name} will be repeated.", ThemeManager.Brush("SuccessBrush"));
+        Status($"Ready - {preset.Name} will be repeated.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
     }
 
     private void LoadRgbSettings()
@@ -4090,25 +4316,34 @@ public partial class MainWindow : Window
         catch { }
     }
 
-    private void LoadUiPreferences()
+    private void LoadApplicationPreferences()
     {
-        var preferences = UiPreferencesStore.Load(UiPreferencesPath);
-        Topmost = preferences.Pinned;
+        var preferences = ApplicationPreferencesRepository.Load();
+        rememberPinned = preferences.RememberPinned;
+        applyPinnedOnLaunch = preferences.ApplyPinnedOnLaunch;
+        pinnedPreference = PinnedWindowPreferenceRules.PersistedPinnedState(rememberPinned, preferences.Pinned);
+        Topmost = PinnedWindowPreferenceRules.ApplyOnLaunch(preferences);
+        deferredPinPending = PinnedWindowPreferenceRules.DeferUntilInteraction(preferences);
         compactMode = preferences.CompactMode;
         quickStartSeen = preferences.QuickStartSeen;
         workerPriority = WorkerPriorityRules.Normalize(preferences.WorkerPriority);
         cadenceDiagnosticsEnabled = preferences.CadenceDiagnosticsEnabled;
+        crashRecoveryEnabled = preferences.CrashRecoveryEnabled;
         advancedMode = preferences.AdvancedMode;
         keyboardHotkeyModifiersEnabled = preferences.KeyboardHotkeyModifiersEnabled;
-        if (!advancedMode) LoadDefaults();
+        lastNormalWindowPosition = preferences.MainWindowPosition is { } position
+            ? new WindowPixelPosition(position.Left, position.Top)
+            : null;
+        if (lastNormalWindowPosition is not null) WindowStartupLocation = WindowStartupLocation.Manual;
+        if (!advancedMode) LoadSimpleDefaults();
         UpdatePinUi();
         ApplyCompactMode();
         ApplyModeUi();
     }
 
-    private void SaveUiPreferences()
+    private void SaveApplicationPreferences()
     {
-        try { UiPreferencesStore.Save(UiPreferencesPath, new UiPreferences { Pinned = Topmost, CompactMode = compactMode, QuickStartSeen = quickStartSeen, WorkerPriority = workerPriority.ToString(), CadenceDiagnosticsEnabled = cadenceDiagnosticsEnabled, AdvancedMode = advancedMode, KeyboardHotkeyModifiersEnabled = keyboardHotkeyModifiersEnabled }); }
+        try { ApplicationPreferencesRepository.Save(CurrentApplicationPreferences()); }
         catch { }
     }
 
@@ -4127,12 +4362,12 @@ public partial class MainWindow : Window
     private static int Read(TextBox box, int min, int max) => InputRules.ParseClamped(box.Text, min, max);
     private static string Selected(ComboBox combo)
     {
-        if (combo.SelectedItem is not ComboBoxItem item) return "Unset";
+        if (combo.SelectedItem is not ComboBoxItem item) return AutomationInputIds.Unset;
         return item.Tag?.ToString() ?? item.Content.ToString()!;
     }
     private static void Select(ComboBox combo, string value)
     {
-        if (value == "Unset")
+        if (value == AutomationInputIds.Unset)
         {
             combo.SelectedItem = null;
             return;
@@ -4165,7 +4400,7 @@ public partial class MainWindow : Window
         var presentation = AutomationActivityState.GetTaskbarPresentation(clickCancellation is not null, profileRuns.Count);
         TaskbarActivityIndicator.Overlay = presentation.ShowActiveBadge ? (ImageSource)FindResource("TaskbarActiveOverlay") : null;
         TaskbarActivityIndicator.ProgressState = presentation.ShowIndeterminateProgress ? TaskbarItemProgressState.Indeterminate : TaskbarItemProgressState.None;
-        TaskbarActivityIndicator.Description = presentation.IsActive ? "AutoClicker active" : "AutoClicker";
+        TaskbarActivityIndicator.Description = presentation.IsActive ? $"{AppIdentity.Name} active" : AppIdentity.Name;
     }
     private string? HotkeyKeyName() => hotkeyTrigger == HotkeyTrigger.Keyboard ? LightingKeyName(hotkey) : null;
     private static string? LightingKeyName(AppDefaults settings) => settings.HotkeyTrigger == HotkeyTrigger.Keyboard
@@ -4193,7 +4428,7 @@ public partial class MainWindow : Window
     {
         if (virtualKey >= 0x30 && virtualKey <= 0x39) return (virtualKey - 0x30).ToString();
         var key = System.Windows.Input.KeyInterop.KeyFromVirtualKey(virtualKey);
-        return key switch { System.Windows.Input.Key.Return => "Enter", System.Windows.Input.Key.Space => "Space", _ => key.ToString() };
+        return key switch { System.Windows.Input.Key.Return => AutomationInputIds.Enter, System.Windows.Input.Key.Space => AutomationInputIds.Space, _ => key.ToString() };
     }
     private static uint GetModifiers() { uint m = 0; var mods = System.Windows.Input.Keyboard.Modifiers; if (mods.HasFlag(System.Windows.Input.ModifierKeys.Control)) m |= 2; if (mods.HasFlag(System.Windows.Input.ModifierKeys.Alt)) m |= 1; if (mods.HasFlag(System.Windows.Input.ModifierKeys.Shift)) m |= 4; return m; }
     private int Status(string text, Brush color)
@@ -4217,7 +4452,7 @@ public partial class MainWindow : Window
 
     private void ShowOpenRgbStartedStatus()
     {
-        var revision = Status("OpenRGB started automatically.", ThemeManager.Brush("SuccessBrush"));
+        var revision = Status("OpenRGB started automatically.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
         _ = Task.Run(async () =>
         {
             await Task.Delay(TimeSpan.FromSeconds(3));
@@ -4226,9 +4461,9 @@ public partial class MainWindow : Window
                 {
                     if (statusRevision != revision) return;
                     if (IsClicking)
-                        Status($"{ActivityVerb()} - press {FormatHotkey()} to stop.", ThemeManager.Brush("ErrorBrush"));
+                        Status($"{ActivityVerb()} - press {FormatHotkey()} to stop.", ThemeManager.Brush(ThemeResourceKeys.ErrorBrush));
                     else
-                        Status($"Ready - press {FormatHotkey()} to start or stop.", ThemeManager.Brush("SuccessBrush"));
+                        Status($"Ready - press {FormatHotkey()} to start or stop.", ThemeManager.Brush(ThemeResourceKeys.SuccessBrush));
                 });
         });
     }
@@ -4242,6 +4477,8 @@ public partial class MainWindow : Window
             if (dialog.ShowDialog() != true) { e.Cancel = true; return; }
             profilesDirty = false;
         }
+        CaptureNormalWindowPosition();
+        SaveApplicationPreferences();
         // Cancel first, then give the worker a short chance to release native resources.
         isClosing = true;
         OpenRgbHighlighter.SuppressAutoStart();
@@ -4256,12 +4493,12 @@ public partial class MainWindow : Window
         try { ApplyIdleOpenRgbProfileAsync(allowAutoStart: false).Wait(TimeSpan.FromSeconds(2)); } catch (Exception exception) { AppLog.Error("Error while applying the final OpenRGB idle profile", exception); }
         if (rgbSettings.StopAutoStartedOnExit) OpenRgbHighlighter.StopAutoStartedServer();
         // Release UI timers and the Windows hotkey hook last.
-        resetTimer.Stop(); flashTimer.Stop(); guiHeartbeatTimer.Stop(); if (hotkeyRegistered) UnregisterPrimaryHotkeys(); foreach (var id in additionalHotkeys.Keys) UnregisterHotKey(hwnd, id); mouseHotkeys.Clear(); UpdateMouseHook(); if (hwndSource is not null) hwndSource.RemoveHook(WndProc);
+        resetTimer.Stop(); flashTimer.Stop(); guiHeartbeatTimer.Stop(); if (hotkeyRegistered) UnregisterPrimaryHotkeys(); foreach (var id in registeredProfileHotkeys.Keys) UnregisterHotKey(hwnd, id); mouseHotkeys.Clear(); UpdateMouseHook(); if (hwndSource is not null) hwndSource.RemoveHook(WndProc);
     }
 
     private static Input[] CreateClickInputs(string button)
     {
-        var flags = button switch { "Right" => (MouseFlags.RightDown, MouseFlags.RightUp), "Middle" => (MouseFlags.MiddleDown, MouseFlags.MiddleUp), _ => (MouseFlags.LeftDown, MouseFlags.LeftUp) };
+        var flags = button switch { AutomationInputIds.Right => (MouseFlags.RightDown, MouseFlags.RightUp), AutomationInputIds.Middle => (MouseFlags.MiddleDown, MouseFlags.MiddleUp), _ => (MouseFlags.LeftDown, MouseFlags.LeftUp) };
         return [new() { Type = 0, Data = new InputUnion { Mouse = new MouseInput { Flags = flags.Item1 } } }, new() { Type = 0, Data = new InputUnion { Mouse = new MouseInput { Flags = flags.Item2 } } }];
     }
     private static Input[] CreateKeyInputs(int virtualKey)
@@ -4279,10 +4516,110 @@ public partial class MainWindow : Window
     // Build native input packets once per run.
     private static SequenceAction[] BuildSequence(IEnumerable<SequenceStep> sequence) => sequence.Select(step =>
     {
-        if (step.Input == "Delay") return new SequenceAction([], false, true, Math.Clamp(step.DelayAfterMilliseconds, 1, 600000));
-        var key = step.Input switch { "Space" => 0x20, "Enter" => 0x0D, "Custom" => step.CustomKey, _ => 0 };
-        return new SequenceAction(key == 0 ? CreateClickInputs(step.Input) : CreateKeyInputs(key), key == 0, false, Math.Clamp(step.DelayAfterMilliseconds, 0, 600000));
+        if (step.Input == AutomationInputIds.Delay) return new SequenceAction([], false, true, Math.Clamp(step.DelayAfterMilliseconds, 1, 600000), SequenceStepMode.Press, default);
+        var key = step.Input switch { AutomationInputIds.Space => 0x20, AutomationInputIds.Enter => 0x0D, AutomationInputIds.Custom => step.CustomKey, _ => 0 };
+        return new SequenceAction(key == 0 ? CreateClickInputs(step.Input) : CreateKeyInputs(key), key == 0, false, Math.Clamp(step.DelayAfterMilliseconds, 0, 600000), step.Mode, SequenceHoldRules.Identity(step));
     }).ToArray();
+
+    private bool ExecuteSequence(
+        ClickSettings settings,
+        PrecisionTimer timer,
+        CancellationTokenSource cancellation,
+        ref bool watchdogExpired,
+        CadenceDiagnostics? cadence,
+        double scheduledTimestamp,
+        Dictionary<SequenceInputIdentity, HeldSequenceInput> heldInputs,
+        out bool sentSequenceAction)
+    {
+        sentSequenceAction = false;
+        foreach (var step in settings.Sequence ?? [])
+        {
+            if (cancellation.IsCancellationRequested || watchdogExpired) return false;
+            SendDueHeldKeyRepeats(heldInputs);
+            if (step.IsDelay)
+            {
+                if (!WaitForSequenceDeadline(timer, Stopwatch.GetTimestamp() + step.DelayAfterMilliseconds * Stopwatch.Frequency / 1000d, heldInputs, cancellation, ref watchdogExpired)) return false;
+                continue;
+            }
+
+            if (step.Mode == SequenceStepMode.Release)
+            {
+                if (heldInputs.Remove(step.Identity, out var held))
+                {
+                    SendNativeInput(1, [held.Action.Inputs[1]]);
+                    cadence?.RecordUp();
+                    sentSequenceAction = true;
+                }
+            }
+            else if (CanSendAction(settings, step.IsMouse))
+            {
+                if (settings.FixedPosition && step.IsMouse) MoveCursor(settings.X, settings.Y);
+                if (step.Mode == SequenceStepMode.Hold)
+                {
+                    if (heldInputs.ContainsKey(step.Identity)) return false;
+                    cadence?.RecordDown(scheduledTimestamp);
+                    SendNativeInput(1, [step.Inputs[0]]);
+                    heldInputs.Add(step.Identity, new HeldSequenceInput(
+                        step,
+                        step.IsMouse ? double.PositiveInfinity : Stopwatch.GetTimestamp() + Stopwatch.Frequency / 2d));
+                    sentSequenceAction = true;
+                }
+                else
+                {
+                    var sent = cadence is null
+                        ? SendAction(step.Inputs, false, settings.InputPulseMilliseconds, timer, cancellation, ref watchdogExpired)
+                        : SendActionWithDiagnostics(step.Inputs, false, settings.InputPulseMilliseconds, timer, cancellation, ref watchdogExpired, cadence, scheduledTimestamp);
+                    if (!sent) return false;
+                    sentSequenceAction = true;
+                }
+            }
+
+            if (step.DelayAfterMilliseconds > 0 &&
+                !WaitForSequenceDeadline(timer, Stopwatch.GetTimestamp() + step.DelayAfterMilliseconds * Stopwatch.Frequency / 1000d, heldInputs, cancellation, ref watchdogExpired)) return false;
+        }
+        return !cancellation.IsCancellationRequested && !watchdogExpired;
+    }
+
+    private bool WaitForSequenceDeadline(
+        PrecisionTimer timer,
+        double deadline,
+        Dictionary<SequenceInputIdentity, HeldSequenceInput> heldInputs,
+        CancellationTokenSource cancellation,
+        ref bool watchdogExpired)
+    {
+        while (!cancellation.IsCancellationRequested && Stopwatch.GetTimestamp() < deadline)
+        {
+            var nextRepeat = heldInputs.Count == 0
+                ? double.PositiveInfinity
+                : heldInputs.Values.Min(held => held.NextRepeatAt);
+            if (!WaitUntilGuiIsHealthy(timer, Math.Min(deadline, nextRepeat), cancellation, ref watchdogExpired)) return false;
+            if (cancellation.IsCancellationRequested) return false;
+            SendDueHeldKeyRepeats(heldInputs);
+        }
+        return !cancellation.IsCancellationRequested && !watchdogExpired;
+    }
+
+    private static void SendDueHeldKeyRepeats(Dictionary<SequenceInputIdentity, HeldSequenceInput> heldInputs)
+    {
+        var now = Stopwatch.GetTimestamp();
+        foreach (var held in heldInputs.Values)
+        {
+            if (held.Action.IsMouse || held.NextRepeatAt > now) continue;
+            SendNativeInput(1, [held.Action.Inputs[0]]);
+            held.NextRepeatAt = now + Stopwatch.Frequency / 30d;
+        }
+    }
+
+    private static void ReleaseHeldSequenceInputs(Dictionary<SequenceInputIdentity, HeldSequenceInput> heldInputs)
+    {
+        foreach (var held in heldInputs.Values.Reverse())
+        {
+            try { SendNativeInput(1, [held.Action.Inputs[1]]); }
+            catch (Exception exception) { AppLog.Error("Could not release a held sequence input", exception); }
+        }
+        heldInputs.Clear();
+    }
+
     private static bool IsExtendedKey(int virtualKey) => virtualKey is 0x21 or 0x22 or 0x23 or 0x24 or 0x25 or 0x26 or 0x27 or 0x28 or 0x2D or 0x2E or 0x5B or 0x5C or 0x5D or 0xA3 or 0xA5 or 0x6F;
     private bool SendAction(Input[] inputs, bool doubleClick, int pulseMilliseconds, PrecisionTimer timer, CancellationTokenSource cancellation, ref bool watchdogExpired)
     {
@@ -4352,7 +4689,12 @@ public partial class MainWindow : Window
          (!settings.FixedPosition || !isMouse || WindowTargeting.IsPointInForegroundClientArea(settings.X, settings.Y)));
 
     private sealed record ClickSettings(bool FixedPosition, int X, int Y, string Button, int? KeyboardVirtualKey, bool DoubleClick, bool Hold, int? MaximumClicks, SequenceAction[]? Sequence, int InputPulseMilliseconds, long JitterMaximumMilliseconds, WorkerPriorityOption WorkerPriority, bool CadenceDiagnosticsEnabled, TargetWindowRule Target);
-    private sealed record SequenceAction(Input[] Inputs, bool IsMouse, bool IsDelay, int DelayAfterMilliseconds);
+    private sealed record SequenceAction(Input[] Inputs, bool IsMouse, bool IsDelay, int DelayAfterMilliseconds, SequenceStepMode Mode, SequenceInputIdentity Identity);
+    private sealed class HeldSequenceInput(SequenceAction action, double nextRepeatAt)
+    {
+        internal SequenceAction Action { get; } = action;
+        internal double NextRepeatAt { get; set; } = nextRepeatAt;
+    }
     private sealed class CadenceDiagnostics(double intervalTicks, int pulseMilliseconds)
     {
         private readonly double intervalMilliseconds = intervalTicks * 1000d / Stopwatch.Frequency;
@@ -4486,21 +4828,21 @@ public partial class MainWindow : Window
         return true;
     }
 
-    [DllImport("user32.dll", SetLastError = true)] private static extern bool RegisterHotKey(nint hWnd, int id, uint modifiers, uint vk);
-    [DllImport("user32.dll")] private static extern bool UnregisterHotKey(nint hWnd, int id);
-    [DllImport("user32.dll", SetLastError = true)] private static extern nint SetWindowsHookEx(int idHook, LowLevelMouseProc callback, nint module, uint threadId);
-    [DllImport("user32.dll", SetLastError = true)] private static extern bool UnhookWindowsHookEx(nint hook);
-    [DllImport("user32.dll")] private static extern nint CallNextHookEx(nint hook, int code, nint wParam, nint lParam);
-    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int virtualKey);
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern nint GetModuleHandle(string? moduleName);
-    [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
-    [DllImport("user32.dll")] private static extern uint SendInput(uint count, Input[] inputs, int size);
-    [DllImport("user32.dll")] private static extern uint MapVirtualKey(uint code, uint mapType);
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern nint CreateWaitableTimerEx(nint attributes, string? name, uint flags, uint desiredAccess);
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern nint CreateWaitableTimer(nint attributes, bool manualReset, string? name);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool SetWaitableTimer(nint timer, ref long dueTime, int period, nint completionRoutine, nint argument, bool resume);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern uint WaitForMultipleObjects(uint count, nint[] handles, bool waitAll, uint milliseconds);
-    [DllImport("kernel32.dll")] private static extern bool CloseHandle(nint handle);
+    [DllImport(NativeLibraryNames.User32, SetLastError = true)] private static extern bool RegisterHotKey(nint hWnd, int id, uint modifiers, uint vk);
+    [DllImport(NativeLibraryNames.User32)] private static extern bool UnregisterHotKey(nint hWnd, int id);
+    [DllImport(NativeLibraryNames.User32, SetLastError = true)] private static extern nint SetWindowsHookEx(int idHook, LowLevelMouseProc callback, nint module, uint threadId);
+    [DllImport(NativeLibraryNames.User32, SetLastError = true)] private static extern bool UnhookWindowsHookEx(nint hook);
+    [DllImport(NativeLibraryNames.User32)] private static extern nint CallNextHookEx(nint hook, int code, nint wParam, nint lParam);
+    [DllImport(NativeLibraryNames.User32)] private static extern short GetAsyncKeyState(int virtualKey);
+    [DllImport(NativeLibraryNames.Kernel32, CharSet = CharSet.Unicode)] private static extern nint GetModuleHandle(string? moduleName);
+    [DllImport(NativeLibraryNames.User32)] private static extern bool SetCursorPos(int x, int y);
+    [DllImport(NativeLibraryNames.User32)] private static extern uint SendInput(uint count, Input[] inputs, int size);
+    [DllImport(NativeLibraryNames.User32)] private static extern uint MapVirtualKey(uint code, uint mapType);
+    [DllImport(NativeLibraryNames.Kernel32, CharSet = CharSet.Unicode, SetLastError = true)] private static extern nint CreateWaitableTimerEx(nint attributes, string? name, uint flags, uint desiredAccess);
+    [DllImport(NativeLibraryNames.Kernel32, CharSet = CharSet.Unicode, SetLastError = true)] private static extern nint CreateWaitableTimer(nint attributes, bool manualReset, string? name);
+    [DllImport(NativeLibraryNames.Kernel32, SetLastError = true)] private static extern bool SetWaitableTimer(nint timer, ref long dueTime, int period, nint completionRoutine, nint argument, bool resume);
+    [DllImport(NativeLibraryNames.Kernel32, SetLastError = true)] private static extern uint WaitForMultipleObjects(uint count, nint[] handles, bool waitAll, uint milliseconds);
+    [DllImport(NativeLibraryNames.Kernel32)] private static extern bool CloseHandle(nint handle);
 }
 
 // A small immutable view of a configured action for the Advanced-mode footer.
@@ -4538,7 +4880,16 @@ public sealed class AdvancedActionTile
     public int ActionLabelColumnSpan => ShowInlineActionControls ? 1 : 3;
     public bool HotkeyEnabled => Action.HotkeyEnabled;
     public string HotkeyLabel => HotkeyCapturePending ? "Waiting..." : HotkeyFormatter.Format(Action.Settings.Hotkey, Action.Settings.HotkeyModifiers, Action.Settings.HotkeyTrigger);
-    public string HotkeyTooltip => Action.HotkeyEnabled ? $"Hotkey: {HotkeyLabel}" : $"Hotkey disabled: {HotkeyLabel}";
+    public string HotkeyTooltip
+    {
+        get
+        {
+            var state = Action.HotkeyEnabled ? $"Hotkey: {HotkeyLabel}" : $"Hotkey disabled: {HotkeyLabel}";
+            return Action.EnableToggleHotkey?.IsConfigured == true
+                ? $"{state}\nEnable/disable: {Action.EnableToggleHotkey}"
+                : state;
+        }
+    }
     public string ActionLabel => Action.DisplayName[(Action.DisplayName.IndexOf('·') + 1)..].Trim();
     public Visibility RemoveButtonVisibility => RemovalPending || IsMultiSelection ? Visibility.Collapsed : Visibility.Visible;
     public Visibility RemovalConfirmationVisibility => RemovalPending && !IsMultiSelection ? Visibility.Visible : Visibility.Collapsed;

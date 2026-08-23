@@ -4,6 +4,7 @@
 
 using FlaUI.Core.AutomationElements;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Text.Json;
 
 namespace AutoClicker.E2E;
 
@@ -19,7 +20,7 @@ public sealed class BackupAndProfileTransferFlowTests
     public void EveryBackupScope_ExportsTheExpectedVersionedDocument(string scopeName, int expectedScopeValue)
     {
         using var fixture = new ProfileE2EFixture();
-        if (scopeName == "Sequences") fixture.WriteSequenceLibrary([Sequence("Exported sequence")]);
+        fixture.WriteSequenceLibrary([Sequence($"{scopeName} sequence")]);
         var path = fixture.TestFile($"{scopeName}.backup.json");
         using var session = fixture.Launch(saveFile: path);
         var app = new MainWindowRobot(session);
@@ -28,8 +29,10 @@ public sealed class BackupAndProfileTransferFlowTests
 
         session.WaitFor(() => File.Exists(path), $"{scopeName} backup was not created");
         var backup = ConfigBackupStore.Read(path);
-        Assert.AreEqual((BackupScope)expectedScopeValue, backup.Scope);
+        var scope = (BackupScope)expectedScopeValue;
+        Assert.AreEqual(scope, backup.Scope);
         Assert.IsTrue(backup.SchemaVersion > 0);
+        AssertBackupPartition(backup, scope, scopeName);
     }
 
     [TestMethod]
@@ -53,7 +56,7 @@ public sealed class BackupAndProfileTransferFlowTests
             "Everything backup did not restore profiles");
         settings.Cancel();
 
-        Assert.IsTrue(fixture.ReadUiPreferences().AdvancedMode);
+        Assert.IsTrue(fixture.ReadApplicationPreferences().AdvancedMode);
         Assert.AreEqual(50, fixture.ReadSimpleDefaults().Milliseconds);
         Assert.AreEqual(ProfileE2EFixture.GlobalMilliseconds, fixture.ReadGlobalDefaults().Milliseconds);
         Assert.AreEqual(2, fixture.ReadProfiles().Profiles.Single(profile => profile.Id == ProfileE2EFixture.ProfileId).Actions.Count);
@@ -87,6 +90,18 @@ public sealed class BackupAndProfileTransferFlowTests
     public void ProfileExportAndImport_RoundTripsWithFreshProfileAndActionIds()
     {
         using var fixture = new ProfileE2EFixture();
+        var seededDocument = fixture.ReadProfiles();
+        var seededAction = seededDocument.Profiles.Single(profile => profile.Id == ProfileE2EFixture.ProfileId)
+            .Actions.Single(action => action.Id == ProfileE2EFixture.ActionId);
+        seededAction.HotkeyEnabled = false;
+        seededAction.EnableToggleHotkey = new AutomationHotkeyBinding
+        {
+            VirtualKey = 120,
+            Modifiers = 0x2u | 0x4u,
+            Trigger = HotkeyTrigger.Keyboard
+        };
+        AutomationProfileStore.Save(fixture.TestFile(ConfigurationFileNames.AutomationProfiles), seededDocument);
+
         var path = fixture.TestFile("profile.autoclicker-profile.json");
         using var session = fixture.Launch(saveFile: path, openFile: path);
         var profiles = new ProfileOptionsRobot(session);
@@ -103,15 +118,71 @@ public sealed class BackupAndProfileTransferFlowTests
         Assert.AreNotEqual(original.Id, imported.Id);
         Assert.IsFalse(original.Actions.Select(action => action.Id).Intersect(imported.Actions.Select(action => action.Id)).Any());
         Assert.AreEqual(original.Actions.Count, imported.Actions.Count);
+
+        var originalToggleAction = original.Actions.Single(action => action.Id == ProfileE2EFixture.ActionId);
+        var importedToggleAction = imported.Actions.Single(action => action.Settings.Hotkey == originalToggleAction.Settings.Hotkey);
+        Assert.IsFalse(importedToggleAction.HotkeyEnabled,
+            "profile import did not preserve the action's disabled state");
+        Assert.IsNotNull(importedToggleAction.EnableToggleHotkey,
+            "profile import did not preserve the action's enable-toggle binding");
+        Assert.AreEqual(originalToggleAction.EnableToggleHotkey!.VirtualKey, importedToggleAction.EnableToggleHotkey!.VirtualKey);
+        Assert.AreEqual(originalToggleAction.EnableToggleHotkey.Modifiers, importedToggleAction.EnableToggleHotkey.Modifiers);
+        Assert.AreEqual(originalToggleAction.EnableToggleHotkey.Trigger, importedToggleAction.EnableToggleHotkey.Trigger);
     }
+
+    private static void AssertBackupPartition(ConfigBackupDocument backup, BackupScope scope, string scopeName)
+    {
+        var includesSimple = scope is BackupScope.Everything or BackupScope.SimpleMode;
+        var includesAdvanced = scope is BackupScope.Everything or BackupScope.AdvancedMode;
+        var includesSequences = scope is BackupScope.Everything or BackupScope.CustomSequences;
+        var includesAppSettings = scope == BackupScope.Everything;
+
+        AssertSection(backup.LegacySharedDefaultsJson, includesSimple, scopeName, "legacy-compatible Simple defaults");
+        AssertSection(backup.SimpleDefaultsJson, includesSimple, scopeName, "Simple defaults");
+        AssertSection(backup.AdvancedDefaultsJson, includesAdvanced, scopeName, "Advanced defaults");
+        AssertSection(backup.AutomationProfilesJson, includesAdvanced, scopeName, "Advanced profiles");
+        AssertSection(backup.SequenceLibraryJson, includesSequences, scopeName, "custom sequences");
+        AssertSection(backup.RgbJson, includesAppSettings, scopeName, "RGB settings");
+        AssertSection(backup.ApplicationPreferencesJson, includesAppSettings, scopeName, "application preferences");
+        AssertSection(backup.AppearanceJson, includesAppSettings, scopeName, "appearance settings");
+        Assert.IsTrue(string.IsNullOrWhiteSpace(backup.LegacyApplicationPreferencesJson),
+            $"{scopeName} unexpectedly populated the legacy application-preferences field in a current-schema backup");
+
+        if (includesSimple)
+            Assert.AreEqual(50, JsonSerializer.Deserialize<AppDefaults>(backup.SimpleDefaultsJson)?.Milliseconds,
+                $"{scopeName} did not export the seeded Simple defaults payload");
+        if (includesAdvanced)
+        {
+            Assert.AreEqual(ProfileE2EFixture.GlobalMilliseconds,
+                JsonSerializer.Deserialize<AppDefaults>(backup.AdvancedDefaultsJson)?.Milliseconds,
+                $"{scopeName} did not export the seeded Advanced defaults payload");
+            var profiles = JsonSerializer.Deserialize<AutomationProfileDocument>(backup.AutomationProfilesJson);
+            Assert.IsTrue(profiles?.Profiles.Any(profile => profile.Id == ProfileE2EFixture.ProfileId) == true,
+                $"{scopeName} did not export the seeded Advanced profile payload");
+        }
+        if (includesSequences)
+            Assert.AreEqual($"{scopeName} sequence", SequenceLibraryStore.Deserialize(backup.SequenceLibraryJson).Single().Name,
+                $"{scopeName} did not export the seeded custom-sequence payload");
+        if (includesAppSettings)
+        {
+            Assert.IsTrue(JsonSerializer.Deserialize<ApplicationPreferences>(backup.ApplicationPreferencesJson)?.AdvancedMode == true,
+                "Everything did not export the seeded application preferences payload");
+            Assert.IsFalse(JsonSerializer.Deserialize<RgbSettings>(backup.RgbJson)?.AutoStart ?? true,
+                "Everything did not export the seeded RGB payload");
+        }
+    }
+
+    private static void AssertSection(string json, bool expected, string scopeName, string sectionName) =>
+        Assert.AreEqual(expected, !string.IsNullOrWhiteSpace(json),
+            $"{scopeName} backup {(expected ? "omitted" : "unexpectedly included")} {sectionName}");
 
     private static SequencePreset Sequence(string name) => new()
     {
         Name = name,
         Steps =
         [
-            new SequenceStep { Input = "Left" },
-            new SequenceStep { Input = "Custom", CustomKey = 0x20 }
+            new SequenceStep { Input = AutomationInputIds.Left },
+            new SequenceStep { Input = AutomationInputIds.Custom, CustomKey = 0x20 }
         ]
     };
 }

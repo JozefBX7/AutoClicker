@@ -70,24 +70,24 @@ public partial class ColorPickerWindow : Window
         previewCancellation = cancellation;
         PreviewButton.Content = "■ Cancel preview";
         PreviewStatus.Text = "Preview in progress: the selected hotkey is lit with this colour for 5 seconds…";
-        PreviewStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+        PreviewStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush);
         await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
         try
         {
             var error = await previewHotkeyAsync(SelectedColor, cancellation.Token);
             PreviewStatus.Text = error is null ? "Preview complete; the previous key colour was restored." : error;
-            PreviewStatus.Foreground = ThemeManager.Brush(error is null ? "SuccessBrush" : "ErrorBrush");
+            PreviewStatus.Foreground = ThemeManager.Brush(error is null ? ThemeResourceKeys.SuccessBrush : ThemeResourceKeys.ErrorBrush);
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
             PreviewStatus.Text = "Preview cancelled; the previous key colour was restored.";
-            PreviewStatus.Foreground = ThemeManager.Brush("TextMutedBrush");
+            PreviewStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.TextMutedBrush);
         }
         catch (Exception exception)
         {
             AppLog.Error("Indicator colour preview failed", exception);
             PreviewStatus.Text = $"Could not preview the key: {exception.Message}";
-            PreviewStatus.Foreground = ThemeManager.Brush("ErrorBrush");
+            PreviewStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.ErrorBrush);
         }
         finally
         {

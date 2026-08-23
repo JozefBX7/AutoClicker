@@ -57,8 +57,8 @@ public sealed class CrashRecoveryTests
 
     [DataTestMethod]
     [DataRow(new string[] { })]
-    [DataRow(new[] { "--crash-watchdog" })]
-    [DataRow(new[] { "--crash-watchdog", "not-a-pid", "event" })]
+    [DataRow(new[] { AppCommandLineOptions.CrashWatchdog })]
+    [DataRow(new[] { AppCommandLineOptions.CrashWatchdog, "not-a-pid", "event" })]
     [DataRow(new[] { "--other-mode", "1", "event" })]
     public void TryRunWatchdog_RejectsMalformedArgumentsWithoutStartingAWatcher(string[] arguments) =>
         Assert.IsFalse(CrashRecovery.TryRunWatchdog(arguments));

@@ -95,83 +95,83 @@ public sealed class InputRulesTests
     }
 
     [DataTestMethod]
-    [DataRow("Space", true)]
-    [DataRow("Enter", true)]
-    [DataRow("Custom", true)]
-    [DataRow("Left", false)]
-    [DataRow("Sequence", false)]
+    [DataRow(AutomationInputIds.Space, true)]
+    [DataRow(AutomationInputIds.Enter, true)]
+    [DataRow(AutomationInputIds.Custom, true)]
+    [DataRow(AutomationInputIds.Left, false)]
+    [DataRow(AutomationInputIds.Sequence, false)]
     [DataRow(null, false)]
     public void IsKeyboardAction_IdentifiesKeyboardInputs(string? action, bool expected) =>
         Assert.AreEqual(expected, InputRules.IsKeyboardAction(action));
 
     [DataTestMethod]
-    [DataRow("Unset", 0, 0, false)]
-    [DataRow("Left", 0, 0, true)]
-    [DataRow("Custom", 0, 0, false)]
-    [DataRow("Custom", 0x41, 0, true)]
-    [DataRow("Sequence", 0, 1, false)]
-    [DataRow("Sequence", 0, 2, true)]
+    [DataRow(AutomationInputIds.Unset, 0, 0, false)]
+    [DataRow(AutomationInputIds.Left, 0, 0, true)]
+    [DataRow(AutomationInputIds.Custom, 0, 0, false)]
+    [DataRow(AutomationInputIds.Custom, 0x41, 0, true)]
+    [DataRow(AutomationInputIds.Sequence, 0, 1, false)]
+    [DataRow(AutomationInputIds.Sequence, 0, 2, true)]
     public void IsConfiguredAction_RequiresACompleteAction(string action, int customVirtualKey, int sequenceSteps, bool expected) =>
         Assert.AreEqual(expected, InputRules.IsConfiguredAction(action, customVirtualKey, sequenceSteps));
 
     [DataTestMethod]
-    [DataRow("Hold", true)]
-    [DataRow("Single", false)]
-    [DataRow("Double", false)]
+    [DataRow(AutomationActionTypeIds.Hold, true)]
+    [DataRow(AutomationActionTypeIds.Single, false)]
+    [DataRow(AutomationActionTypeIds.Double, false)]
     [DataRow(null, false)]
     public void IsHoldAction_IdentifiesHoldMode(string? actionType, bool expected) =>
         Assert.AreEqual(expected, InputRules.IsHoldAction(actionType));
 
     [DataTestMethod]
-    [DataRow("While held", true)]
-    [DataRow("Hold", false)]
-    [DataRow("Single", false)]
+    [DataRow(AutomationActionTypeIds.WhileHeld, true)]
+    [DataRow(AutomationActionTypeIds.Hold, false)]
+    [DataRow(AutomationActionTypeIds.Single, false)]
     [DataRow(null, false)]
     public void IsWhileHeldAction_IdentifiesHotkeyHoldMode(string? actionType, bool expected) =>
         Assert.AreEqual(expected, InputRules.IsWhileHeldAction(actionType));
 
     [DataTestMethod]
-    [DataRow("Hold", true)]
-    [DataRow("While held", true)]
-    [DataRow("Single", false)]
-    [DataRow("Double", false)]
+    [DataRow(AutomationActionTypeIds.Hold, true)]
+    [DataRow(AutomationActionTypeIds.WhileHeld, true)]
+    [DataRow(AutomationActionTypeIds.Single, false)]
+    [DataRow(AutomationActionTypeIds.Double, false)]
     public void RequiresContinuousRun_DisablesFiniteRepeatForContinuousModes(string actionType, bool expected) =>
         Assert.AreEqual(expected, InputRules.RequiresContinuousRun(actionType));
 
     [TestMethod]
     public void ActionUsesVirtualKey_FindsDirectAndSequenceKeysWithoutMatchingMouseActions()
     {
-        Assert.IsTrue(InputRules.ActionUsesVirtualKey("Space", 0, null, 0x20));
-        Assert.IsTrue(InputRules.ActionUsesVirtualKey("Custom", 0x75, null, 0x75));
-        Assert.IsTrue(InputRules.ActionUsesVirtualKey("Sequence", 0,
-            [new SequenceStep { Input = "Left" }, new SequenceStep { Input = "Custom", CustomKey = 0x76 }], 0x76));
-        Assert.IsFalse(InputRules.ActionUsesVirtualKey("Sequence", 0,
-            [new SequenceStep { Input = "Left" }, new SequenceStep { Input = "Enter" }], 0x76));
+        Assert.IsTrue(InputRules.ActionUsesVirtualKey(AutomationInputIds.Space, 0, null, 0x20));
+        Assert.IsTrue(InputRules.ActionUsesVirtualKey(AutomationInputIds.Custom, 0x75, null, 0x75));
+        Assert.IsTrue(InputRules.ActionUsesVirtualKey(AutomationInputIds.Sequence, 0,
+            [new SequenceStep { Input = AutomationInputIds.Left }, new SequenceStep { Input = AutomationInputIds.Custom, CustomKey = 0x76 }], 0x76));
+        Assert.IsFalse(InputRules.ActionUsesVirtualKey(AutomationInputIds.Sequence, 0,
+            [new SequenceStep { Input = AutomationInputIds.Left }, new SequenceStep { Input = AutomationInputIds.Enter }], 0x76));
     }
 
     [DataTestMethod]
-    [DataRow("Left", 0, "Left click")]
-    [DataRow("Right", 0, "Right click")]
-    [DataRow("Middle", 0, "Middle click")]
-    [DataRow("Space", 0, "Space")]
-    [DataRow("Enter", 0, "Enter")]
-    [DataRow("Sequence", 0, "Custom sequence")]
-    [DataRow("Unknown", 0, "Set action")]
+    [DataRow(AutomationInputIds.Left, 0, AutomationInputLabels.LeftClick)]
+    [DataRow(AutomationInputIds.Right, 0, AutomationInputLabels.RightClick)]
+    [DataRow(AutomationInputIds.Middle, 0, AutomationInputLabels.MiddleClick)]
+    [DataRow(AutomationInputIds.Space, 0, AutomationInputIds.Space)]
+    [DataRow(AutomationInputIds.Enter, 0, AutomationInputIds.Enter)]
+    [DataRow(AutomationInputIds.Sequence, 0, AutomationInputLabels.CustomSequence)]
+    [DataRow("Unknown", 0, AutomationInputLabels.SetAction)]
     public void DescribeAction_ProducesConsistentLabels(string action, int virtualKey, string expected) =>
         Assert.AreEqual(expected, InputRules.DescribeAction(action, virtualKey));
 
     [TestMethod]
     public void DescribeAction_FormatsCustomVirtualKey() =>
-        Assert.AreEqual("A", InputRules.DescribeAction("Custom", 0x41));
+        Assert.AreEqual("A", InputRules.DescribeAction(AutomationInputIds.Custom, 0x41));
 
     [TestMethod]
     public void DescribeAction_UsesFriendlyNamesForCustomSpaceAndEnter()
     {
-        Assert.AreEqual("Space", InputRules.DescribeAction("Custom", 0x20));
-        Assert.AreEqual("Enter", InputRules.DescribeAction("Custom", 0x0D));
+        Assert.AreEqual(AutomationInputIds.Space, InputRules.DescribeAction(AutomationInputIds.Custom, 0x20));
+        Assert.AreEqual(AutomationInputIds.Enter, InputRules.DescribeAction(AutomationInputIds.Custom, 0x0D));
     }
 
     [TestMethod]
     public void DescribeAction_UsesNumericLabelsForCustomTopRowDigits() =>
-        Assert.AreEqual("9", InputRules.DescribeAction("Custom", 0x39));
+        Assert.AreEqual("9", InputRules.DescribeAction(AutomationInputIds.Custom, 0x39));
 }

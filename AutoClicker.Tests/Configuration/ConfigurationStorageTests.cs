@@ -10,13 +10,14 @@ namespace AutoClicker.Tests;
 [TestClass]
 public sealed class ConfigurationStorageTests
 {
+    private const string TestDirectoryName = "AutoClicker.Tests";
     [TestMethod]
     public void SequenceLibrary_RoundTripsNamedPresetsAndSteps()
     {
-        var path = TemporaryPath("sequence-library.json");
+        var path = TemporaryPath(ConfigurationFileNames.SequenceLibrary);
         try
         {
-            SequenceLibraryStore.Save(path, [new SequencePreset { Name = "Combat", UseGlobalInputPulse = false, Steps = [new SequenceStep { Input = "Left" }, new SequenceStep { Input = "Space", DelayAfterMilliseconds = 80 }] }]);
+            SequenceLibraryStore.Save(path, [new SequencePreset { Name = "Combat", UseGlobalInputPulse = false, Steps = [new SequenceStep { Input = AutomationInputIds.Left }, new SequenceStep { Input = AutomationInputIds.Space, DelayAfterMilliseconds = 80 }] }]);
             var library = SequenceLibraryStore.Load(path);
             Assert.AreEqual(1, library.Count);
             Assert.AreEqual("Combat", library[0].Name);
@@ -24,6 +25,50 @@ public sealed class ConfigurationStorageTests
             Assert.IsFalse(library[0].UseGlobalInputPulse);
         }
         finally { DeleteTemporaryDirectory(path); }
+    }
+
+    [TestMethod]
+    public void SequenceLibrary_RoundTripsBalancedHoldAndReleaseEvents()
+    {
+        var path = TemporaryPath("sequence-library-holds.json");
+        try
+        {
+            SequenceLibraryStore.Save(path,
+            [
+                new SequencePreset
+                {
+                    Name = "Held chord",
+                    Steps =
+                    [
+                        new SequenceStep { Input = AutomationInputIds.Custom, CustomKey = 0x11, Mode = SequenceStepMode.Hold },
+                        new SequenceStep { Input = AutomationInputIds.Custom, CustomKey = 0x43 },
+                        new SequenceStep { Input = AutomationInputIds.Custom, CustomKey = 0x11, Mode = SequenceStepMode.Release }
+                    ]
+                }
+            ]);
+
+            var steps = SequenceLibraryStore.Load(path).Single().Steps;
+            CollectionAssert.AreEqual(
+                new[] { SequenceStepMode.Hold, SequenceStepMode.Press, SequenceStepMode.Release },
+                steps.Select(step => step.Mode).ToArray());
+        }
+        finally { DeleteTemporaryDirectory(path); }
+    }
+
+    [TestMethod]
+    public void SequenceLibrary_IgnoresUnbalancedStatefulPreset()
+    {
+        const string json = """
+            {"SchemaVersion":2,"Presets":[
+              {"Id":"unsafe","Name":"Unsafe","Steps":[{"Input":"Left","Mode":1},{"Input":"Delay","DelayAfterMilliseconds":100}]},
+              {"Id":"safe","Name":"Safe","Steps":[{"Input":"Left"},{"Input":"Right"}]}
+            ]}
+            """;
+
+        var library = SequenceLibraryStore.Deserialize(json);
+
+        Assert.AreEqual(1, library.Count);
+        Assert.AreEqual("safe", library[0].Id);
     }
 
     [TestMethod]
@@ -62,7 +107,7 @@ public sealed class ConfigurationStorageTests
             const string sequenceLibraryJson = """
                 {"SchemaVersion":1,"Presets":[{"Id":"work","Name":"Work","Steps":[{"Input":"Space"},{"Input":"Delay","DelayAfterMilliseconds":250}]}]}
                 """;
-            ConfigBackupStore.Write(path, new ConfigBackupDocument { DefaultsJson = "{}", SequenceLibraryJson = sequenceLibraryJson });
+            ConfigBackupStore.Write(path, new ConfigBackupDocument { LegacySharedDefaultsJson = "{}", SequenceLibraryJson = sequenceLibraryJson });
 
             var backup = ConfigBackupStore.Read(path);
             var library = SequenceLibraryStore.Deserialize(backup.SequenceLibraryJson);
@@ -98,13 +143,13 @@ public sealed class ConfigurationStorageTests
         var path = TemporaryPath("all-sequence-steps.json");
         var steps = new[]
         {
-            new SequenceStep { Input = "Left", DelayAfterMilliseconds = 10 },
-            new SequenceStep { Input = "Right", DelayAfterMilliseconds = 20 },
-            new SequenceStep { Input = "Middle", DelayAfterMilliseconds = 30 },
-            new SequenceStep { Input = "Space", DelayAfterMilliseconds = 40 },
-            new SequenceStep { Input = "Enter", DelayAfterMilliseconds = 50 },
-            new SequenceStep { Input = "Custom", CustomKey = 65, DelayAfterMilliseconds = 60 },
-            new SequenceStep { Input = "Delay", DelayAfterMilliseconds = 70 }
+            new SequenceStep { Input = AutomationInputIds.Left, DelayAfterMilliseconds = 10 },
+            new SequenceStep { Input = AutomationInputIds.Right, DelayAfterMilliseconds = 20 },
+            new SequenceStep { Input = AutomationInputIds.Middle, DelayAfterMilliseconds = 30 },
+            new SequenceStep { Input = AutomationInputIds.Space, DelayAfterMilliseconds = 40 },
+            new SequenceStep { Input = AutomationInputIds.Enter, DelayAfterMilliseconds = 50 },
+            new SequenceStep { Input = AutomationInputIds.Custom, CustomKey = 65, DelayAfterMilliseconds = 60 },
+            new SequenceStep { Input = AutomationInputIds.Delay, DelayAfterMilliseconds = 70 }
         };
         try
         {
@@ -126,10 +171,10 @@ public sealed class ConfigurationStorageTests
         var path = TemporaryPath("backup.json");
         try
         {
-            ConfigBackupStore.Write(path, new ConfigBackupDocument { DefaultsJson = "{}", SequenceLibraryJson = "{\"SchemaVersion\":1,\"Presets\":[]}" });
+            ConfigBackupStore.Write(path, new ConfigBackupDocument { LegacySharedDefaultsJson = "{}", SequenceLibraryJson = "{\"SchemaVersion\":1,\"Presets\":[]}" });
             var backup = ConfigBackupStore.Read(path);
             Assert.AreEqual(ConfigBackupStore.CurrentSchemaVersion, backup.SchemaVersion);
-            Assert.AreEqual("{}", backup.DefaultsJson);
+            Assert.AreEqual("{}", backup.LegacySharedDefaultsJson);
         }
         finally { DeleteTemporaryDirectory(path); }
     }
@@ -143,7 +188,7 @@ public sealed class ConfigurationStorageTests
             ConfigBackupStore.Write(path, new ConfigBackupDocument
             {
                 Scope = BackupScope.Everything,
-                DefaultsJson = "{}",
+                LegacySharedDefaultsJson = "{}",
                 RgbJson = "{\"IdleProfileName\":\"Dark White\"}"
             });
 
@@ -261,7 +306,24 @@ public sealed class ConfigurationStorageTests
             var backup = ConfigBackupStore.Read(path);
 
             Assert.AreEqual(BackupScope.Everything, backup.Scope);
-            Assert.AreEqual("{}", backup.DefaultsJson);
+            Assert.AreEqual("{}", backup.LegacySharedDefaultsJson);
+        }
+        finally { DeleteTemporaryDirectory(path); }
+    }
+
+    [TestMethod]
+    public void FullBackupVersion3_MapsItsLegacyPreferenceFieldExplicitly()
+    {
+        var path = TemporaryPath("legacy-preferences-backup.json");
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, "{\"SchemaVersion\":3,\"Scope\":0,\"UiPreferencesJson\":\"{\\\"Pinned\\\":true}\"}");
+
+            var backup = ConfigBackupStore.Read(path);
+
+            Assert.AreEqual("{\"Pinned\":true}", backup.LegacyApplicationPreferencesJson);
+            Assert.IsTrue(string.IsNullOrEmpty(backup.ApplicationPreferencesJson));
         }
         finally { DeleteTemporaryDirectory(path); }
     }
@@ -279,7 +341,7 @@ public sealed class ConfigurationStorageTests
         finally { DeleteTemporaryDirectory(path); }
     }
 
-    private static string TemporaryPath(string name) => Path.Combine(Path.GetTempPath(), "AutoClicker.Tests", Guid.NewGuid().ToString("N"), name);
+    private static string TemporaryPath(string name) => Path.Combine(Path.GetTempPath(), TestDirectoryName, Guid.NewGuid().ToString(AppIdentity.CompactGuidFormat), name);
     private static void DeleteTemporaryDirectory(string path)
     {
         var directory = Path.GetDirectoryName(path)!;

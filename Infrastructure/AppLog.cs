@@ -54,7 +54,7 @@ internal static class AppLog
 
     private static string ResolvePath()
     {
-        var besideExecutable = System.IO.Path.Combine(AppContext.BaseDirectory, "AutoClicker.log");
+        var besideExecutable = System.IO.Path.Combine(AppContext.BaseDirectory, ConfigurationFileNames.Log);
         try
         {
             using (File.Open(besideExecutable, FileMode.Append, FileAccess.Write, FileShare.Read)) { }
@@ -62,9 +62,9 @@ internal static class AppLog
         }
         catch
         {
-            var fallbackDirectory = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoClicker");
+            var fallbackDirectory = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), AppIdentity.Name);
             Directory.CreateDirectory(fallbackDirectory);
-            return System.IO.Path.Combine(fallbackDirectory, "AutoClicker.log");
+            return System.IO.Path.Combine(fallbackDirectory, ConfigurationFileNames.Log);
         }
     }
 

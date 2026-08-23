@@ -9,11 +9,11 @@ Copyright (c) 2026 JBX7. All rights reserved.
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:AutoClicker"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
-        Title="AutoClicker" AutomationProperties.AutomationId="MainWindow" Icon="Assets/AutoClickerIcon.ico" Width="522" Height="580" ResizeMode="NoResize" WindowStartupLocation="CenterScreen"
+        Title="{x:Static local:AppIdentity.Name}" AutomationProperties.AutomationId="MainWindow" Icon="Assets/AutoClickerIcon.ico" Width="522" Height="580" ResizeMode="NoResize" WindowStartupLocation="CenterScreen"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
-        FontFamily="Segoe UI" PreviewKeyDown="Window_PreviewKeyDown" PreviewMouseLeftButtonDown="Window_PreviewMouseLeftButtonDown" SourceInitialized="Window_SourceInitialized" Closing="Window_Closing">
+        FontFamily="Segoe UI" PreviewKeyDown="Window_PreviewKeyDown" PreviewMouseDown="Window_PreviewMouseDown" PreviewMouseLeftButtonDown="Window_PreviewMouseLeftButtonDown" SourceInitialized="Window_SourceInitialized" LocationChanged="Window_LocationChanged" Closing="Window_Closing">
     <Window.TaskbarItemInfo>
-        <shell:TaskbarItemInfo x:Name="TaskbarActivityIndicator" ProgressState="None" Description="AutoClicker" />
+        <shell:TaskbarItemInfo x:Name="TaskbarActivityIndicator" ProgressState="None" Description="{x:Static local:AppIdentity.Name}" />
     </Window.TaskbarItemInfo>
     <Window.Resources>
         <local:AdvancedActionLabelConverter x:Key="AdvancedActionLabelConverter" />
@@ -40,7 +40,7 @@ Copyright (c) 2026 JBX7. All rights reserved.
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <StackPanel VerticalAlignment="Center">
-                        <TextBlock Text="AutoClicker" FontSize="20" FontWeight="SemiBold" Foreground="{DynamicResource TextStrongBrush}" />
+                        <TextBlock Text="{x:Static local:AppIdentity.Name}" FontSize="20" FontWeight="SemiBold" Foreground="{DynamicResource TextStrongBrush}" />
                         <TextBlock Text="Pretty, fast" FontSize="11" Foreground="{DynamicResource TextMutedBrush}" />
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
@@ -131,13 +131,13 @@ Copyright (c) 2026 JBX7. All rights reserved.
                                         <TextBlock Text="Input" Style="{StaticResource FieldLabel}" />
                                         <Grid>
                                         <ComboBox x:Name="ButtonCombo" AutomationProperties.AutomationId="InputAction" SelectedIndex="0" SelectionChanged="ActionCombo_SelectionChanged">
-                                            <ComboBoxItem Content="Left click" Tag="Left" />
-                                            <ComboBoxItem Content="Right click" Tag="Right" />
-                                            <ComboBoxItem Content="Middle click" Tag="Middle" />
-                                            <ComboBoxItem Content="Space" Tag="Space" />
-                                            <ComboBoxItem Content="Enter" Tag="Enter" />
-                                            <ComboBoxItem x:Name="CustomKeyItem" Content="Custom key" Tag="Custom" />
-                                            <ComboBoxItem x:Name="SequenceItem" Content="Custom sequence" Tag="Sequence" IsEnabled="False" />
+                                            <ComboBoxItem Content="Left click" Tag="{x:Static local:AutomationInputIds.Left}" />
+                                            <ComboBoxItem Content="Right click" Tag="{x:Static local:AutomationInputIds.Right}" />
+                                            <ComboBoxItem Content="Middle click" Tag="{x:Static local:AutomationInputIds.Middle}" />
+                                            <ComboBoxItem Content="{x:Static local:AutomationInputIds.Space}" Tag="{x:Static local:AutomationInputIds.Space}" />
+                                            <ComboBoxItem Content="{x:Static local:AutomationInputIds.Enter}" Tag="{x:Static local:AutomationInputIds.Enter}" />
+                                            <ComboBoxItem x:Name="CustomKeyItem" Content="Custom key" Tag="{x:Static local:AutomationInputIds.Custom}" />
+                                            <ComboBoxItem x:Name="SequenceItem" Content="{x:Static local:AutomationInputLabels.CustomSequence}" Tag="{x:Static local:AutomationInputIds.Sequence}" IsEnabled="False" />
                                             <ComboBoxItem x:Name="EmptySequencePresetsItem" Content="  No saved sequences have been added yet." IsEnabled="False" />
                                             <ComboBoxItem x:Name="EditSequenceItem" Content="Open custom sequence editor" Tag="EditSequence" />
                                         </ComboBox>
@@ -147,10 +147,10 @@ Copyright (c) 2026 JBX7. All rights reserved.
                                     <StackPanel Grid.Column="1" Margin="8,0,0,0">
                                         <TextBlock Text="Action" Style="{StaticResource FieldLabel}" />
                                         <ComboBox x:Name="TypeCombo" AutomationProperties.AutomationId="ActionType" SelectedIndex="0" SelectionChanged="TypeCombo_SelectionChanged">
-                                            <ComboBoxItem x:Name="SingleTypeItem" Content="Single" />
-                                            <ComboBoxItem x:Name="DoubleTypeItem" Content="Double" />
-                                            <ComboBoxItem x:Name="HoldTypeItem" Content="Hold" />
-                                            <ComboBoxItem x:Name="WhileHeldTypeItem" Content="While held" ToolTip="Repeat the action only while its hotkey is held down" />
+                                            <ComboBoxItem x:Name="SingleTypeItem" Content="{x:Static local:AutomationActionTypeIds.Single}" />
+                                            <ComboBoxItem x:Name="DoubleTypeItem" Content="{x:Static local:AutomationActionTypeIds.Double}" />
+                                            <ComboBoxItem x:Name="HoldTypeItem" Content="{x:Static local:AutomationActionTypeIds.Hold}" />
+                                            <ComboBoxItem x:Name="WhileHeldTypeItem" Content="{x:Static local:AutomationActionTypeIds.WhileHeld}" ToolTip="Repeat the action only while its hotkey is held down" />
                                         </ComboBox>
                                     </StackPanel>
                                 </Grid>

@@ -3,6 +3,7 @@
 // -----------------------------------------------------------------------
 
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Text.Json;
 
 namespace AutoClicker.Tests;
 
@@ -32,20 +33,20 @@ public sealed class RgbSettingsTests
     }
 
     [TestMethod]
-    public void RgbSettings_DefaultsAreSafeAndLegacyPulseMigratesToBlink()
+    public void RgbSettings_LegacyBlinkIdentifierAndFadeEffectRemainDistinct()
     {
         var settings = new RgbSettings();
-        Assert.IsTrue(settings.CrashRecoveryEnabled);
         Assert.IsTrue(settings.StopAutoStartedOnExit);
         Assert.AreEqual(string.Empty, settings.IdleProfileName);
-        Assert.IsFalse(settings.IsPulse);
+        Assert.IsFalse(settings.UsesFadeEffect);
 
         settings.LightingEffect = "pUlSe";
-        Assert.IsTrue(settings.IsBlink);
-        Assert.IsFalse(settings.IsPulse);
+        Assert.IsTrue(settings.UsesBlinkEffect);
+        Assert.IsFalse(settings.UsesFadeEffect);
 
         settings.LightingEffect = "Fade";
-        Assert.IsTrue(settings.IsPulse);
+        Assert.IsTrue(settings.UsesFadeEffect);
+        Assert.IsFalse(settings.UsesBlinkEffect);
     }
 
     [TestMethod]
@@ -56,6 +57,17 @@ public sealed class RgbSettingsTests
         var clone = source.Clone();
 
         Assert.AreEqual("Dark White", clone.IdleProfileName);
+    }
+
+    [TestMethod]
+    public void RgbSettings_EffectSpeedKeepsItsLegacyJsonNameForCompatibility()
+    {
+        var json = JsonSerializer.Serialize(new RgbSettings { EffectSpeedMilliseconds = 875 });
+        var restored = JsonSerializer.Deserialize<RgbSettings>("{\"PulseSpeedMilliseconds\":925}");
+
+        StringAssert.Contains(json, "\"PulseSpeedMilliseconds\":875");
+        Assert.IsNotNull(restored);
+        Assert.AreEqual(925, restored.EffectSpeedMilliseconds);
     }
 
     [DataTestMethod]
@@ -129,14 +141,14 @@ public sealed class RgbSettingsTests
     }
 
     [TestMethod]
-    public void Pulse_UsesTwelveBlendStepsPerCycle() =>
-        Assert.AreEqual(12, OpenRgbHighlighter.PulseFramesPerCycle);
+    public void Fade_UsesTwelveBlendStepsPerCycle() =>
+        Assert.AreEqual(12, OpenRgbHighlighter.FadeFramesPerCycle);
 
     [TestMethod]
-    public void Pulse_UsesAResponsiveCycleRange()
+    public void Fade_UsesAResponsiveCycleRange()
     {
-        Assert.AreEqual(600, OpenRgbHighlighter.MinimumPulseCycleMilliseconds);
-        Assert.AreEqual(3500, OpenRgbHighlighter.MaximumPulseCycleMilliseconds);
+        Assert.AreEqual(600, OpenRgbHighlighter.MinimumFadeCycleMilliseconds);
+        Assert.AreEqual(3500, OpenRgbHighlighter.MaximumFadeCycleMilliseconds);
     }
 
     [DataTestMethod]
@@ -146,9 +158,9 @@ public sealed class RgbSettingsTests
     [DataRow(2500, 25)]
     [DataRow(3500, 35)]
     [DataRow(10000, 36)]
-    public void Pulse_FrameCountScalesSmoothlyAndIsCapped(int cycleMilliseconds, int expectedFrames)
+    public void Fade_FrameCountScalesSmoothlyAndIsCapped(int cycleMilliseconds, int expectedFrames)
     {
-        Assert.AreEqual(expectedFrames, OpenRgbHighlighter.GetPulseFramesPerCycle(cycleMilliseconds));
+        Assert.AreEqual(expectedFrames, OpenRgbHighlighter.GetFadeFramesPerCycle(cycleMilliseconds));
     }
 
     [TestMethod]
@@ -157,14 +169,14 @@ public sealed class RgbSettingsTests
 
     [TestMethod]
     public void KeyboardDevice_UsesItsNameForDisplay() =>
-        Assert.AreEqual("Corsair K70 RGB", new KeyboardDevice(4, "Corsair K70 RGB").ToString());
+        Assert.AreEqual("Aurora 9000", new KeyboardDevice(4, "Aurora 9000").ToString());
 
     [TestMethod]
     public void SelectKeyboard_PrefersCaseInsensitiveNameOverDeviceIndex()
     {
         var selected = OpenRgbHighlighter.SelectKeyboard(
-            [new KeyboardDevice(1, "Corsair K70 RGB"), new KeyboardDevice(2, "Other keyboard")],
-            new RgbSettings { DeviceIndex = 2, DeviceName = "corsair k70 rgb" });
+            [new KeyboardDevice(1, "Aurora 9000"), new KeyboardDevice(2, "Other keyboard")],
+            new RgbSettings { DeviceIndex = 2, DeviceName = "aurora 9000" });
 
         Assert.AreEqual(1, selected?.Index);
     }
@@ -184,6 +196,63 @@ public sealed class RgbSettingsTests
             new RgbSettings { DeviceName = "Missing keyboard" });
 
         Assert.IsNull(selected);
+    }
+
+    [TestMethod]
+    public void KeyboardDiscovery_TrustsOpenRgbKeyboardTypeWithoutRecognisingTheModel()
+    {
+        Assert.IsTrue(OpenRgbDeviceClassifier.IsKeyboard(
+            OpenRGB.NET.DeviceType.Keyboard,
+            "Unfamiliar Model 123",
+            null,
+            []));
+    }
+
+    [TestMethod]
+    public void KeyboardDiscovery_DoesNotTreatAnyExplicitNonKeyboardTypeAsAKeyboard()
+    {
+        foreach (var type in Enum.GetValues<OpenRGB.NET.DeviceType>().Except([OpenRGB.NET.DeviceType.Keyboard, OpenRGB.NET.DeviceType.Unknown]))
+        {
+            Assert.IsFalse(OpenRgbDeviceClassifier.IsKeyboard(
+                type,
+                "Gaming Keyboard Accessory",
+                "Keyboard-compatible lighting",
+                ["Key: A", "Key: B", "Key: C", "Key: D", "Key: E", "Key: F", "Key: G", "Key: H", "Key: I", "Key: J", "Key: Enter", "Key: Tab", "Key: Escape"]),
+                $"OpenRGB's explicit {type} classification must remain authoritative.");
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow("Mechanical Keyboard", null)]
+    [DataRow("Macro Keypad", null)]
+    [DataRow("ACME KBD 84", null)]
+    [DataRow("Unfamiliar Model", "USB RGB keyboard controller")]
+    public void KeyboardDiscovery_UsesGenericClassLabelsWhenOpenRgbTypeIsUnknown(string name, string? description)
+    {
+        Assert.IsTrue(OpenRgbDeviceClassifier.IsKeyboard(OpenRGB.NET.DeviceType.Unknown, name, description, []));
+    }
+
+    [TestMethod]
+    public void KeyboardDiscovery_RecognisesAnUnknownModelFromItsExposedKeyLayout()
+    {
+        string?[] ledNames =
+        [
+            "Key: A", "Key: B", "Key: C", "Key: D", "Key: E", "Key: F",
+            "Key: G", "Key: H", "Key: I", "Key: J", "Key: K", "Key: L",
+            "Key: 1", "Key: 2", "Key: 3", "Key: Escape", "Key: Tab", "Key: Enter"
+        ];
+
+        Assert.IsTrue(OpenRgbDeviceClassifier.IsKeyboard(OpenRGB.NET.DeviceType.Unknown, "Aurora 9000", null, ledNames));
+    }
+
+    [TestMethod]
+    public void KeyboardDiscovery_DoesNotGuessFromSparseOrGenericUnknownLighting()
+    {
+        Assert.IsFalse(OpenRgbDeviceClassifier.IsKeyboard(
+            OpenRGB.NET.DeviceType.Unknown,
+            "RGB Controller 12",
+            null,
+            ["LED 1", "LED 2", "Logo", "Key: A", "Key: Enter"]));
     }
 
     [TestMethod]

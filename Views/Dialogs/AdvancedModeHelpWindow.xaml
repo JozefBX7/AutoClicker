@@ -17,7 +17,7 @@ Copyright (c) 2026 JBX7. All rights reserved.
                 <TextBlock Text="Profile button" Style="{StaticResource SectionTitle}"/>
                 <TextBlock Text="Click any profile button in the footer, including the one already selected, to edit its profile defaults. They apply to its hotkeys unless a hotkey overrides that part. Right-click it to return selected sections to global Advanced defaults." Style="{StaticResource SectionHint}" TextWrapping="Wrap" Margin="0,2,0,11"/>
                 <TextBlock Text="Hotkey tile" Style="{StaticResource SectionTitle}"/>
-                <TextBlock Text="Click a tile to edit that hotkey only. Ctrl+click tiles to select several, then right-click for shared actions." Style="{StaticResource SectionHint}" TextWrapping="Wrap" Margin="0,2,0,11"/>
+                <TextBlock Text="Click a tile to edit that hotkey only. Right-click it to configure an independent key that enables or disables the hotkey. Ctrl+click tiles to select several, then right-click for shared actions." Style="{StaticResource SectionHint}" TextWrapping="Wrap" Margin="0,2,0,11"/>
                 <TextBlock Text="Global defaults" Style="{StaticResource SectionTitle}"/>
                 <TextBlock Text="Click the app header or empty footer space to return to global Advanced defaults. These apply when neither a profile nor a hotkey overrides an option." Style="{StaticResource SectionHint}" TextWrapping="Wrap" Margin="0,2,0,11"/>
                 <TextBlock Text="Quick options" Style="{StaticResource SectionTitle}"/>

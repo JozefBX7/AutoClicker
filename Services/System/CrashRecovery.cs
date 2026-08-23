@@ -13,24 +13,25 @@ internal static class CrashRecovery
 {
     internal const int ManagedCrashExitCode = 0xAC71;
     internal const int MaxRestartAttemptsPerMinute = 3;
-    private static readonly string SettingsPath = AppPaths.ConfigFile("rgb-settings.json");
-    private static readonly string CrashHistoryPath = AppPaths.ConfigFile("crash-history.json");
+    private static readonly string CrashHistoryPath = AppPaths.ConfigFile(ConfigurationFileNames.CrashHistory);
     private static EventWaitHandle? cleanShutdown;
     private static bool watcherStarted;
 
     internal static bool TryRunWatchdog(string[] args)
     {
-        if (args.Length != 3 || !string.Equals(args[0], "--crash-watchdog", StringComparison.OrdinalIgnoreCase)
+        if (args.Length != 3 || !string.Equals(args[0], AppCommandLineOptions.CrashWatchdog, StringComparison.OrdinalIgnoreCase)
             || !int.TryParse(args[1], out var parentProcessId)) return false;
 
         RunWatchdog(parentProcessId, args[2]);
         return true;
     }
 
-    internal static void StartIfEnabled()
+    internal static void StartIfEnabled() => StartIfEnabled(IsEnabled());
+
+    private static void StartIfEnabled(bool enabled)
     {
         // The watcher is another AutoClicker process running in watchdog mode.
-        if (watcherStarted || !IsEnabled()) return;
+        if (watcherStarted || !enabled) return;
         var executable = Environment.ProcessPath;
         if (string.IsNullOrWhiteSpace(executable)) return;
 
@@ -38,7 +39,7 @@ internal static class CrashRecovery
         try
         {
             cleanShutdown = new EventWaitHandle(false, EventResetMode.ManualReset, eventName);
-            var watcher = Process.Start(new ProcessStartInfo(executable, $"--crash-watchdog {Environment.ProcessId} {eventName}")
+            var watcher = Process.Start(new ProcessStartInfo(executable, $"{AppCommandLineOptions.CrashWatchdog} {Environment.ProcessId} {eventName}")
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
@@ -61,7 +62,7 @@ internal static class CrashRecovery
 
     internal static void UpdateEnabled(bool enabled)
     {
-        if (enabled) StartIfEnabled();
+        if (enabled) StartIfEnabled(enabled: true);
         else MarkCleanShutdown();
     }
 
@@ -115,11 +116,7 @@ internal static class CrashRecovery
 
     private static bool IsEnabled()
     {
-        try
-        {
-            if (!File.Exists(SettingsPath)) return true;
-            return JsonSerializer.Deserialize<RgbSettings>(File.ReadAllText(SettingsPath))?.CrashRecoveryEnabled ?? true;
-        }
+        try { return ApplicationPreferencesRepository.Load().CrashRecoveryEnabled; }
         catch { return true; }
     }
 

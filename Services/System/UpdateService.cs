@@ -123,7 +123,7 @@ internal static class UpdateService
         // The tag is used in a temporary filename.
         var safeTag = string.Concat(versionTag.Where(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '_'));
         if (string.IsNullOrWhiteSpace(safeTag)) safeTag = "latest";
-        var directory = Path.Combine(Path.GetTempPath(), "AutoClicker", "Updates");
+        var directory = Path.Combine(Path.GetTempPath(), AppIdentity.Name, "Updates");
         Directory.CreateDirectory(directory);
         var destination = Path.Combine(directory, $"AutoClicker-Setup-x64-{safeTag}.exe");
 

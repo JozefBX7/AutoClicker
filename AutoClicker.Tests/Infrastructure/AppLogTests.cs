@@ -10,6 +10,7 @@ namespace AutoClicker.Tests;
 [TestClass]
 public sealed class AppLogTests
 {
+    private const string TestDirectoryName = "AutoClicker.Tests";
     [TestMethod]
     public void TryPrepareForAppend_RotatesAndCapsThePreviousLog()
     {
@@ -60,7 +61,7 @@ public sealed class AppLogTests
         finally { DeleteTemporaryDirectory(path); }
     }
 
-    private static string TemporaryPath() => Path.Combine(Path.GetTempPath(), "AutoClicker.Tests", Guid.NewGuid().ToString("N"), "AutoClicker.log");
+    private static string TemporaryPath() => Path.Combine(Path.GetTempPath(), TestDirectoryName, Guid.NewGuid().ToString(AppIdentity.CompactGuidFormat), ConfigurationFileNames.Log);
 
     private static void DeleteTemporaryDirectory(string path)
     {

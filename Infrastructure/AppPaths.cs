@@ -16,7 +16,7 @@ internal static class AppPaths
     internal static string ConfigDirectory => AppRuntime.ConfigDirectoryOverride ?? configDirectory;
     internal static string ConfigFile(string fileName) => Path.Combine(ConfigDirectory, fileName);
 
-    internal static string InstalledConfigDirectory(string localApplicationData) => Path.Combine(localApplicationData, "AutoClicker");
+    internal static string InstalledConfigDirectory(string localApplicationData) => Path.Combine(localApplicationData, AppIdentity.Name);
     internal static string PortableConfigDirectory(string baseDirectory) => Path.Combine(baseDirectory, "Data");
 
     private static string ResolveConfigDirectory()

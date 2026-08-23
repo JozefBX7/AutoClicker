@@ -65,7 +65,7 @@ internal static class AutomationProfileNameRules
 
     private static string MakeUnique(string? preferredName, IEnumerable<string> existingNames)
     {
-        var baseName = string.IsNullOrWhiteSpace(preferredName) ? "Profile" : preferredName.Trim();
+        var baseName = string.IsNullOrWhiteSpace(preferredName) ? AutomationProfileNames.Fallback : preferredName.Trim();
         var used = new HashSet<string>(existingNames.Where(name => !string.IsNullOrWhiteSpace(name)), StringComparer.OrdinalIgnoreCase);
         if (!used.Contains(baseName)) return baseName;
         for (var suffix = 2; ; suffix++)
@@ -79,8 +79,8 @@ internal static class AutomationProfileNameRules
 // A profile is a named set of independently toggleable automation actions.
 public sealed class AutomationProfile
 {
-    public string Id { get; set; } = Guid.NewGuid().ToString("N");
-    public string Name { get; set; } = "New profile";
+    public string Id { get; set; } = Guid.NewGuid().ToString(AppIdentity.CompactGuidFormat);
+    public string Name { get; set; } = AutomationProfileNames.New;
     // Null keeps compatibility with profiles that inherit the Advanced-mode fallback defaults.
     public AppDefaults? BehaviorDefaults { get; set; }
     // Profiles use the same per-section inheritance model as hotkeys. A null defaults object means every
@@ -99,13 +99,15 @@ public sealed class AutomationProfile
 
 public sealed class AutomationAction
 {
-    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Id { get; set; } = Guid.NewGuid().ToString(AppIdentity.CompactGuidFormat);
     public AppDefaults Settings { get; set; } = new();
     // Existing actions retain their own values; newly added actions can opt into shared defaults.
     public bool UsesSharedBehaviorDefaults { get; set; }
     public AutomationBehaviorOverride BehaviorOverrides { get; set; }
     // Disabling a hotkey leaves its action available for the footer controls without registering its trigger.
     public bool HotkeyEnabled { get; set; } = true;
+    // This independent binding remains registered so it can re-enable an action whose run hotkey is disabled.
+    public AutomationHotkeyBinding? EnableToggleHotkey { get; set; }
     public bool UsesSharedLightingSettings { get; set; } = true;
     public RgbSettings? LightingOverride { get; set; }
     public bool UsesSharedBehavior(AutomationBehaviorOverride aspect) => UsesSharedBehaviorDefaults && !BehaviorOverrides.HasFlag(aspect);
@@ -115,33 +117,24 @@ public sealed class AutomationAction
         && Settings.Hotkey == hotkey
         && Settings.HotkeyModifiers == modifiers
         && Settings.HotkeyTrigger == trigger;
-    public AutomationAction Clone() => new() { Id = Id, Settings = Settings.Clone(), UsesSharedBehaviorDefaults = UsesSharedBehaviorDefaults, BehaviorOverrides = BehaviorOverrides, HotkeyEnabled = HotkeyEnabled, UsesSharedLightingSettings = UsesSharedLightingSettings, LightingOverride = LightingOverride?.Clone() };
+    public AutomationAction Clone() => new() { Id = Id, Settings = Settings.Clone(), UsesSharedBehaviorDefaults = UsesSharedBehaviorDefaults, BehaviorOverrides = BehaviorOverrides, HotkeyEnabled = HotkeyEnabled, EnableToggleHotkey = EnableToggleHotkey?.Clone(), UsesSharedLightingSettings = UsesSharedLightingSettings, LightingOverride = LightingOverride?.Clone() };
     public string DisplayName => $"{HotkeyFormatter.Format(Settings.Hotkey, Settings.HotkeyModifiers, Settings.HotkeyTrigger)}  ·  {ActionDescription}";
     public string ActionDescription => Describe(Settings);
 
     private static string Describe(AppDefaults settings)
     {
-        var input = settings.Input switch
-        {
-            "Unset" => "Set action",
-            "Space" => "Space",
-            "Enter" => "Enter",
-            "Custom" when settings.CustomKey != 0 => System.Windows.Input.KeyInterop.KeyFromVirtualKey(settings.CustomKey).ToString(),
-            "Sequence" => "Custom sequence",
-            "Right" => "Right click",
-            "Middle" => "Middle click",
-            "Left" => "Left click",
-            _ => string.IsNullOrWhiteSpace(settings.MouseButton) || settings.MouseButton == "Unset" ? "Set action" : settings.MouseButton + " click"
-        };
+        var input = InputRules.DescribeAction(settings.Input, settings.CustomKey);
+        if (input == AutomationInputLabels.SetAction && !string.IsNullOrWhiteSpace(settings.MouseButton) && settings.MouseButton != AutomationInputIds.Unset)
+            input = settings.MouseButton + " click";
         var typedInput = input.EndsWith(" click", StringComparison.Ordinal) ? char.ToLowerInvariant(input[0]) + input[1..] : input;
-        if (input == "Set action") return input;
-        if (settings.Input == "Sequence")
+        if (input == AutomationInputLabels.SetAction) return input;
+        if (settings.Input == AutomationInputIds.Sequence)
             return InputRules.IsWhileHeldAction(settings.ClickType) ? "Custom sequence while held" : input;
         return settings.ClickType switch
         {
-            "Double" => $"Double {typedInput}",
-            "Hold" => $"Hold {typedInput}",
-            "While held" => $"{input} while held",
+            AutomationActionTypeIds.Double => $"Double {typedInput}",
+            AutomationActionTypeIds.Hold => $"Hold {typedInput}",
+            AutomationActionTypeIds.WhileHeld => $"{input} while held",
             _ => input
         };
     }
@@ -189,7 +182,7 @@ internal static class AutomationProfileStore
     {
         AutomationProfileLimits.Enforce(document);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var temporary = path + ".tmp";
+        var temporary = path + ConfigurationFileNames.TemporarySuffix;
         File.WriteAllText(temporary, JsonSerializer.Serialize(document, new JsonSerializerOptions { WriteIndented = true }));
         File.Move(temporary, path, overwrite: true);
     }
@@ -197,7 +190,7 @@ internal static class AutomationProfileStore
     internal static AutomationProfileDocument CreateInitial(AppDefaults fallback)
     {
         var action = new AutomationAction { Settings = fallback.Clone() };
-        var profile = new AutomationProfile { Name = "General", Actions = [action] };
+        var profile = new AutomationProfile { Name = AutomationProfileNames.Default, Actions = [action] };
         return new AutomationProfileDocument { Profiles = [profile], ActiveProfileId = profile.Id, ActiveActionId = action.Id, RecentProfileIds = [profile.Id] };
     }
 }
@@ -363,9 +356,9 @@ internal static class AutomationLightingSettingsResolver
 public sealed class AppDefaults
 {
     public int Hours { get; set; } public int Minutes { get; set; } public int Seconds { get; set; } public int Milliseconds { get; set; } = 100;
-    public string MouseButton { get; set; } = "Left"; public string? Input { get; set; } public int CustomKey { get; set; }
+    public string MouseButton { get; set; } = AutomationInputIds.Left; public string? Input { get; set; } public int CustomKey { get; set; }
     public List<SequenceStep>? CustomSequence { get; set; } public bool CustomSequenceUsesGlobalInputPulse { get; set; } = true;
-    public string ClickType { get; set; } = "Single"; public bool RepeatUntilStopped { get; set; } = true; public int RepeatCount { get; set; } = 10;
+    public string ClickType { get; set; } = AutomationActionTypeIds.Single; public bool RepeatUntilStopped { get; set; } = true; public int RepeatCount { get; set; } = 10;
     public bool FixedPosition { get; set; } public int X { get; set; } public int Y { get; set; }
     public int? InputPulseMilliseconds { get; set; } = InputRules.DefaultInputPulseMilliseconds; public long InputJitterMaximumMilliseconds { get; set; }
     public string TargetExecutable { get; set; } = string.Empty; public string? TargetWindowTitle { get; set; } public bool TargetWindowEnabled { get; set; } = true;

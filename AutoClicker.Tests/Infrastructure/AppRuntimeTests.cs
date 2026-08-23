@@ -14,9 +14,9 @@ public sealed class AppRuntimeTests
     public void KeyboardHotkeyRegistration_RequiresBothEndToEndModeAndTheExplicitOptIn()
     {
         Assert.IsFalse(AppRuntime.ShouldRegisterEndToEndKeyboardHotkeys([]));
-        Assert.IsFalse(AppRuntime.ShouldRegisterEndToEndKeyboardHotkeys(["--e2e"]));
-        Assert.IsFalse(AppRuntime.ShouldRegisterEndToEndKeyboardHotkeys(["--e2e-register-keyboard-hotkeys"]));
-        Assert.IsTrue(AppRuntime.ShouldRegisterEndToEndKeyboardHotkeys(["--e2e", "--e2e-register-keyboard-hotkeys"]));
+        Assert.IsFalse(AppRuntime.ShouldRegisterEndToEndKeyboardHotkeys([AppCommandLineOptions.EndToEnd]));
+        Assert.IsFalse(AppRuntime.ShouldRegisterEndToEndKeyboardHotkeys([AppCommandLineOptions.RegisterEndToEndKeyboardHotkeys]));
+        Assert.IsTrue(AppRuntime.ShouldRegisterEndToEndKeyboardHotkeys([AppCommandLineOptions.EndToEnd, AppCommandLineOptions.RegisterEndToEndKeyboardHotkeys]));
     }
 
     [TestMethod]
