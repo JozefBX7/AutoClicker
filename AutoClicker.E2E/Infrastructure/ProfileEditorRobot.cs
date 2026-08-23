@@ -30,7 +30,7 @@ internal sealed class ProfileEditorRobot(UIA3Automation automation, Window windo
                 Button($"Action_{ProfileE2EFixture.ActionId}").Invoke();
                 break;
             default:
-                Element("GlobalEditorBackdrop").Click();
+                HeaderBackdrop().Click();
                 break;
         }
         WaitUntil(() => ScopeHint.Contains(ExpectedScopeText(scope), StringComparison.Ordinal), "editor scope did not change");
@@ -113,6 +113,10 @@ internal sealed class ProfileEditorRobot(UIA3Automation automation, Window windo
     private Button Button(string automationId) => WaitForElement(automationId).AsButton();
     private TextBox TextBox(string automationId) => WaitForElement(automationId).AsTextBox();
     private AutomationElement Element(string automationId) => WaitForElement(automationId);
+
+    private AutomationElement HeaderBackdrop() => WaitUntilNotNull(
+        () => window.FindFirstDescendant(condition => condition.ByControlType(ControlType.Text).And(condition.ByName(AppIdentity.Name))),
+        "the clickable main-window header backdrop was not found");
 
     private AutomationElement WaitForElement(string automationId) => WaitUntilNotNull(
         () => window.FindFirstDescendant(condition => condition.ByAutomationId(automationId)),

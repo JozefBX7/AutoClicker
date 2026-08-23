@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: windows-latest
@@ -16,6 +20,24 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+      - name: Record existing release state
+        id: release_state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $releaseLookup = gh release view $env:GITHUB_REF_NAME --json isDraft 2>&1
+          if ($LASTEXITCODE -eq 0) {
+            "exists=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          } elseif (($releaseLookup | Out-String) -match 'release not found') {
+            "exists=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          } else {
+            throw "Could not determine whether the release already exists: $releaseLookup"
+          }
+      - name: Refuse to replace an existing release
+        if: ${{ steps.release_state.outputs.exists == 'true' }}
+        shell: pwsh
+        run: throw "Release $env:GITHUB_REF_NAME already exists. Published versions are immutable."
       - name: Unit tests
         run: dotnet test AutoClicker.Tests\AutoClicker.Tests.csproj --configuration Release
       - name: Desktop end-to-end tests
@@ -28,10 +50,33 @@ jobs:
         run: |
           $version = $env:GITHUB_REF_NAME.TrimStart('v')
           .\scripts\Build-Release.ps1 -Version $version
-      - name: Publish GitHub release
+      - name: Stage GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          gh release delete $env:GITHUB_REF_NAME --yes 2>$null
-          gh release create $env:GITHUB_REF_NAME .\dist\AutoClicker-Setup-x64.exe .\dist\AutoClicker-Portable-x64.zip --generate-notes --title "AutoClicker $env:GITHUB_REF_NAME"
+          gh release create $env:GITHUB_REF_NAME .\dist\AutoClicker-Setup-x64.exe .\dist\AutoClicker-Portable-x64.zip --draft --verify-tag --generate-notes --title "AutoClicker $env:GITHUB_REF_NAME"
+      - name: Publish staged release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: gh release edit $env:GITHUB_REF_NAME --draft=false
+      - name: Roll back failed release attempt
+        if: ${{ failure() && steps.release_state.outputs.exists == 'false' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $releaseState = gh release view $env:GITHUB_REF_NAME --json isDraft --jq '.isDraft' 2>&1
+          if ($LASTEXITCODE -eq 0) {
+            if ($releaseState -ne 'true') {
+              throw "Refusing to remove a published release after an ambiguous publish result."
+            }
+            gh release delete $env:GITHUB_REF_NAME --yes
+            if ($LASTEXITCODE -ne 0) {
+              throw "Could not remove the draft release; its tag was preserved."
+            }
+          } elseif (($releaseState | Out-String) -notmatch 'release not found') {
+            throw "Could not determine the failed release state; its tag was preserved: $releaseState"
+          }
+          git push origin --delete $env:GITHUB_REF_NAME

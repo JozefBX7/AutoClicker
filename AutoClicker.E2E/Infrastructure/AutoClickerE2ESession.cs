@@ -128,7 +128,7 @@ internal sealed class AutoClickerE2ESession : IDisposable
         var automation = new UIA3Automation();
         try
         {
-            var window = WaitForMainWindow(application, automation, TimeSpan.FromSeconds(15));
+            var window = WaitForReadyMainWindow(application, automation, TimeSpan.FromSeconds(15));
             window.Focus();
             return new AutoClickerE2ESession(application, automation, window);
         }
@@ -164,17 +164,20 @@ internal sealed class AutoClickerE2ESession : IDisposable
         catch (System.ComponentModel.Win32Exception) { }
     }
 
-    private static Window WaitForMainWindow(Application application, UIA3Automation automation, TimeSpan timeout)
+    private static Window WaitForReadyMainWindow(Application application, UIA3Automation automation, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {
             if (application.HasExited) throw new InvalidOperationException("AutoClicker exited before its main window opened.");
             var window = application.GetMainWindow(automation);
-            if (window is not null) return window;
+            if (window is not null
+                && window.FindFirstDescendant(condition => condition.ByAutomationId("Mode")) is not null
+                && window.FindFirstDescendant(condition => condition.ByAutomationId("Settings")) is not null)
+                return window;
             Thread.Sleep(100);
         }
-        throw new TimeoutException("AutoClicker did not expose its main window within the timeout.");
+        throw new TimeoutException("AutoClicker did not expose a ready main-window automation tree within the timeout.");
     }
 
     private static string ResolveExecutablePath()

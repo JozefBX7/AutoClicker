@@ -41,11 +41,13 @@ internal sealed class SettingsRobot
 
     internal void Reset(string resetButtonName)
     {
-        ButtonByName("Reset to defaults").Click();
+        // Hosted Windows runners use a smaller desktop than the app's intentional fixed-size
+        // settings window. Invoke the real button through UI Automation without changing app layout.
+        ButtonByName("Reset to defaults").Invoke();
         var chooser = session.Dialog("Reset options");
         var reset = chooser.FindFirstDescendant(condition => condition.ByControlType(ControlType.Button).And(condition.ByName(resetButtonName)))?.AsButton()
             ?? throw new InvalidOperationException($"Reset option '{resetButtonName}' was not found.");
-        reset.Click();
+        reset.Invoke();
         var confirmation = session.Dialog("Confirmation");
         confirmation.FindFirstDescendant(condition => condition.ByAutomationId("ConfirmButton"))!.AsButton().Invoke();
     }

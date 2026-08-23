@@ -78,11 +78,17 @@ internal sealed class SequenceEditorRobot
     internal void DragSelectedAfter(int sourceIndex, int targetIndex)
     {
         var items = List(SequenceEditorAutomationIds.Steps).Items;
+        items[sourceIndex].ScrollIntoView();
+        session.WaitFor(() => !items[sourceIndex].IsOffscreen, $"sequence drag source {sourceIndex} did not become visible");
         var sourceBounds = items[sourceIndex].BoundingRectangle;
         var start = new System.Drawing.Point(sourceBounds.Left + sourceBounds.Width / 2, sourceBounds.Top + sourceBounds.Height / 2);
         var targetBounds = items[targetIndex].BoundingRectangle;
         var end = new System.Drawing.Point(targetBounds.Left + targetBounds.Width / 2, targetBounds.Bottom - 2);
+        var orderBeforeDrag = StepNames.ToArray();
         DragThroughIntermediatePoints(start, end);
+        session.WaitFor(
+            () => !StepNames.SequenceEqual(orderBeforeDrag),
+            "the sequence drag gesture did not complete");
     }
 
     internal void DragSelectedOutside(int sourceIndex)
@@ -111,15 +117,19 @@ internal sealed class SequenceEditorRobot
     {
         const int movementSteps = 20;
         MoveCursor(start);
+        Thread.Sleep(50);
         Mouse.Down(MouseButton.Left);
         try
         {
+            // Give WPF time to process the press and select an unselected source row before
+            // movement begins. This still follows the same physical gesture as a human drag.
+            Thread.Sleep(75);
             for (var step = 1; step <= movementSteps; step++)
             {
                 MoveCursor(new System.Drawing.Point(
                     start.X + ((end.X - start.X) * step / movementSteps),
                     start.Y + ((end.Y - start.Y) * step / movementSteps)));
-                Thread.Sleep(8);
+                Thread.Sleep(12);
             }
         }
         finally { Mouse.Up(MouseButton.Left); }

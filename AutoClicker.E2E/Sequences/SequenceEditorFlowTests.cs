@@ -58,7 +58,10 @@ public sealed class SequenceEditorFlowTests
         app.DisableTargetWindow();
         app.SetIntervalMilliseconds(40);
         app.SetFiniteRepeat(2);
-        app.Start();
+        app.TryStart();
+        session.WaitFor(
+            () => fixture.ReadRuntimeEvents().Count(line => line.Contains("\tinput\t", StringComparison.Ordinal)) >= 6,
+            "the saved sequence did not execute twice through the safe E2E input sink");
         app.WaitUntilStopped();
         Assert.AreEqual(6, fixture.ReadRuntimeEvents().Count(line => line.Contains("\tinput\t", StringComparison.Ordinal)),
             "three immediate input steps repeated twice should reach the safe sink six times");
