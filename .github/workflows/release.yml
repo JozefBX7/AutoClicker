@@ -125,7 +125,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $release = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:GITHUB_REF_NAME" | ConvertFrom-Json
+          $releaseId = gh release view $env:GITHUB_REF_NAME --json databaseId --jq '.databaseId'
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($releaseId)) {
+            throw "Could not resolve the staged $env:GITHUB_REF_NAME release ID."
+          }
+          $release = gh api "repos/$env:GITHUB_REPOSITORY/releases/$releaseId" | ConvertFrom-Json
           foreach ($name in @('AutoClicker-Setup-x64.exe', 'AutoClicker-Portable-x64.zip')) {
             $path = Join-Path '.\dist' $name
             $asset = @($release.assets | Where-Object name -EQ $name)
