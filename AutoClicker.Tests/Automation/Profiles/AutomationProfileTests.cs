@@ -307,6 +307,29 @@ public sealed class AutomationProfileTests
     }
 
     [TestMethod]
+    public void Store_RoundTripsWhileHeldActionType()
+    {
+        var path = TemporaryPath();
+        try
+        {
+            var action = new AutomationAction { Settings = new AppDefaults { Input = "Left", ClickType = "While held", Hotkey = 117 } };
+            var document = new AutomationProfileDocument
+            {
+                ActiveProfileId = "general",
+                ActiveActionId = action.Id,
+                Profiles = [new AutomationProfile { Id = "general", Name = "General", Actions = [action] }]
+            };
+
+            AutomationProfileStore.Save(path, document);
+            var loaded = AutomationProfileStore.Load(path, new AppDefaults());
+
+            Assert.AreEqual("While held", loaded.Profiles[0].Actions[0].Settings.ClickType);
+            Assert.AreEqual("Left click while held", loaded.Profiles[0].Actions[0].ActionDescription);
+        }
+        finally { Delete(path); }
+    }
+
+    [TestMethod]
     public void HotkeyIntervalOverride_TakesPrecedenceOverTheProfileInterval()
     {
         var global = new AppDefaults { Milliseconds = 100 };

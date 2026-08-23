@@ -147,9 +147,10 @@ Copyright (c) 2026 JBX7. All rights reserved.
                                     <StackPanel Grid.Column="1" Margin="8,0,0,0">
                                         <TextBlock Text="Action" Style="{StaticResource FieldLabel}" />
                                         <ComboBox x:Name="TypeCombo" AutomationProperties.AutomationId="ActionType" SelectedIndex="0" SelectionChanged="TypeCombo_SelectionChanged">
-                                            <ComboBoxItem Content="Single" />
-                                            <ComboBoxItem Content="Double" />
-                                            <ComboBoxItem Content="Hold" />
+                                            <ComboBoxItem x:Name="SingleTypeItem" Content="Single" />
+                                            <ComboBoxItem x:Name="DoubleTypeItem" Content="Double" />
+                                            <ComboBoxItem x:Name="HoldTypeItem" Content="Hold" />
+                                            <ComboBoxItem x:Name="WhileHeldTypeItem" Content="While held" ToolTip="Repeat the action only while its hotkey is held down" />
                                         </ComboBox>
                                     </StackPanel>
                                 </Grid>

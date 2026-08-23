@@ -60,6 +60,25 @@ internal sealed class AutoClickerE2ESession : IDisposable
         Keyboard.Press(key);
     }
 
+    internal IDisposable HoldRegisteredKeyboardHotkey(VirtualKeyShort key)
+    {
+        var held = new List<IDisposable>();
+        try
+        {
+            held.Add(Keyboard.Pressing(VirtualKeyShort.CONTROL));
+            held.Add(Keyboard.Pressing(VirtualKeyShort.SHIFT));
+            held.Add(Keyboard.Pressing(key));
+            held.Reverse();
+            return new HeldKeyboardChord(held.ToArray());
+        }
+        catch
+        {
+            foreach (var pressed in held.AsEnumerable().Reverse())
+                try { pressed.Dispose(); } catch { }
+            throw;
+        }
+    }
+
     internal void WaitFor(Func<bool> condition, string failure) => WaitUntil(condition, failure);
 
     internal static AutoClickerE2ESession Launch(
@@ -97,7 +116,7 @@ internal sealed class AutoClickerE2ESession : IDisposable
         }
         catch
         {
-            if (!application.HasExited) application.Kill();
+            Terminate(application);
             automation.Dispose();
             application.Dispose();
             throw;
@@ -106,10 +125,25 @@ internal sealed class AutoClickerE2ESession : IDisposable
 
     public void Dispose()
     {
-        try { if (!Application.HasExited) Application.Kill(); }
-        catch { }
+        Terminate(Application);
         Automation.Dispose();
         Application.Dispose();
+    }
+
+    private static void Terminate(Application application)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(application.ProcessId);
+            if (process.HasExited) return;
+            application.Kill();
+            if (process.WaitForExit(5_000)) return;
+            process.Kill(entireProcessTree: true);
+            process.WaitForExit(5_000);
+        }
+        catch (ArgumentException) { }
+        catch (InvalidOperationException) { }
+        catch (System.ComponentModel.Win32Exception) { }
     }
 
     private static Window WaitForMainWindow(Application application, UIA3Automation automation, TimeSpan timeout)
@@ -173,5 +207,21 @@ internal sealed class AutoClickerE2ESession : IDisposable
 
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(nint window, out int processId);
+
+    private sealed class HeldKeyboardChord(params IDisposable[] keys) : IDisposable
+    {
+        private IDisposable[]? heldKeys = keys;
+
+        public void Dispose()
+        {
+            var releasing = Interlocked.Exchange(ref heldKeys, null);
+            if (releasing is null) return;
+            Exception? failure = null;
+            foreach (var key in releasing)
+                try { key.Dispose(); }
+                catch (Exception exception) { failure ??= exception; }
+            if (failure is not null) throw failure;
+        }
+    }
 
 }

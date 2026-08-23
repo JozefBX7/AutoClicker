@@ -134,10 +134,14 @@ public sealed class AutomationAction
             _ => string.IsNullOrWhiteSpace(settings.MouseButton) || settings.MouseButton == "Unset" ? "Set action" : settings.MouseButton + " click"
         };
         var typedInput = input.EndsWith(" click", StringComparison.Ordinal) ? char.ToLowerInvariant(input[0]) + input[1..] : input;
-        return input == "Set action" || settings.Input == "Sequence" ? input : settings.ClickType switch
+        if (input == "Set action") return input;
+        if (settings.Input == "Sequence")
+            return InputRules.IsWhileHeldAction(settings.ClickType) ? "Custom sequence while held" : input;
+        return settings.ClickType switch
         {
             "Double" => $"Double {typedInput}",
             "Hold" => $"Hold {typedInput}",
+            "While held" => $"{input} while held",
             _ => input
         };
     }

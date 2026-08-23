@@ -20,6 +20,7 @@ public partial class MainWindow : Window
 {
     private const int HotkeyId = 0xC11C;
     private const int WmHotkey = 0x0312;
+    private const int WmEnable = 0x000A;
     private static readonly string DefaultsPath = AppPaths.ConfigFile("defaults.json");
     private static readonly string GlobalDefaultsPath = AppPaths.ConfigFile("global-defaults.json");
     private static readonly string RgbSettingsPath = AppPaths.ConfigFile("rgb-settings.json");
@@ -49,16 +50,18 @@ public partial class MainWindow : Window
     private nint mouseHook;
     private readonly Dictionary<string, CancellationTokenSource> profileRuns = [];
     private readonly Dictionary<string, Task> profileTasks = [];
-    private bool capturingHotkey;
+    private readonly HashSet<CancellationTokenSource> heldTriggerMonitors = [];
+    private volatile bool capturingHotkey;
     private string? pendingNewActionId;
-    private bool capturingSpamKey;
+    private volatile bool capturingSpamKey;
     private bool updatingActionSelection;
     private ComboBoxItem? actionBeforeKeyCapture;
     private int customSpamVirtualKey;
     private List<SequenceStep> customSequence = [];
     private List<SequencePreset> sequenceLibrary = [];
     private readonly List<ComboBoxItem> sequencePresetItems = [];
-    private bool settingsOpen;
+    private volatile bool settingsOpen;
+    private volatile bool automationOwnerEnabled = true;
     private int hotkey = System.Windows.Input.KeyInterop.VirtualKeyFromKey(System.Windows.Input.Key.F6);
     private uint hotkeyModifiers;
     private HotkeyTrigger hotkeyTrigger = HotkeyTrigger.Keyboard;
@@ -256,23 +259,46 @@ public partial class MainWindow : Window
 
     private nint WndProc(nint handle, int msg, nint wParam, nint lParam, ref bool handled)
     {
+        if (msg == WmEnable)
+        {
+            automationOwnerEnabled = wParam != 0;
+            if (!automationOwnerEnabled) StopAutomationForModalContext();
+            return 0;
+        }
         // Ignore the global hotkey during key capture.
         if (!capturingHotkey && !capturingSpamKey && msg == WmHotkey && primaryHotkeyIds.Contains(wParam.ToInt32()))
         {
             if (hotkeyTrigger == HotkeyTrigger.Keyboard
                 && !IsKeyboardModifierMatch(keyboardHotkeyModifiersEnabled, hotkeyModifiers, HotkeyMessageModifiers(lParam))) return 0;
-            if (advancedMode && ActiveProfileAction() is { } action) ToggleProfileAction(action);
-            else ToggleClicking();
+            ActivateHotkey(advancedMode ? ActiveProfileAction() : null, hotkey, hotkeyModifiers, HotkeyTrigger.Keyboard);
             handled = true;
         }
         else if (!capturingHotkey && !capturingSpamKey && msg == WmHotkey && additionalHotkeys.TryGetValue(wParam.ToInt32(), out var action))
         {
             if (action.Settings.HotkeyTrigger == HotkeyTrigger.Keyboard
                 && !IsKeyboardModifierMatch(keyboardHotkeyModifiersEnabled, action.Settings.HotkeyModifiers, HotkeyMessageModifiers(lParam))) return 0;
-            ToggleProfileAction(action);
+            ActivateHotkey(action, action.Settings.Hotkey, action.Settings.HotkeyModifiers, HotkeyTrigger.Keyboard);
             handled = true;
         }
         return 0;
+    }
+
+    private bool CanExecuteAutomation() => AutomationExecutionGuard.CanExecute(
+        automationOwnerEnabled,
+        isClosing,
+        settingsOpen,
+        capturingHotkey,
+        capturingSpamKey);
+
+    private void StopAutomationForModalContext()
+    {
+        if (!IsClicking) return;
+
+        // A modal owner boundary is also a fail-safe boundary: no existing worker should continue behind an
+        // editor, picker, confirmation, or system file dialog that prevents access to the main controls.
+        if (clickCancellation is not null) StopClicking();
+        foreach (var actionId in profileRuns.Keys.ToList()) StopProfileAction(actionId);
+        Status("Automation stopped while a dialog is open.", ThemeManager.Brush("WarningBrush"));
     }
 
     internal static bool IsKeyboardModifierMatch(bool modifiersEnabled, uint configuredModifiers, uint messageModifiers)
@@ -476,9 +502,6 @@ public partial class MainWindow : Window
             return;
         }
         CompleteCapturedHotkey(candidate, modifiers, HotkeyTrigger.Keyboard);
-        RegisterConfiguredHotkey();
-        if (!hotkeyRegistered)
-            Status($"{FormatHotkey(candidate, modifiers, HotkeyTrigger.Keyboard)} is in use - choose another key.", ThemeManager.Brush("ErrorBrush"));
     }
 
     private bool TrySubmitEditorTextField(System.Windows.Input.KeyEventArgs e)
@@ -536,9 +559,14 @@ public partial class MainWindow : Window
         pendingNewActionId = null;
         RefreshAdvancedFooterUi();
         UpdateHotkeyLabel();
-        CancelHotkeyCapture(keepStatus: true);
-        Status($"Ready - press {FormatHotkey()} to start or stop.", ThemeManager.Brush("SuccessBrush"));
-        FlashSelectedHotkey();
+        var registered = CancelHotkeyCapture(keepStatus: true);
+        if (registered)
+        {
+            Status($"Ready - press {FormatHotkey()} to start or stop.", ThemeManager.Brush("SuccessBrush"));
+            FlashSelectedHotkey();
+        }
+        else
+            Status($"{FormatHotkey(virtualKey, modifiers, trigger)} is in use - choose another key.", ThemeManager.Brush("ErrorBrush"));
     }
 
     private bool IsProfileHotkeyAlreadyAssigned(int candidate, uint modifiers, HotkeyTrigger trigger)
@@ -758,7 +786,7 @@ public partial class MainWindow : Window
         return null;
     }
 
-    private void CancelHotkeyCapture(bool keepStatus = false)
+    private bool CancelHotkeyCapture(bool keepStatus = false)
     {
         var button = ActiveHotkeyButton();
         capturingHotkey = false;
@@ -772,10 +800,11 @@ public partial class MainWindow : Window
             pendingNewActionId = null;
             AbandonPendingNewAction(pendingActionId);
             if (!keepStatus) Status("New hotkey was not added.", ThemeManager.Brush("TextMutedBrush"));
-            return;
+            return false;
         }
-        if (advancedMode || !hotkeyRegistered) RegisterConfiguredHotkey();
+        var registered = !(advancedMode || !hotkeyRegistered) || RegisterConfiguredHotkey();
         if (!keepStatus) Status($"Ready - press {FormatHotkey()} to start or stop.", ThemeManager.Brush("SuccessBrush"));
+        return registered;
     }
 
     private void AbandonPendingNewAction(string actionId)
@@ -807,7 +836,7 @@ public partial class MainWindow : Window
         }
         if (selectedAction == "Sequence")
         {
-            if (Selected(TypeCombo) == "Hold") Select(TypeCombo, "Single");
+            if (!InputRules.IsWhileHeldAction(Selected(TypeCombo))) Select(TypeCombo, "Single");
             SequenceItem.Content = "Custom sequence";
             UpdateLiveInputMode();
             if (!CommitSelectedActionChange()) ShowReadyActionStatus();
@@ -869,9 +898,9 @@ public partial class MainWindow : Window
         return true;
     }
 
-    private void RegisterConfiguredHotkey()
+    private bool RegisterConfiguredHotkey()
     {
-        if (hwnd == 0) return;
+        if (hwnd == 0) return false;
         if (AppRuntime.IsEndToEndTest && !AppRuntime.RegisterEndToEndKeyboardHotkeys)
         {
             primaryHotkeyIds.Clear();
@@ -884,7 +913,7 @@ public partial class MainWindow : Window
                 hotkeyTrigger = testAction.Settings.HotkeyTrigger;
             }
             hotkeyRegistered = false;
-            return;
+            return true;
         }
         if (hotkeyRegistered) UnregisterPrimaryHotkeys();
         foreach (var registeredId in additionalHotkeys.Keys.ToList()) UnregisterHotKey(hwnd, registeredId);
@@ -899,18 +928,25 @@ public partial class MainWindow : Window
             hotkeyTrigger = activeAction?.Settings.HotkeyTrigger ?? HotkeyTrigger.Keyboard;
         }
         var registerActiveHotkey = !advancedMode || activeAction?.HotkeyEnabled == true;
+        var activeRegistrationSucceeded = !registerActiveHotkey;
         if (registerActiveHotkey && hotkeyTrigger == HotkeyTrigger.Keyboard && hotkey > 0)
         {
             var nextId = RegisterKeyboardHotkeyVariants(HotkeyId, hotkeyModifiers, hotkey, action: null, trackAsPrimary: true);
             hotkeyRegistered = primaryHotkeyIds.Count > 0;
+            activeRegistrationSucceeded = hotkeyRegistered;
             if (!hotkeyRegistered) Status($"{FormatHotkey()} is in use - choose another key.", ThemeManager.Brush("ErrorBrush"));
             if (nextId > HotkeyId + 1) additionalHotkeys.Clear();
         }
         else hotkeyRegistered = false;
-        if (registerActiveHotkey && hotkeyTrigger != HotkeyTrigger.Keyboard) RegisterMouseHotkey(new MouseHotkey(hotkeyTrigger, hotkeyModifiers), advancedMode ? activeAction : null);
-        if (!advancedMode) { UpdateMouseHook(); return; }
+        if (registerActiveHotkey && hotkeyTrigger != HotkeyTrigger.Keyboard)
+        {
+            var binding = new MouseHotkey(hotkeyTrigger, hotkeyModifiers);
+            RegisterMouseHotkey(binding, advancedMode ? activeAction : null);
+            activeRegistrationSucceeded = mouseHotkeys.ContainsKey(binding);
+        }
+        if (!advancedMode) { UpdateMouseHook(); return activeRegistrationSucceeded; }
         var profile = ActiveProfile();
-        if (profile is null) { UpdateMouseHook(); return; }
+        if (profile is null) { UpdateMouseHook(); return activeRegistrationSucceeded; }
         var additionalId = Math.Max(HotkeyId + 1, (primaryHotkeyIds.Count == 0 ? HotkeyId + 1 : primaryHotkeyIds.Max() + 1));
         foreach (var action in profile.Actions.Where(action => action.HotkeyEnabled && action.Id != automationProfiles.ActiveActionId && HotkeyFormatter.IsConfigured(action.Settings.Hotkey, action.Settings.HotkeyTrigger)))
         {
@@ -923,6 +959,7 @@ public partial class MainWindow : Window
             additionalId = RegisterKeyboardHotkeyVariants(additionalId, action.Settings.HotkeyModifiers, action.Settings.Hotkey, action, trackAsPrimary: false);
         }
         UpdateMouseHook();
+        return activeRegistrationSucceeded;
     }
 
     private int RegisterKeyboardHotkeyVariants(int startId, uint modifiers, int virtualKey, AutomationAction? action, bool trackAsPrimary)
@@ -1026,14 +1063,13 @@ public partial class MainWindow : Window
             });
             return 1;
         }
-        if (capturingSpamKey || !mouseHotkeys.TryGetValue(binding, out var action))
+        if (!CanExecuteAutomation() || !mouseHotkeys.TryGetValue(binding, out var action))
             return CallNextHookEx(mouseHook, code, wParam, lParam);
 
         _ = Dispatcher.BeginInvoke(() =>
         {
-            if (capturingHotkey || capturingSpamKey) return;
-            if (advancedMode && action is not null) ToggleProfileAction(action);
-            else ToggleClicking();
+            if (!CanExecuteAutomation()) return;
+            ActivateHotkey(action, 0, binding.Modifiers, binding.Trigger);
         });
         // A mouse hotkey behaves like a keyboard hotkey: it is reserved for AutoClicker, not forwarded to the target app.
         return 1;
@@ -2496,8 +2532,107 @@ public partial class MainWindow : Window
         if (profileRuns.ContainsKey(action.Id)) StopProfileAction(action.Id); else StartProfileAction(action);
     }
 
+    private void ActivateHotkey(AutomationAction? action, int virtualKey, uint modifiers, HotkeyTrigger trigger)
+    {
+        if (!CanExecuteAutomation()) return;
+        if (action is not null && !action.HotkeyEnabled) return;
+        var actionType = action is null ? Selected(TypeCombo) : action.Settings.ClickType;
+        if (!InputRules.IsWhileHeldAction(actionType))
+        {
+            if (action is not null) ToggleProfileAction(action); else ToggleClicking();
+            return;
+        }
+
+        var effectiveSettings = action is null ? CreateCurrentDefaults() : ResolveActionSettings(action);
+        var physicalKey = HotkeyHoldSafety.PhysicalVirtualKey(trigger, virtualKey);
+        if (physicalKey is null)
+        {
+            Status("While held requires a keyboard key, Middle mouse, Mouse 4, or Mouse 5; wheel gestures cannot be held.", ThemeManager.Brush("WarningBrush"));
+            return;
+        }
+        var input = string.IsNullOrWhiteSpace(effectiveSettings.Input) ? effectiveSettings.MouseButton : effectiveSettings.Input;
+        if (trigger == HotkeyTrigger.Keyboard
+            && InputRules.ActionUsesVirtualKey(input, effectiveSettings.CustomKey, effectiveSettings.CustomSequence, virtualKey))
+        {
+            Status("A While held action cannot send its own hotkey key. Choose a different action or hotkey.", ThemeManager.Brush("WarningBrush"));
+            return;
+        }
+
+        CancellationTokenSource? cancellation;
+        string? actionId = null;
+        if (action is not null)
+        {
+            if (!profileRuns.TryGetValue(action.Id, out cancellation))
+            {
+                StartProfileAction(action);
+                if (!profileRuns.TryGetValue(action.Id, out cancellation)) return;
+            }
+            actionId = action.Id;
+        }
+        else
+        {
+            cancellation = clickCancellation;
+            if (cancellation is null)
+            {
+                StartClicking();
+                cancellation = clickCancellation;
+                if (cancellation is null) return;
+            }
+        }
+
+        // Register at most one release monitor per run. This ignores Windows key-repeat messages while still
+        // allowing a run started from the UI to become safely release-bound when its hotkey is next held.
+        if (!heldTriggerMonitors.Add(cancellation)) return;
+        var requiredModifiers = trigger == HotkeyTrigger.Keyboard
+            ? HotkeyHoldSafety.RequiredKeyboardModifiers(keyboardHotkeyModifiersEnabled, modifiers)
+            : modifiers & 0x7;
+        MonitorHeldTriggerRelease(physicalKey.Value, requiredModifiers, cancellation, actionId);
+    }
+
+    private void MonitorHeldTriggerRelease(int physicalKey, uint requiredModifiers, CancellationTokenSource cancellation, string? actionId)
+    {
+        var token = cancellation.Token;
+        _ = Task.Run(async () =>
+        {
+            var monitorFailed = false;
+            try
+            {
+                // Always yield once so the Windows hook/message that started the action can finish first.
+                await Task.Delay(10, token);
+                while (HotkeyHoldSafety.IsTriggerDown(physicalKey, requiredModifiers, IsKeyPressed))
+                    await Task.Delay(10, token);
+            }
+            catch (OperationCanceledException) { return; }
+            catch (Exception exception)
+            {
+                monitorFailed = true;
+                AppLog.Error("Held-hotkey release monitor failed", exception);
+            }
+
+            if (token.IsCancellationRequested || isClosing || Dispatcher.HasShutdownStarted) return;
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                if (!IsCurrentRun(cancellation, actionId)) return;
+                // A very fast release/repress can race the dispatcher. Keep monitoring the same run if the
+                // trigger is physically down again; otherwise fail closed and cancel this exact run instance.
+                if (!monitorFailed && HotkeyHoldSafety.IsTriggerDown(physicalKey, requiredModifiers, IsKeyPressed))
+                {
+                    MonitorHeldTriggerRelease(physicalKey, requiredModifiers, cancellation, actionId);
+                    return;
+                }
+                heldTriggerMonitors.Remove(cancellation);
+                if (actionId is null) StopClicking(); else StopProfileAction(actionId);
+            });
+        });
+    }
+
+    private bool IsCurrentRun(CancellationTokenSource cancellation, string? actionId) => actionId is null
+        ? ReferenceEquals(clickCancellation, cancellation)
+        : profileRuns.TryGetValue(actionId, out var current) && ReferenceEquals(current, cancellation);
+
     private void StartProfileAction(AutomationAction action)
     {
+        if (!CanExecuteAutomation()) return;
         if (!HotkeyFormatter.IsConfigured(action.Settings.Hotkey, action.Settings.HotkeyTrigger) || profileRuns.ContainsKey(action.Id)) return;
         var effectiveSettings = ResolveActionSettings(action);
         var input = string.IsNullOrWhiteSpace(effectiveSettings.Input) ? effectiveSettings.MouseButton : effectiveSettings.Input;
@@ -2536,6 +2671,7 @@ public partial class MainWindow : Window
     private void StopProfileAction(string actionId)
     {
         if (!profileRuns.Remove(actionId, out var cancellation)) return;
+        heldTriggerMonitors.Remove(cancellation);
         cancellation.Cancel();
         profileTasks.Remove(actionId);
         Status("Profile hotkey stopped.", ThemeManager.Brush("SuccessBrush"));
@@ -2560,9 +2696,9 @@ public partial class MainWindow : Window
     private void StartClicking()
     {
         // Reject states that cannot produce a valid worker configuration.
-        if (settingsOpen)
+        if (!CanExecuteAutomation())
         {
-            Status($"Close Settings before {ActivityVerb().ToLowerInvariant()}.", ThemeManager.Brush("WarningBrush"));
+            Status("Close the open dialog or finish key capture before starting automation.", ThemeManager.Brush("WarningBrush"));
             return;
         }
         if (clickCancellation is not null) return;
@@ -2601,7 +2737,7 @@ public partial class MainWindow : Window
             ? new TargetWindowRule(TargetExecutableBox.Text, targetWindowTitle)
             : new TargetWindowRule(string.Empty, null);
         var sequencePulseMilliseconds = customSequenceUsesGlobalInputPulse ? inputPulseMilliseconds : 0;
-        var settings = new ClickSettings(FixedPositionRadio.IsChecked == true, Read(XBox, -32768, 32767), Read(YBox, -32768, 32767), input, keyboardVirtualKey == 0 ? null : keyboardVirtualKey, Selected(TypeCombo) == "Double", hold, hold ? null : CountRadio.IsChecked == true ? Read(CountBox, 1, 999999) : null, input == "Sequence" ? BuildSequence(customSequence) : null, InputRules.NormalizeInputPulseMilliseconds(input == "Sequence" ? sequencePulseMilliseconds : inputPulseMilliseconds), inputJitterMaximumMilliseconds, workerPriority, cadenceDiagnosticsEnabled, target);
+        var settings = new ClickSettings(FixedPositionRadio.IsChecked == true, Read(XBox, -32768, 32767), Read(YBox, -32768, 32767), input, keyboardVirtualKey == 0 ? null : keyboardVirtualKey, Selected(TypeCombo) == "Double", hold, InputRules.RequiresContinuousRun(Selected(TypeCombo)) ? null : CountRadio.IsChecked == true ? Read(CountBox, 1, 999999) : null, input == "Sequence" ? BuildSequence(customSequence) : null, InputRules.NormalizeInputPulseMilliseconds(input == "Sequence" ? sequencePulseMilliseconds : inputPulseMilliseconds), inputJitterMaximumMilliseconds, workerPriority, cadenceDiagnosticsEnabled, target);
         // Reflect the running state before the worker can send its first input.
         CaptureCurrentActionToProfile();
         AppLog.Info($"Starting {ActivityVerb().ToLowerInvariant()} | Input={input} | IntervalMs={delay.TotalMilliseconds:0.###} | PulseMs={settings.InputPulseMilliseconds} | JitterMaxMs={settings.JitterMaximumMilliseconds} | WorkerPriority={settings.WorkerPriority} | Repeat={(settings.MaximumClicks?.ToString() ?? "until stopped")}");
@@ -2758,7 +2894,7 @@ public partial class MainWindow : Window
             : new TargetWindowRule(string.Empty, null);
         var sequencePulse = source.CustomSequenceUsesGlobalInputPulse ? source.InputPulseMilliseconds : 0;
         return new ClickSettings(source.FixedPosition, source.X, source.Y, input, key == 0 ? null : key, source.ClickType == "Double", hold,
-            hold ? null : source.RepeatUntilStopped ? null : Math.Clamp(source.RepeatCount, 1, 999999), input == "Sequence" ? BuildSequence(source.CustomSequence ?? []) : null,
+            InputRules.RequiresContinuousRun(source.ClickType) || source.RepeatUntilStopped ? null : Math.Clamp(source.RepeatCount, 1, 999999), input == "Sequence" ? BuildSequence(source.CustomSequence ?? []) : null,
             InputRules.NormalizeInputPulseMilliseconds(input == "Sequence" ? sequencePulse ?? 0 : source.InputPulseMilliseconds ?? 0), source.InputJitterMaximumMilliseconds,
             workerPriority, cadenceDiagnosticsEnabled, target);
     }
@@ -2856,6 +2992,7 @@ public partial class MainWindow : Window
                 if (profileRuns.TryGetValue(actionId, out var current) && ReferenceEquals(current, cancellation))
                 {
                     profileRuns.Remove(actionId);
+                    heldTriggerMonitors.Remove(cancellation);
                     profileTasks.Remove(actionId);
                     if (!isClosing) Status(watchdogExpired ? "A profile hotkey stopped because the GUI heartbeat timed out." : "Profile hotkey stopped.", ThemeManager.Brush(watchdogExpired ? "WarningBrush" : "SuccessBrush"));
                     if (clickCancellation is null && profileRuns.Count == 0) CollapseButton.IsEnabled = true;
@@ -2877,6 +3014,7 @@ public partial class MainWindow : Window
         // Clear the shared reference first so a late completion cannot stop a new run.
         var cancellation = clickCancellation;
         clickCancellation = null;
+        if (cancellation is not null) heldTriggerMonitors.Remove(cancellation);
         cancellation?.Cancel();
         if (cancellation is not null) AppLog.Info("Click/spam worker stop requested.");
         StartButton.IsEnabled = true; StopButton.IsEnabled = false;
@@ -3051,8 +3189,11 @@ public partial class MainWindow : Window
         var sequenceInput = testInput == "Sequence";
         var keyboardInput = InputRules.IsKeyboardAction(testInput!);
         var hold = InputRules.IsHoldAction(testSettings.ClickType);
+        var whileHeld = InputRules.IsWhileHeldAction(testSettings.ClickType);
         var sharedBehavior = advancedMode && ActiveProfileAction()?.UsesSharedBehavior(AutomationBehaviorOverride.Position) == true;
-        TypeCombo.IsEnabled = !sequenceInput;
+        DoubleTypeItem.IsEnabled = !sequenceInput;
+        HoldTypeItem.IsEnabled = !sequenceInput;
+        TypeCombo.IsEnabled = !IsClicking && (!advancedMode || IsEditingAdvancedAction());
         PositionCard.IsEnabled = !sequenceInput && !keyboardInput;
         if (PositionContent is not null) PositionContent.IsEnabled = PositionCard.IsEnabled && !sharedBehavior;
         UpdatePositionInputEnabled();
@@ -3079,7 +3220,7 @@ public partial class MainWindow : Window
             LiveMouseHint.Text = "Test area disabled while targeting a window";
             LiveCountLabel.Text = "Target window active";
             LiveIntervalLabel.Text = "Input is sent only to the selected target";
-            IntervalHint.Text = sequenceInput ? "Time between sequences" : hold ? "Hold stays active until stopped" : keyboardInput ? "Time between key presses" : "Time between clicks";
+            IntervalHint.Text = sequenceInput ? "Time between sequences" : hold ? "Hold stays active until stopped" : whileHeld ? "Time between actions while the hotkey is held" : keyboardInput ? "Time between key presses" : "Time between clicks";
             UpdateLiveAreaTextContrast();
             return;
         }
@@ -3091,7 +3232,7 @@ public partial class MainWindow : Window
             LiveMouseHint.Text = "Test area disabled";
             LiveCountLabel.Text = "Custom sequence";
             LiveIntervalLabel.Text = "Configure steps from the Input menu";
-            IntervalHint.Text = "Time between sequences";
+            IntervalHint.Text = whileHeld ? "Time between sequences while the hotkey is held" : "Time between sequences";
             UpdateLiveAreaTextContrast();
             return;
         }
@@ -3099,7 +3240,7 @@ public partial class MainWindow : Window
         LiveMouseHint.Visibility = keyboardInput ? Visibility.Collapsed : Visibility.Visible;
         LiveKeyFocusBox.Visibility = keyboardInput ? Visibility.Visible : Visibility.Collapsed;
         LiveTitleLabel.Text = keyboardInput ? "LIVE SPAM AREA" : "LIVE CLICK AREA";
-        IntervalHint.Text = hold ? "Hold stays active until stopped" : keyboardInput ? "Time between key presses" : "Time between clicks";
+        IntervalHint.Text = hold ? "Hold stays active until stopped" : whileHeld ? "Time between actions while the hotkey is held" : keyboardInput ? "Time between key presses" : "Time between clicks";
         if (keyboardInput)
         {
             LiveCountLabel.Text = !IsTestAreaRunning ? "Start to test" : KeyTestBox.IsKeyboardFocusWithin ? FormatKeyPressCount(liveKeyPressCount) : "Focus the field to test";
@@ -3457,10 +3598,10 @@ public partial class MainWindow : Window
     private void RepeatMode_Changed(object sender, RoutedEventArgs e)
     {
         if (CountBox is null || CountRadio is null || UntilStoppedRadio is null) return;
-        var hold = InputRules.IsHoldAction(Selected(TypeCombo));
-        if (hold) UntilStoppedRadio.IsChecked = true;
-        CountRadio.IsEnabled = !hold;
-        CountBox.IsEnabled = !hold && CountRadio.IsChecked == true;
+        var continuous = InputRules.RequiresContinuousRun(Selected(TypeCombo));
+        if (continuous) UntilStoppedRadio.IsChecked = true;
+        CountRadio.IsEnabled = !continuous;
+        CountBox.IsEnabled = !continuous && CountRadio.IsChecked == true;
         CommitBehaviorChange(AutomationBehaviorOverride.Repeat);
     }
 

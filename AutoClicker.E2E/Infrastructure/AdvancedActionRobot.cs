@@ -57,6 +57,15 @@ internal sealed class AdvancedActionRobot(AutoClickerE2ESession session)
         Keyboard.Press(key);
     }
 
+    internal void ChangeHotkeyChord(string actionId, VirtualKeyShort key)
+    {
+        ChooseMenu(actionId, "ChangeActionHotkey");
+        session.Window.Focus();
+        using var control = Keyboard.Pressing(VirtualKeyShort.CONTROL);
+        using var shift = Keyboard.Pressing(VirtualKeyShort.SHIFT);
+        Keyboard.Press(key);
+    }
+
     internal void SelectTogether(params string[] actionIds)
     {
         if (actionIds.Length == 0) return;

@@ -123,6 +123,33 @@ public sealed class InputRulesTests
         Assert.AreEqual(expected, InputRules.IsHoldAction(actionType));
 
     [DataTestMethod]
+    [DataRow("While held", true)]
+    [DataRow("Hold", false)]
+    [DataRow("Single", false)]
+    [DataRow(null, false)]
+    public void IsWhileHeldAction_IdentifiesHotkeyHoldMode(string? actionType, bool expected) =>
+        Assert.AreEqual(expected, InputRules.IsWhileHeldAction(actionType));
+
+    [DataTestMethod]
+    [DataRow("Hold", true)]
+    [DataRow("While held", true)]
+    [DataRow("Single", false)]
+    [DataRow("Double", false)]
+    public void RequiresContinuousRun_DisablesFiniteRepeatForContinuousModes(string actionType, bool expected) =>
+        Assert.AreEqual(expected, InputRules.RequiresContinuousRun(actionType));
+
+    [TestMethod]
+    public void ActionUsesVirtualKey_FindsDirectAndSequenceKeysWithoutMatchingMouseActions()
+    {
+        Assert.IsTrue(InputRules.ActionUsesVirtualKey("Space", 0, null, 0x20));
+        Assert.IsTrue(InputRules.ActionUsesVirtualKey("Custom", 0x75, null, 0x75));
+        Assert.IsTrue(InputRules.ActionUsesVirtualKey("Sequence", 0,
+            [new SequenceStep { Input = "Left" }, new SequenceStep { Input = "Custom", CustomKey = 0x76 }], 0x76));
+        Assert.IsFalse(InputRules.ActionUsesVirtualKey("Sequence", 0,
+            [new SequenceStep { Input = "Left" }, new SequenceStep { Input = "Enter" }], 0x76));
+    }
+
+    [DataTestMethod]
     [DataRow("Left", 0, "Left click")]
     [DataRow("Right", 0, "Right click")]
     [DataRow("Middle", 0, "Middle click")]

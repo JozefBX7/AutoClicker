@@ -3,6 +3,7 @@
 // -----------------------------------------------------------------------
 
 using FlaUI.Core.AutomationElements;
+using FlaUI.Core.Definitions;
 using FlaUI.Core.WindowsAPI;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -54,6 +55,62 @@ public sealed class HotkeyToggleFlowTests
         ToggleAndAssert(session, fixture, VirtualKeyShort.F6, ProfileE2EFixture.ActionId);
     }
 
+    [TestMethod]
+    public void RegisteredHotkeys_AreIgnoredAcrossModalEditorsAndDialogsThenResumeAfterClosing()
+    {
+        using var fixture = new ProfileE2EFixture(chordedKeyboardHotkeys: true);
+        using var session = fixture.Launch(registerKeyboardHotkeys: true);
+        var app = new MainWindowRobot(session);
+        session.Editor.Select(EditorScope.Hotkey);
+        app.DisableTargetWindow();
+        app.SetRepeatUntilStopped();
+
+        app.OpenSequenceEditor();
+        AssertHotkeyIgnored(session, fixture, VirtualKeyShort.F6, "custom sequence editor");
+        new SequenceEditorRobot(session).Cancel();
+
+        app.OpenAdvancedHelp();
+        AssertHotkeyIgnored(session, fixture, VirtualKeyShort.F6, "advanced help");
+        var help = session.Dialog("Advanced mode help");
+        help.FindFirstDescendant(condition => condition.ByControlType(ControlType.Button).And(condition.ByName("Got it")))!
+            .AsButton().Invoke();
+
+        app.OpenSettings();
+        AssertHotkeyIgnored(session, fixture, VirtualKeyShort.F6, "settings");
+        new SettingsRobot(session).Cancel();
+        session.WaitFor(
+            () => session.MainElement($"StartAction_{ProfileE2EFixture.ActionId}").AsButton().IsEnabled,
+            "main action controls did not re-enable after the modal dialogs closed");
+
+        ToggleAndAssert(session, fixture, VirtualKeyShort.F6, ProfileE2EFixture.ActionId);
+    }
+
+    [TestMethod]
+    public void ChangingExistingRegisteredHotkey_RegistersOnceWithoutAFalseConflictAndStillRejectsDuplicates()
+    {
+        using var fixture = new ProfileE2EFixture(chordedKeyboardHotkeys: true);
+        using var session = fixture.Launch(registerKeyboardHotkeys: true);
+        var app = new MainWindowRobot(session);
+        var actions = new AdvancedActionRobot(session);
+        session.Editor.Select(EditorScope.Hotkey);
+        app.DisableTargetWindow();
+        app.SetRepeatUntilStopped();
+
+        actions.ChangeHotkeyChord(ProfileE2EFixture.ActionId, VirtualKeyShort.F8);
+        session.WaitFor(
+            () => app.AdvancedStatus.Contains("Ctrl + Shift + F8", StringComparison.Ordinal)
+                && !app.AdvancedStatus.Contains("in use", StringComparison.OrdinalIgnoreCase),
+            "changed existing hotkey reported a false registration conflict");
+        AssertRegistered(session, fixture, VirtualKeyShort.F8, "primary");
+        ToggleAndAssert(session, fixture, VirtualKeyShort.F8, ProfileE2EFixture.ActionId);
+
+        actions.ChangeHotkeyChord(ProfileE2EFixture.ActionId, VirtualKeyShort.F7);
+        session.WaitFor(
+            () => app.AdvancedStatus.Contains("already assigned", StringComparison.OrdinalIgnoreCase),
+            "a genuinely duplicate profile hotkey was not rejected");
+        ToggleAndAssert(session, fixture, VirtualKeyShort.F8, ProfileE2EFixture.ActionId);
+    }
+
     private static void ToggleAndAssert(
         AutoClickerE2ESession session,
         ProfileE2EFixture fixture,
@@ -86,5 +143,19 @@ public sealed class HotkeyToggleFlowTests
                 line.Contains("\thotkey-registration\t", StringComparison.Ordinal)
                 && line.Contains(signature, StringComparison.Ordinal)),
             $"Windows did not register Ctrl+Shift+{key} for '{action}'");
+    }
+
+    private static void AssertHotkeyIgnored(
+        AutoClickerE2ESession session,
+        ProfileE2EFixture fixture,
+        VirtualKeyShort key,
+        string context)
+    {
+        var inputCount = fixture.ReadRuntimeEvents().Count(line => line.Contains("\tinput\t", StringComparison.Ordinal));
+        session.SendRegisteredKeyboardHotkey(key);
+        Thread.Sleep(250);
+        Assert.AreEqual(inputCount,
+            fixture.ReadRuntimeEvents().Count(line => line.Contains("\tinput\t", StringComparison.Ordinal)),
+            $"registered hotkey executed while {context} was open");
     }
 }

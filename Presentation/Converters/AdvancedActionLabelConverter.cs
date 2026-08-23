@@ -39,7 +39,7 @@ public sealed class AdvancedActionLabelConverter : IMultiValueConverter
             case "Space": input = "Space"; break;
             case "Enter": input = "Enter"; break;
             case "Custom" when settings.CustomKey != 0: input = KeyInterop.KeyFromVirtualKey(settings.CustomKey).ToString(); break;
-            case "Sequence": return "Sequence";
+            case "Sequence": return InputRules.IsWhileHeldAction(settings.ClickType) ? "Sequence while held" : "Sequence";
             default:
                 isMouseAction = true;
                 input = (settings.Input ?? settings.MouseButton) switch
@@ -55,6 +55,7 @@ public sealed class AdvancedActionLabelConverter : IMultiValueConverter
         {
             "Double" => $"Double {typedInput}",
             "Hold" => $"Hold {typedInput}",
+            "While held" => $"{input} while held",
             _ => input
         };
     }

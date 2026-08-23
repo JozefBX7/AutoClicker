@@ -15,6 +15,7 @@ internal sealed class MainWindowRobot(AutoClickerE2ESession session)
     internal string AdvancedStatus => Element("GlobalEditorBackdrop").Name;
     internal bool StartEnabled => Button("Start").IsEnabled;
     internal bool StopEnabled => Button("Stop").IsEnabled;
+    internal bool FiniteRepeatEnabled => Element("RepeatCountMode").IsEnabled;
     internal string SelectedInput => Element("InputAction").AsComboBox().SelectedItem?.Name ?? string.Empty;
 
     internal void SwitchMode()

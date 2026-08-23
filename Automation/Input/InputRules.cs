@@ -72,6 +72,19 @@ internal static class InputRules
 
     internal static bool IsHoldAction(string? actionType) => string.Equals(actionType, "Hold", StringComparison.Ordinal);
 
+    internal static bool IsWhileHeldAction(string? actionType) => string.Equals(actionType, "While held", StringComparison.Ordinal);
+
+    internal static bool RequiresContinuousRun(string? actionType) => IsHoldAction(actionType) || IsWhileHeldAction(actionType);
+
+    internal static bool ActionUsesVirtualKey(string? action, int customVirtualKey, IEnumerable<SequenceStep>? sequence, int virtualKey) => action switch
+    {
+        "Space" => virtualKey == 0x20,
+        "Enter" => virtualKey == 0x0D,
+        "Custom" => customVirtualKey == virtualKey,
+        "Sequence" => sequence?.Any(step => ActionUsesVirtualKey(step.Input, step.CustomKey, null, virtualKey)) == true,
+        _ => false
+    };
+
     internal static string DescribeAction(string? action, int customVirtualKey) => action switch
     {
         "Left" => "Left click",

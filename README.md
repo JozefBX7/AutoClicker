@@ -1,6 +1,6 @@
 # AutoClicker
 
-A compact Windows auto clicker and keyboard spammer with two ways of working: a focused one-hotkey Simple mode, or Advanced profiles with up to 15 independently configurable hotkeys running together. It includes custom sequences, configurable input pulses and jitter, backups, optional OpenRGB lighting, and foreground-window targeting that keeps input in the app you choose.
+A compact Windows auto clicker and keyboard spammer with two ways of working: a focused one-hotkey Simple mode, or Advanced profiles with up to 15 independently configurable hotkeys running together. It includes custom sequences, press-and-hold hotkey execution, configurable input pulses and jitter, backups, optional OpenRGB lighting, and foreground-window targeting that keeps input in the app you choose.
 
 Detailed guides are available in the [AutoClicker Wiki](https://github.com/JozefBX7/AutoClicker/wiki).
 
@@ -26,6 +26,8 @@ Profiles are saved deliberately, so experimenting does not overwrite a saved set
 Leave the target blank for normal global input, enter an executable name to run only while that app is active, or choose a specific visible window. AutoClicker pauses its clicks and keys whenever the selected target is not in the foreground.
 
 Choose left, middle, or right clicks; Space, Enter, or a picked key; or a custom sequence. Mouse buttons beyond left/right may also be used as global hotkeys.
+
+The Action menu supports **Single**, **Double**, **Hold**, and **While held**. Hold keeps one generated input pressed until the action is stopped. While held instead repeats complete clicks, key presses, or custom sequences at the configured interval for only as long as the action hotkey remains physically held.
 
 ## Keep your setup portable
 
