@@ -71,7 +71,14 @@ internal sealed class ProfileE2EFixture : IDisposable
     internal IReadOnlyList<string> ReadRuntimeEvents()
     {
         var path = Path.Combine(ConfigDirectory, ConfigurationFileNames.EndToEndRuntimeLog);
-        return File.Exists(path) ? File.ReadAllLines(path) : [];
+        if (!File.Exists(path)) return [];
+
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        var contents = reader.ReadToEnd();
+        var finalNewLine = contents.LastIndexOf('\n');
+        if (finalNewLine < 0) return [];
+        return contents[..(finalNewLine + 1)].Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
     }
 
     public void Dispose()

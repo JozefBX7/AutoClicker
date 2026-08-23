@@ -24,7 +24,10 @@ public sealed class SafeMacroExecutionTests
         app.SetFixedPosition(123, 234);
         app.SetFiniteRepeat(5);
 
-        app.Start();
+        app.TryStart();
+        session.WaitFor(
+            () => fixture.ReadRuntimeEvents().Count(line => line.Contains("\tinput\t", StringComparison.Ordinal)) >= 10,
+            "the finite mouse run did not emit five clicks through the safe E2E input sink");
         app.WaitUntilStopped();
 
         var events = fixture.ReadRuntimeEvents();
@@ -50,14 +53,18 @@ public sealed class SafeMacroExecutionTests
         app.Stop();
 
         var inputEvents = fixture.ReadRuntimeEvents().Where(IsInputEvent).ToList();
-        Assert.AreEqual(2, inputEvents.Count, "a held action should emit exactly one down and one cleanup release");
-        Assert.AreEqual(1, inputEvents.Count(line => line.Contains("keyboard:vk=0:scan=57:flags=8", StringComparison.Ordinal)),
-            "the held Space action did not emit exactly one key-down packet");
+        Assert.IsTrue(inputEvents.Count(line => line.Contains("keyboard:vk=0:scan=57:flags=8", StringComparison.Ordinal)) >= 1,
+            "the held Space action did not emit a key-down packet");
         Assert.AreEqual(1, inputEvents.Count(line => line.Contains("keyboard:vk=0:scan=57:flags=10", StringComparison.Ordinal)),
             "stopping the held Space action did not emit exactly one key-up packet");
-        Assert.IsTrue(inputEvents[0].Contains("flags=8", StringComparison.Ordinal)
-            && inputEvents[1].Contains("flags=10", StringComparison.Ordinal),
-            "the cleanup release must occur after the held input is pressed");
+        Assert.IsTrue(inputEvents.Count >= 2
+            && inputEvents.Take(inputEvents.Count - 1).All(line => line.Contains("flags=8", StringComparison.Ordinal))
+            && inputEvents[^1].Contains("flags=10", StringComparison.Ordinal),
+            "held-key repeats must remain key-down packets and the cleanup release must be last");
+        var countAfterStop = inputEvents.Count;
+        Thread.Sleep(250);
+        Assert.AreEqual(countAfterStop, fixture.ReadRuntimeEvents().Count(IsInputEvent),
+            "the held action continued emitting input after its cleanup release");
     }
 
     [TestMethod]
