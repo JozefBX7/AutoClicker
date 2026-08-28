@@ -519,7 +519,7 @@ public partial class SettingsWindow : Window
         }
         finally
         {
-            if (snapshot is not null) OpenRgbHighlighter.RestoreKeyboard(snapshot);
+            if (snapshot is not null) OpenRgbHighlighter.RestoreAndReleaseKeyboard(snapshot);
             var restart = restartEffectPreview && !isClosing;
             restartEffectPreview = false;
             effectTestCancellation?.Dispose();

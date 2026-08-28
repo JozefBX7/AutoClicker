@@ -6,6 +6,7 @@ using OpenRGB.NET;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Net.Sockets;
 using System.Text.Json.Serialization;
 
 namespace AutoClicker;
@@ -74,7 +75,7 @@ public static class OpenRgbHighlighter
 
     public static async Task<OpenRgbAvailability> EnsureSdkAsync(RgbSettings settings)
     {
-        if (await IsSdkAvailableAsync()) return new(true, null);
+        if (await IsSdkAvailableAsync()) return ValidateSdkEnvironment();
         if (!settings.AutoStart)
             return new(false, "OpenRGB's SDK server is not available. Enable it in OpenRGB, or turn on automatic startup here.");
         if (IsAutoStartSuppressed())
@@ -84,7 +85,7 @@ public static class OpenRgbHighlighter
         try
         {
             // Another request may have started OpenRGB while this caller was waiting.
-            if (await IsSdkAvailableAsync()) return new(true, null);
+            if (await IsSdkAvailableAsync()) return ValidateSdkEnvironment();
             if (IsAutoStartSuppressed())
                 return new(false, "OpenRGB was not started because AutoClicker is shutting down.");
 
@@ -95,7 +96,7 @@ public static class OpenRgbHighlighter
                 {
                     var gracePeriod = RemainingStartupGracePeriod(runningProcesses);
                     if (gracePeriod > TimeSpan.Zero && await WaitForSdkAsync(gracePeriod))
-                        return new(true, "OpenRGB's SDK server became available.");
+                        return ValidateSdkEnvironment("OpenRGB's SDK server became available.");
 
                     return new(false, "OpenRGB is already running, but its SDK server is not available. Enable its SDK server on port 6742, then refresh.");
                 }
@@ -125,7 +126,7 @@ public static class OpenRgbHighlighter
                 AppLog.Info($"Started OpenRGB SDK server process | PID={process.Id} | Path={executable} | Host=127.0.0.1 | Port=6742");
 
                 if (await WaitForSdkAsync(TimeSpan.FromMilliseconds(AutoStartedSdkReadyTimeoutMilliseconds), process))
-                    return new(true, "OpenRGB was started automatically.", WasStarted: true);
+                    return ValidateSdkEnvironment("OpenRGB was started automatically.", wasStarted: true);
 
                 if (HasExited(process))
                     return new(false, $"OpenRGB exited before its SDK server became available{ExitCodeSuffix(process)}.");
@@ -203,6 +204,7 @@ public static class OpenRgbHighlighter
             {
                 using var client = new OpenRgbClient(name: OpenRgbClientName);
                 client.LoadProfile(name);
+                foreach (var state in ActiveIndicators.Values) state.Session.Dispose();
                 ActiveIndicators.Clear();
             }
             return true;
@@ -227,6 +229,14 @@ public static class OpenRgbHighlighter
         }
         catch { return false; }
     });
+
+    private static OpenRgbAvailability ValidateSdkEnvironment(string? successMessage = null, bool wasStarted = false)
+    {
+        var conflict = OpenRgbServerDiagnostics.GetConflictMessage();
+        return conflict is null
+            ? new(true, successMessage, wasStarted)
+            : new(false, conflict);
+    }
 
     private static async Task<bool> WaitForSdkAsync(TimeSpan timeout, Process? process = null)
     {
@@ -284,6 +294,9 @@ public static class OpenRgbHighlighter
         startInfo.ArgumentList.Add("--server");
         startInfo.ArgumentList.Add("--server-host");
         startInfo.ArgumentList.Add("127.0.0.1");
+        // OpenRGB 1.0 can otherwise connect to an existing local server while
+        // also trying to host one, creating two competing device owners.
+        startInfo.ArgumentList.Add("--noautoconnect");
         return startInfo;
     }
 
@@ -347,22 +360,36 @@ public static class OpenRgbHighlighter
     public static RgbLightingSnapshot? EnableKeyIndicator(RgbSettings settings, string keyName, out string? error, bool lightImmediately = true)
     {
         error = null;
+        var session = new OpenRgbSession(OpenRgbClientName);
         try
         {
-            using var client = new OpenRgbClient(name: OpenRgbClientName);
-            var keyboard = client.GetControllerData(settings.DeviceIndex);
+            var keyboard = session.Execute(client => client.GetControllerData(settings.DeviceIndex));
 
             var ledIndex = FindLedIndex(keyboard, keyName);
-            if (ledIndex is null) { error = $"OpenRGB could not light {keyName} on {keyboard.Name}. Choose a standard keyboard key, then try again."; return null; }
-            if (keyboard.Colors.Length != keyboard.Leds.Length) { error = "This keyboard does not expose per-key colours to OpenRGB."; return null; }
+            if (ledIndex is null)
+            {
+                session.Dispose();
+                error = $"OpenRGB could not light {keyName} on {keyboard.Name}. Choose a standard keyboard key, then try again.";
+                return null;
+            }
+            if (keyboard.Colors.Length != keyboard.Leds.Length)
+            {
+                session.Dispose();
+                error = "This keyboard does not expose per-key colours to OpenRGB.";
+                return null;
+            }
 
             // Restore the original keyboard colours when finished.
-            var snapshot = new RgbLightingSnapshot(keyboard.Index, keyboard.Colors.ToArray(), CaptureMode(keyboard), ledIndex.Value, IndicatorColor(settings));
+            var snapshot = new RgbLightingSnapshot(keyboard.Index, keyboard.Colors.ToArray(), CaptureMode(keyboard), ledIndex.Value, IndicatorColor(settings))
+            {
+                Session = session
+            };
             if (lightImmediately) LightIndicator(snapshot);
             return snapshot;
         }
         catch (Exception exception)
         {
+            session.Dispose();
             AppLog.Error("OpenRGB indicator update failed", exception);
             error = OpenRgbMessages.Unavailable(exception.Message);
             return null;
@@ -534,7 +561,7 @@ public static class OpenRgbHighlighter
         finally
         {
             // Preserve the selected keyboard's pre-test colours even if its SDK call fails mid-test.
-            RestoreKeyboard(snapshot);
+            RestoreAndReleaseKeyboard(snapshot);
         }
     }
 
@@ -620,19 +647,24 @@ public static class OpenRgbHighlighter
     private static RgbKeyboardSnapshot? CaptureKeyboardForTest(RgbSettings settings, out string? error)
     {
         error = null;
+        var session = new OpenRgbSession(OpenRgbClientName);
         try
         {
-            using var client = new OpenRgbClient(name: OpenRgbClientName);
-            var keyboard = client.GetControllerData(settings.DeviceIndex);
+            var keyboard = session.Execute(client => client.GetControllerData(settings.DeviceIndex));
             if (keyboard.Colors.Length == 0)
             {
+                session.Dispose();
                 error = $"{keyboard.Name} does not expose colours that OpenRGB can test.";
                 return null;
             }
-            return new RgbKeyboardSnapshot(keyboard.Index, keyboard.Colors.ToArray(), CaptureMode(keyboard), IndicatorColor(settings));
+            return new RgbKeyboardSnapshot(keyboard.Index, keyboard.Colors.ToArray(), CaptureMode(keyboard), IndicatorColor(settings))
+            {
+                Session = session
+            };
         }
         catch (Exception exception)
         {
+            session.Dispose();
             AppLog.Error("OpenRGB keyboard test setup failed", exception);
             error = OpenRgbMessages.Unavailable(exception.Message);
             return null;
@@ -641,22 +673,39 @@ public static class OpenRgbHighlighter
 
     private static void LightKeyboard(RgbKeyboardSnapshot snapshot)
     {
-        using var client = new OpenRgbClient(name: OpenRgbClientName);
-        client.SetCustomMode(snapshot.DeviceIndex);
-        client.UpdateLeds(snapshot.DeviceIndex, CreateKeyboardFlashColors(snapshot.Colors, snapshot.IndicatorColor));
+        KeyboardSession(snapshot).Execute(client =>
+        {
+            client.SetCustomMode(snapshot.DeviceIndex);
+            client.UpdateLeds(snapshot.DeviceIndex, CreateKeyboardFlashColors(snapshot.Colors, snapshot.IndicatorColor));
+        });
     }
 
     public static void RestoreKeyboard(RgbKeyboardSnapshot snapshot)
     {
         try
         {
-            using var client = new OpenRgbClient(name: OpenRgbClientName);
-            client.SetCustomMode(snapshot.DeviceIndex);
-            client.UpdateLeds(snapshot.DeviceIndex, snapshot.Colors);
-            RestoreMode(client, snapshot.DeviceIndex, snapshot.Mode);
+            KeyboardSession(snapshot).Execute(client =>
+            {
+                client.SetCustomMode(snapshot.DeviceIndex);
+                client.UpdateLeds(snapshot.DeviceIndex, snapshot.Colors);
+                RestoreMode(client, snapshot.DeviceIndex, snapshot.Mode);
+            });
         }
         catch (Exception exception) { AppLog.Error("OpenRGB keyboard test restore failed", exception); }
     }
+
+    public static void RestoreAndReleaseKeyboard(RgbKeyboardSnapshot snapshot)
+    {
+        try { RestoreKeyboard(snapshot); }
+        finally
+        {
+            snapshot.Session?.Dispose();
+            snapshot.Session = null;
+        }
+    }
+
+    private static OpenRgbSession KeyboardSession(RgbKeyboardSnapshot snapshot) =>
+        snapshot.Session ??= new OpenRgbSession(OpenRgbClientName);
 
     private static void RestoreKey(RgbLightingSnapshot snapshot)
     {
@@ -680,19 +729,45 @@ public static class OpenRgbHighlighter
 
     private static void SetIndicatorColor(RgbLightingSnapshot snapshot, Color color)
     {
+        var createdState = false;
         if (!ActiveIndicators.TryGetValue(snapshot.DeviceIndex, out var state))
         {
-            state = new IndicatorDeviceState(snapshot.Colors.ToArray(), snapshot.Mode);
+            state = new IndicatorDeviceState(snapshot.Colors.ToArray(), snapshot.Mode, snapshot.Session ?? new OpenRgbSession(OpenRgbClientName));
+            snapshot.Session = null;
             ActiveIndicators.Add(snapshot.DeviceIndex, state);
+            createdState = true;
         }
-        state.IndicatorIds.Add(snapshot.Id);
+        else
+        {
+            snapshot.Session?.Dispose();
+            snapshot.Session = null;
+        }
+
+        var previousColor = state.Colors[snapshot.KeyIndex];
+        var addedIndicator = state.IndicatorIds.Add(snapshot.Id);
         state.Colors[snapshot.KeyIndex] = color;
-        PublishIndicators(snapshot.DeviceIndex);
+        try { PublishIndicators(snapshot.DeviceIndex); }
+        catch
+        {
+            state.Colors[snapshot.KeyIndex] = previousColor;
+            if (addedIndicator) state.IndicatorIds.Remove(snapshot.Id);
+            if (createdState)
+            {
+                ActiveIndicators.Remove(snapshot.DeviceIndex);
+                state.Session.Dispose();
+            }
+            throw;
+        }
     }
 
     private static void ClearIndicatorCore(RgbLightingSnapshot snapshot)
     {
-        if (!ActiveIndicators.TryGetValue(snapshot.DeviceIndex, out var state)) return;
+        if (!ActiveIndicators.TryGetValue(snapshot.DeviceIndex, out var state))
+        {
+            snapshot.Session?.Dispose();
+            snapshot.Session = null;
+            return;
+        }
         RestoreIndicatorColor(state.Colors, snapshot).CopyTo(state.Colors, 0);
         state.IndicatorIds.Remove(snapshot.Id);
         if (state.IndicatorIds.Count > 0)
@@ -702,10 +777,16 @@ public static class OpenRgbHighlighter
         }
 
         ActiveIndicators.Remove(snapshot.DeviceIndex);
-        using var client = new OpenRgbClient(name: OpenRgbClientName);
-        client.SetCustomMode(snapshot.DeviceIndex);
-        client.UpdateLeds(snapshot.DeviceIndex, state.Colors);
-        RestoreMode(client, snapshot.DeviceIndex, state.Mode);
+        try
+        {
+            state.Session.Execute(client =>
+            {
+                client.SetCustomMode(snapshot.DeviceIndex);
+                client.UpdateLeds(snapshot.DeviceIndex, state.Colors);
+                RestoreMode(client, snapshot.DeviceIndex, state.Mode);
+            });
+        }
+        finally { state.Session.Dispose(); }
     }
 
     internal static Color[] RestoreIndicatorColor(IReadOnlyCollection<Color> currentColors, RgbLightingSnapshot snapshot)
@@ -718,9 +799,11 @@ public static class OpenRgbHighlighter
     private static void PublishIndicators(int deviceIndex)
     {
         if (!ActiveIndicators.TryGetValue(deviceIndex, out var state)) return;
-        using var client = new OpenRgbClient(name: OpenRgbClientName);
-        client.SetCustomMode(deviceIndex);
-        client.UpdateLeds(deviceIndex, state.Colors);
+        state.Session.Execute(client =>
+        {
+            client.SetCustomMode(deviceIndex);
+            client.UpdateLeds(deviceIndex, state.Colors);
+        });
     }
 
     private static RgbDeviceModeSnapshot CaptureMode(Device keyboard)
@@ -732,10 +815,11 @@ public static class OpenRgbHighlighter
     private static void RestoreMode(OpenRgbClient client, int deviceIndex, RgbDeviceModeSnapshot mode) =>
         client.UpdateMode(deviceIndex, mode.Index, mode.Speed, mode.Direction, mode.Colors);
 
-    private sealed class IndicatorDeviceState(Color[] colors, RgbDeviceModeSnapshot mode)
+    private sealed class IndicatorDeviceState(Color[] colors, RgbDeviceModeSnapshot mode, OpenRgbSession session)
     {
         public Color[] Colors { get; } = colors;
         public RgbDeviceModeSnapshot Mode { get; } = mode;
+        public OpenRgbSession Session { get; } = session;
         public HashSet<Guid> IndicatorIds { get; } = [];
     }
 
@@ -750,9 +834,11 @@ public static class OpenRgbHighlighter
 
     private static void SetKeyboardBlend(RgbKeyboardSnapshot snapshot, double strength)
     {
-        using var client = new OpenRgbClient(name: OpenRgbClientName);
-        client.SetCustomMode(snapshot.DeviceIndex);
-        client.UpdateLeds(snapshot.DeviceIndex, CreateKeyboardBlendColors(snapshot.Colors, snapshot.IndicatorColor, strength));
+        KeyboardSession(snapshot).Execute(client =>
+        {
+            client.SetCustomMode(snapshot.DeviceIndex);
+            client.UpdateLeds(snapshot.DeviceIndex, CreateKeyboardBlendColors(snapshot.Colors, snapshot.IndicatorColor, strength));
+        });
     }
 
     internal static Color[] CreateKeyboardFlashColors(IReadOnlyCollection<Color> currentColors, Color indicatorColor) => Enumerable.Repeat(indicatorColor, currentColors.Count).ToArray();
@@ -954,6 +1040,62 @@ public sealed record RgbDeviceModeSnapshot(int Index, uint? Speed, Direction? Di
 public sealed record RgbLightingSnapshot(int DeviceIndex, Color[] Colors, RgbDeviceModeSnapshot Mode, int KeyIndex, Color IndicatorColor)
 {
     public Guid Id { get; } = Guid.NewGuid();
+    internal OpenRgbSession? Session { get; set; }
 }
-public sealed record RgbKeyboardSnapshot(int DeviceIndex, Color[] Colors, RgbDeviceModeSnapshot Mode, Color IndicatorColor);
+public sealed record RgbKeyboardSnapshot(int DeviceIndex, Color[] Colors, RgbDeviceModeSnapshot Mode, Color IndicatorColor)
+{
+    internal OpenRgbSession? Session { get; set; }
+}
 public sealed record OpenRgbAvailability(bool IsAvailable, string? Message, bool WasStarted = false);
+
+internal sealed class OpenRgbSession(string clientName) : IDisposable
+{
+    private readonly object sync = new();
+    private OpenRgbClient? client;
+    private bool disposed;
+
+    internal T Execute<T>(Func<OpenRgbClient, T> operation)
+    {
+        lock (sync)
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            try
+            {
+                return operation(Client());
+            }
+            catch (Exception exception) when (IsTransientConnectionFailure(exception))
+            {
+                ResetClient();
+                return operation(Client());
+            }
+        }
+    }
+
+    internal void Execute(Action<OpenRgbClient> operation) =>
+        Execute(client =>
+        {
+            operation(client);
+            return true;
+        });
+
+    public void Dispose()
+    {
+        lock (sync)
+        {
+            if (disposed) return;
+            disposed = true;
+            ResetClient();
+        }
+    }
+
+    private OpenRgbClient Client() => client ??= new OpenRgbClient(name: clientName);
+
+    private void ResetClient()
+    {
+        client?.Dispose();
+        client = null;
+    }
+
+    private static bool IsTransientConnectionFailure(Exception exception) =>
+        exception is IOException or SocketException or TimeoutException or ObjectDisposedException;
+}

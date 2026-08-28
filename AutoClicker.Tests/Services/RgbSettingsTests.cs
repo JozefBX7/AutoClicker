@@ -84,10 +84,29 @@ public sealed class RgbSettingsTests
     {
         var startInfo = OpenRgbHighlighter.CreateServerStartInfo(@"C:\Program Files\OpenRGB\OpenRGB.exe");
 
-        CollectionAssert.AreEqual(new[] { "--server", "--server-host", "127.0.0.1" }, startInfo.ArgumentList.ToArray());
+        CollectionAssert.AreEqual(new[] { "--server", "--server-host", "127.0.0.1", "--noautoconnect" }, startInfo.ArgumentList.ToArray());
         Assert.AreEqual(@"C:\Program Files\OpenRGB", startInfo.WorkingDirectory);
         Assert.IsFalse(startInfo.UseShellExecute);
         Assert.IsTrue(startInfo.CreateNoWindow);
+    }
+
+    [TestMethod]
+    public void SdkServerDiagnostics_AllowsOneListenerAndDuplicateRowsFromTheSameProcess()
+    {
+        Assert.IsNull(OpenRgbServerDiagnostics.GetConflictMessage([42]));
+        Assert.IsNull(OpenRgbServerDiagnostics.GetConflictMessage([42, 42]));
+    }
+
+    [TestMethod]
+    public void SdkServerDiagnostics_ExplainsCompetingServerProcesses()
+    {
+        var message = OpenRgbServerDiagnostics.GetConflictMessage([84, 42, 84]);
+
+        Assert.IsNotNull(message);
+        StringAssert.Contains(message, "port 6742");
+        StringAssert.Contains(message, "processes 42 and 84");
+        StringAssert.Contains(message, "Windows service");
+        StringAssert.Contains(message, "restart or rescan");
     }
 
     [TestMethod]
