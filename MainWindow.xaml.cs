@@ -3990,7 +3990,11 @@ public partial class MainWindow : Window
         return settings;
     }
 
-    private string? ExportFullBackup(BackupScope scope, string path)
+    private string? ExportFullBackup(
+        BackupScope scope,
+        string path,
+        RgbSettings? currentRgbSettings,
+        ApplicationPreferences? currentApplicationPreferences)
     {
         try
         {
@@ -4013,8 +4017,8 @@ public partial class MainWindow : Window
                 document.SequenceLibraryJson = JsonSerializer.Serialize(new SequenceLibraryDocument { Presets = sequenceLibrary.Select(preset => preset.Clone()).ToList() });
             if (SettingsScopeRules.IncludesAppSettings(scope))
             {
-                document.RgbJson = JsonSerializer.Serialize(rgbSettings);
-                document.ApplicationPreferencesJson = JsonSerializer.Serialize(CurrentApplicationPreferences());
+                document.RgbJson = JsonSerializer.Serialize(currentRgbSettings ?? rgbSettings);
+                document.ApplicationPreferencesJson = JsonSerializer.Serialize(currentApplicationPreferences ?? CurrentApplicationPreferences());
                 document.AppearanceJson = ThemeManager.ExportConfiguration();
             }
 

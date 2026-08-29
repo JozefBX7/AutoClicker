@@ -20,7 +20,7 @@ public partial class SettingsWindow : Window
     private readonly string hotkeyName;
     private readonly string? hotkeyKeyName;
     private readonly Func<ResetScope, bool> resetSettings;
-    private readonly Func<BackupScope, string, string?> exportBackup;
+    private readonly Func<BackupScope, string, RgbSettings?, ApplicationPreferences?, string?> exportBackup;
     private readonly Func<BackupScope, string, string?> importBackup;
     private readonly CancellationTokenSource updateCancellation = new();
     private CancellationTokenSource? effectTestCancellation;
@@ -28,7 +28,7 @@ public partial class SettingsWindow : Window
     private bool restartEffectPreview;
     private bool isClosing;
 
-    public SettingsWindow(RgbSettings currentRgbSettings, ApplicationPreferences currentApplicationPreferences, string hotkeyName, string? hotkeyKeyName, Func<ResetScope, bool> resetSettings, Func<BackupScope, string, string?> exportBackup, Func<BackupScope, string, string?> importBackup)
+    public SettingsWindow(RgbSettings currentRgbSettings, ApplicationPreferences currentApplicationPreferences, string hotkeyName, string? hotkeyKeyName, Func<ResetScope, bool> resetSettings, Func<BackupScope, string, RgbSettings?, ApplicationPreferences?, string?> exportBackup, Func<BackupScope, string, string?> importBackup)
     {
         InitializeComponent();
         this.hotkeyName = hotkeyName;
@@ -276,9 +276,26 @@ public partial class SettingsWindow : Window
             if (dialog.ShowDialog(this) != true) return;
             fileName = dialog.FileName;
         }
-        var error = exportBackup(scope, fileName);
-        ConnectionStatus.Text = error is null ? $"{BackupScopeInfo.DisplayName(scope)} exported." : error;
-        ConnectionStatus.Foreground = ThemeManager.Brush(error is null ? ThemeResourceKeys.SuccessBrush : ThemeResourceKeys.ErrorBrush);
+        RgbSettings? currentRgbSettings = null;
+        ApplicationPreferences? currentApplicationPreferences = null;
+        if (SettingsScopeRules.IncludesAppSettings(scope))
+        {
+            if (!TryCaptureSettings(out var validationError))
+            {
+                ConnectionStatus.Text = validationError;
+                ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.ErrorBrush);
+                return;
+            }
+
+            // Everything means the values currently visible in Settings, even before Save is clicked.
+            // Keep these as backup-only snapshots so exporting does not implicitly apply the edits.
+            currentRgbSettings = RgbSettings.Clone();
+            currentApplicationPreferences = ApplicationPreferences.Clone();
+        }
+        var error = exportBackup(scope, fileName, currentRgbSettings, currentApplicationPreferences);
+        ShowBackupStatus(
+            error is null ? $"{BackupScopeInfo.DisplayName(scope)} exported." : error,
+            error is null ? ThemeResourceKeys.SuccessBrush : ThemeResourceKeys.ErrorBrush);
     }
 
     private void ImportBackup(BackupScope scope)
@@ -295,8 +312,23 @@ public partial class SettingsWindow : Window
             fileName = dialog.FileName;
         }
         var error = importBackup(scope, fileName);
-        ConnectionStatus.Text = error is null ? $"{BackupScopeInfo.DisplayName(scope)} restored. Close Settings to use it." : error;
-        ConnectionStatus.Foreground = ThemeManager.Brush(error is null ? ThemeResourceKeys.SuccessBrush : ThemeResourceKeys.ErrorBrush);
+        if (error is null && SettingsScopeRules.IncludesAppSettings(scope))
+        {
+            // The owner has applied the restored app-wide settings. Do not leave this dialog's old
+            // clones open where Save could immediately overwrite the values that were just restored.
+            Close();
+            return;
+        }
+        ShowBackupStatus(
+            error is null ? $"{BackupScopeInfo.DisplayName(scope)} restored. Close Settings to use it." : error,
+            error is null ? ThemeResourceKeys.SuccessBrush : ThemeResourceKeys.ErrorBrush);
+    }
+
+    private void ShowBackupStatus(string message, string brushKey)
+    {
+        BackupStatus.Text = message;
+        BackupStatus.Foreground = ThemeManager.Brush(brushKey);
+        BackupStatus.Visibility = Visibility.Visible;
     }
 
     private void ExportEverything_Click(object sender, RoutedEventArgs e) => ExportBackup(BackupScope.Everything);
@@ -794,18 +826,30 @@ public partial class SettingsWindow : Window
 
     private void SaveButton_Click(object sender, RoutedEventArgs e)
     {
+        if (!TryCaptureSettings(out var validationError))
+        {
+            ConnectionStatus.Text = validationError;
+            ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.ErrorBrush);
+            return;
+        }
+        DialogResult = true;
+    }
+
+    private bool TryCaptureSettings(out string validationError)
+    {
+        validationError = string.Empty;
+        if (!OpenRgbHighlighter.TryNormalizeIndicatorColor(IndicatorColorBox.Text, out var color))
+        {
+            validationError = "Enter a colour as a hex value, for example #22D3EE.";
+            return false;
+        }
+
         var keyboard = KeyboardCombo.SelectedItem as KeyboardDevice;
         RgbSettings.Enabled = EnableOpenRgb.IsChecked == true;
         RgbSettings.AutoStart = AutoStartOpenRgb.IsChecked == true;
         RgbSettings.StopAutoStartedOnExit = StopAutoStartedOpenRgb.IsChecked == true;
         ApplicationPreferences.CrashRecoveryEnabled = EnableCrashRecovery.IsChecked == true;
         RgbSettings.IdleProfileName = SelectedIdleProfileName();
-        if (!OpenRgbHighlighter.TryNormalizeIndicatorColor(IndicatorColorBox.Text, out var color))
-        {
-            ConnectionStatus.Text = "Enter a colour as a hex value, for example #22D3EE.";
-            ConnectionStatus.Foreground = ThemeManager.Brush(ThemeResourceKeys.ErrorBrush);
-            return;
-        }
         RgbSettings.IndicatorColor = color;
         RgbSettings.LightingEffect = SelectedEffect();
         RgbSettings.EffectSpeedMilliseconds = ReadEffectSpeed();
@@ -817,7 +861,7 @@ public partial class SettingsWindow : Window
         ApplicationPreferences.KeyboardHotkeyModifiersEnabled = EnableKeyboardHotkeyModifiers.IsChecked == true;
         ApplicationPreferences.RememberPinned = RememberPinnedCheckBox.IsChecked == true;
         ApplicationPreferences.ApplyPinnedOnLaunch = ApplyPinnedOnLaunchCheckBox.IsChecked == true;
-        DialogResult = true;
+        return true;
     }
 
     private int ReadEffectSpeed()

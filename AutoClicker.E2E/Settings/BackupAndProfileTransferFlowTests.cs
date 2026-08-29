@@ -25,11 +25,17 @@ public sealed class BackupAndProfileTransferFlowTests
         using var session = fixture.Launch(saveFile: path);
         var app = new MainWindowRobot(session);
         app.OpenSettings();
-        new SettingsRobot(session).Export(scopeName);
+        var settings = new SettingsRobot(session);
+        var openRgbStatus = settings.OpenRgbStatus;
+        var scope = (BackupScope)expectedScopeValue;
+        settings.Export(scopeName);
 
         session.WaitFor(() => File.Exists(path), $"{scopeName} backup was not created");
+        session.WaitFor(() => settings.BackupStatus == $"{BackupScopeInfo.DisplayName(scope)} exported.",
+            $"{scopeName} export feedback did not appear in the backup section");
+        Assert.AreEqual(openRgbStatus, settings.OpenRgbStatus,
+            $"{scopeName} export feedback unexpectedly replaced the OpenRGB status");
         var backup = ConfigBackupStore.Read(path);
-        var scope = (BackupScope)expectedScopeValue;
         Assert.AreEqual(scope, backup.Scope);
         Assert.IsTrue(backup.SchemaVersion > 0);
         AssertBackupPartition(backup, scope, scopeName);
@@ -52,14 +58,77 @@ public sealed class BackupAndProfileTransferFlowTests
         app.OpenSettings();
         settings = new SettingsRobot(session);
         settings.Restore("Everything");
-        session.WaitFor(() => fixture.ReadProfiles().Profiles.Any(profile => profile.Id == ProfileE2EFixture.ProfileId),
-            "Everything backup did not restore profiles");
-        settings.Cancel();
+        session.WaitFor(() => fixture.ReadApplicationPreferences().AdvancedMode
+                && fixture.ReadProfiles().Profiles.Any(profile => profile.Id == ProfileE2EFixture.ProfileId),
+            "Everything backup did not finish restoring preferences and profiles");
 
         Assert.IsTrue(fixture.ReadApplicationPreferences().AdvancedMode);
         Assert.AreEqual(50, fixture.ReadSimpleDefaults().Milliseconds);
         Assert.AreEqual(ProfileE2EFixture.GlobalMilliseconds, fixture.ReadGlobalDefaults().Milliseconds);
         Assert.AreEqual(2, fixture.ReadProfiles().Profiles.Single(profile => profile.Id == ProfileE2EFixture.ProfileId).Actions.Count);
+    }
+
+    [TestMethod]
+    public void EverythingBackup_CapturesUnsavedSettingsAndReopensWithTheRestoredValues()
+    {
+        using var fixture = new ProfileE2EFixture();
+        var path = fixture.TestFile("everything-visible-settings.backup.json");
+        using var session = fixture.Launch(saveFile: path, openFile: path);
+        var app = new MainWindowRobot(session);
+        app.OpenSettings();
+        var settings = new SettingsRobot(session);
+        settings.SelectMode("Simple");
+        settings.SelectWorkerPriority("Above Normal (compatibility)");
+        settings.SetKeyboardModifiers(true);
+        settings.SetCadenceDiagnostics(true);
+        settings.SetCrashRecovery(true);
+        settings.SetOpenRgb(true);
+        settings.SetOpenRgbAutoStart(true);
+        settings.SetStopAutoStartedOpenRgb(false);
+        settings.SetIndicatorColor("#123abc");
+        settings.Export("Everything");
+
+        session.WaitFor(() => File.Exists(path), "Everything backup was not created");
+        var backup = ConfigBackupStore.Read(path);
+        var exportedPreferences = JsonSerializer.Deserialize<ApplicationPreferences>(backup.ApplicationPreferencesJson);
+        var exportedRgb = JsonSerializer.Deserialize<RgbSettings>(backup.RgbJson);
+        Assert.IsNotNull(exportedPreferences);
+        Assert.IsFalse(exportedPreferences.AdvancedMode);
+        Assert.AreEqual(WorkerPriorityOption.AboveNormal.ToString(), exportedPreferences.WorkerPriority);
+        Assert.IsTrue(exportedPreferences.KeyboardHotkeyModifiersEnabled);
+        Assert.IsTrue(exportedPreferences.CadenceDiagnosticsEnabled);
+        Assert.IsTrue(exportedPreferences.CrashRecoveryEnabled);
+        Assert.IsNotNull(exportedRgb);
+        Assert.IsTrue(exportedRgb.Enabled);
+        Assert.IsTrue(exportedRgb.AutoStart);
+        Assert.IsFalse(exportedRgb.StopAutoStartedOnExit);
+        Assert.AreEqual("#123ABC", exportedRgb.IndicatorColor);
+
+        // Exporting is a snapshot, not an implicit Save.
+        settings.Cancel();
+        Assert.IsTrue(fixture.ReadApplicationPreferences().AdvancedMode);
+        Assert.IsFalse(fixture.ReadRgbSettings().Enabled);
+
+        app.OpenSettings();
+        new SettingsRobot(session).Restore("Everything");
+        session.WaitFor(() => !fixture.ReadApplicationPreferences().AdvancedMode,
+            "Everything restore did not persist the exported Settings values");
+
+        // A complete restore closes the stale dialog. Reopening it must show the restored snapshot,
+        // and saving that fresh view must not undo the restore.
+        app.OpenSettings();
+        new SettingsRobot(session).Save();
+        var restoredPreferences = fixture.ReadApplicationPreferences();
+        var restoredRgb = fixture.ReadRgbSettings();
+        Assert.IsFalse(restoredPreferences.AdvancedMode);
+        Assert.AreEqual(WorkerPriorityOption.AboveNormal.ToString(), restoredPreferences.WorkerPriority);
+        Assert.IsTrue(restoredPreferences.KeyboardHotkeyModifiersEnabled);
+        Assert.IsTrue(restoredPreferences.CadenceDiagnosticsEnabled);
+        Assert.IsTrue(restoredPreferences.CrashRecoveryEnabled);
+        Assert.IsTrue(restoredRgb.Enabled);
+        Assert.IsTrue(restoredRgb.AutoStart);
+        Assert.IsFalse(restoredRgb.StopAutoStartedOnExit);
+        Assert.AreEqual("#123ABC", restoredRgb.IndicatorColor);
     }
 
     [TestMethod]
@@ -80,8 +149,13 @@ public sealed class BackupAndProfileTransferFlowTests
         Assert.AreEqual(0, fixture.ReadSequenceLibrary().Count);
         app.OpenSettings();
         settings = new SettingsRobot(session);
+        var openRgbStatus = settings.OpenRgbStatus;
         settings.Restore("Sequences");
         session.WaitFor(() => fixture.ReadSequenceLibrary().Count == 1, "sequence library was not restored");
+        session.WaitFor(() => settings.BackupStatus == "Custom sequences restored. Close Settings to use it.",
+            "restore feedback did not appear in the backup section");
+        Assert.AreEqual(openRgbStatus, settings.OpenRgbStatus,
+            "restore feedback unexpectedly replaced the OpenRGB status");
         settings.Cancel();
         Assert.AreEqual("Restorable sequence", fixture.ReadSequenceLibrary().Single().Name);
     }

@@ -32,6 +32,8 @@ internal sealed class SettingsRobot
     internal void SetOpenRgbAutoStart(bool enabled) => SetCheckBox("AutoStartOpenRgb", enabled);
     internal void SetStopAutoStartedOpenRgb(bool enabled) => SetCheckBox("StopAutoStartedOpenRgb", enabled);
     internal bool OpenRgbOptionsEnabled => Element("AutoStartOpenRgb").IsEnabled;
+    internal string OpenRgbStatus => Element("OpenRgbStatus").Name;
+    internal string BackupStatus => Element("BackupStatus").Name;
     internal void SetIndicatorColor(string color) => Element("IndicatorColor").AsTextBox().Text = color;
     internal void SelectLightingEffect(string effect) => SelectCombo("LightingEffect", effect);
     internal void Save() => ButtonByName("Save settings").Invoke();
