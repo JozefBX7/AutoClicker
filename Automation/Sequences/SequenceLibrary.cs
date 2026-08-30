@@ -74,7 +74,9 @@ internal static class SequenceLibraryStore
 
     private static bool IsSupportedStep(SequenceStep step) => Enum.IsDefined(step.Mode) && step.Input switch
     {
-        AutomationInputIds.Left or AutomationInputIds.Right or AutomationInputIds.Middle or AutomationInputIds.Space or AutomationInputIds.Enter => true,
+        AutomationInputIds.Left or AutomationInputIds.Right or AutomationInputIds.Middle or AutomationInputIds.Mouse4 or AutomationInputIds.Mouse5
+            or AutomationInputIds.ScrollUp or AutomationInputIds.ScrollDown or AutomationInputIds.ScrollLeft or AutomationInputIds.ScrollRight
+            or AutomationInputIds.Space or AutomationInputIds.Enter => true,
         AutomationInputIds.Custom => step.CustomKey is > 0 and <= 0xFF,
         AutomationInputIds.Delay => true,
         _ => false

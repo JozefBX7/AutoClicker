@@ -33,12 +33,12 @@ public sealed class SequenceTimelinePreviewTests
     }
 
     [TestMethod]
-    public void Build_DescribesMissingReleaseWithoutExecutingAnything()
+    public void Build_DescribesPersistentHoldWithoutExecutingAnything()
     {
         var preview = SequenceTimelinePreview.Build([new SequenceStep { Input = AutomationInputIds.Left, Mode = SequenceStepMode.Hold }]);
 
         Assert.IsNull(preview.HoldSpans.Single().EndMilliseconds);
-        StringAssert.Contains(preview.Describe(), "release missing");
+        StringAssert.Contains(preview.Describe(), "until the action stops");
     }
 
     private static SequenceStep Key(int virtualKey, SequenceStepMode mode) =>

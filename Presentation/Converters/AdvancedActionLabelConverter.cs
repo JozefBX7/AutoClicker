@@ -46,6 +46,12 @@ public sealed class AdvancedActionLabelConverter : IMultiValueConverter
                 {
                     AutomationInputIds.Right => SetMouse(AutomationInputLabels.RightClick, "R", out compactSymbol),
                     AutomationInputIds.Middle => SetMouse(AutomationInputLabels.MiddleClick, "M", out compactSymbol),
+                    AutomationInputIds.Mouse4 => SetMouse(AutomationInputLabels.Mouse4Click, "4", out compactSymbol),
+                    AutomationInputIds.Mouse5 => SetMouse(AutomationInputLabels.Mouse5Click, "5", out compactSymbol),
+                    AutomationInputIds.ScrollUp => SetMouse(AutomationInputLabels.ScrollUp, "↑", out compactSymbol),
+                    AutomationInputIds.ScrollDown => SetMouse(AutomationInputLabels.ScrollDown, "↓", out compactSymbol),
+                    AutomationInputIds.ScrollLeft => SetMouse(AutomationInputLabels.ScrollLeft, "←", out compactSymbol),
+                    AutomationInputIds.ScrollRight => SetMouse(AutomationInputLabels.ScrollRight, "→", out compactSymbol),
                     _ => SetMouse(AutomationInputLabels.LeftClick, "L", out compactSymbol)
                 };
                 break;

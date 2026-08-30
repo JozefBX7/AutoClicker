@@ -16,6 +16,8 @@ public sealed class InputAndRuntimeGuardFlowTests
     [DataRow(AutomationInputLabels.LeftClick, "mouse:2", "mouse:4")]
     [DataRow(AutomationInputLabels.RightClick, "mouse:8", "mouse:16")]
     [DataRow(AutomationInputLabels.MiddleClick, "mouse:32", "mouse:64")]
+    [DataRow(AutomationInputLabels.Mouse4Click, "mouse:128:data=1", "mouse:256:data=1")]
+    [DataRow(AutomationInputLabels.Mouse5Click, "mouse:128:data=2", "mouse:256:data=2")]
     [DataRow(AutomationInputIds.Space, "scan=57:flags=8", "scan=57:flags=10")]
     [DataRow(AutomationInputIds.Enter, "scan=28:flags=8", "scan=28:flags=10")]
     public void EveryDirectInput_CanRunFiniteAndAutoCompleteThroughTheSafeSink(
@@ -41,6 +43,31 @@ public sealed class InputAndRuntimeGuardFlowTests
             $"{input} did not generate the expected down packet");
         Assert.AreEqual(5, events.Count(line => line.Contains(upSignature, StringComparison.Ordinal)),
             $"{input} did not generate the expected up packet");
+    }
+
+    [DataTestMethod]
+    [DataRow(AutomationInputLabels.ScrollUp, "mouse:2048:data=120")]
+    [DataRow(AutomationInputLabels.ScrollDown, "mouse:2048:data=-120")]
+    [DataRow(AutomationInputLabels.ScrollLeft, "mouse:4096:data=-120")]
+    [DataRow(AutomationInputLabels.ScrollRight, "mouse:4096:data=120")]
+    public void EveryDirectScrollInput_CanRunFiniteAndAutoCompleteThroughTheSafeSink(string input, string signature)
+    {
+        using var fixture = new ProfileE2EFixture(advancedMode: false);
+        using var session = fixture.Launch();
+        var app = new MainWindowRobot(session);
+        app.DisableTargetWindow();
+        app.SelectInput(input);
+        app.SelectActionType(AutomationActionTypeIds.Single);
+        app.SetIntervalMilliseconds(100);
+        app.SetFiniteRepeat(5);
+
+        app.Start();
+        app.WaitUntilStopped();
+
+        var events = fixture.ReadRuntimeEvents().Where(line => line.Contains("\tinput\t", StringComparison.Ordinal)).ToList();
+        Assert.AreEqual(5, events.Count);
+        Assert.AreEqual(5, events.Count(line => line.Contains(signature, StringComparison.Ordinal)),
+            $"{input} did not generate the expected wheel packet");
     }
 
     [TestMethod]

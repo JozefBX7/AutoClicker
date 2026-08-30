@@ -56,19 +56,20 @@ public sealed class ConfigurationStorageTests
     }
 
     [TestMethod]
-    public void SequenceLibrary_IgnoresUnbalancedStatefulPreset()
+    public void SequenceLibrary_LoadsPersistentHoldPreset()
     {
         const string json = """
             {"SchemaVersion":2,"Presets":[
-              {"Id":"unsafe","Name":"Unsafe","Steps":[{"Input":"Left","Mode":1},{"Input":"Delay","DelayAfterMilliseconds":100}]},
+              {"Id":"persistent","Name":"Persistent","Steps":[{"Input":"Left","Mode":1},{"Input":"Delay","DelayAfterMilliseconds":100}]},
               {"Id":"safe","Name":"Safe","Steps":[{"Input":"Left"},{"Input":"Right"}]}
             ]}
             """;
 
         var library = SequenceLibraryStore.Deserialize(json);
 
-        Assert.AreEqual(1, library.Count);
-        Assert.AreEqual("safe", library[0].Id);
+        Assert.AreEqual(2, library.Count);
+        Assert.AreEqual("persistent", library[0].Id);
+        Assert.AreEqual(SequenceStepMode.Hold, library[0].Steps[0].Mode);
     }
 
     [TestMethod]
@@ -146,10 +147,16 @@ public sealed class ConfigurationStorageTests
             new SequenceStep { Input = AutomationInputIds.Left, DelayAfterMilliseconds = 10 },
             new SequenceStep { Input = AutomationInputIds.Right, DelayAfterMilliseconds = 20 },
             new SequenceStep { Input = AutomationInputIds.Middle, DelayAfterMilliseconds = 30 },
-            new SequenceStep { Input = AutomationInputIds.Space, DelayAfterMilliseconds = 40 },
-            new SequenceStep { Input = AutomationInputIds.Enter, DelayAfterMilliseconds = 50 },
-            new SequenceStep { Input = AutomationInputIds.Custom, CustomKey = 65, DelayAfterMilliseconds = 60 },
-            new SequenceStep { Input = AutomationInputIds.Delay, DelayAfterMilliseconds = 70 }
+            new SequenceStep { Input = AutomationInputIds.Mouse4, DelayAfterMilliseconds = 40 },
+            new SequenceStep { Input = AutomationInputIds.Mouse5, DelayAfterMilliseconds = 50 },
+            new SequenceStep { Input = AutomationInputIds.ScrollUp, DelayAfterMilliseconds = 60 },
+            new SequenceStep { Input = AutomationInputIds.ScrollDown, DelayAfterMilliseconds = 70 },
+            new SequenceStep { Input = AutomationInputIds.ScrollLeft, DelayAfterMilliseconds = 80 },
+            new SequenceStep { Input = AutomationInputIds.ScrollRight, DelayAfterMilliseconds = 90 },
+            new SequenceStep { Input = AutomationInputIds.Space, DelayAfterMilliseconds = 100 },
+            new SequenceStep { Input = AutomationInputIds.Enter, DelayAfterMilliseconds = 110 },
+            new SequenceStep { Input = AutomationInputIds.Custom, CustomKey = 65, DelayAfterMilliseconds = 120 },
+            new SequenceStep { Input = AutomationInputIds.Delay, DelayAfterMilliseconds = 130 }
         };
         try
         {
@@ -160,7 +167,7 @@ public sealed class ConfigurationStorageTests
             Assert.AreEqual("all-actions", library[0].Id);
             CollectionAssert.AreEqual(steps.Select(step => step.Input).ToArray(), library[0].Steps.Select(step => step.Input).ToArray());
             CollectionAssert.AreEqual(steps.Select(step => step.DelayAfterMilliseconds).ToArray(), library[0].Steps.Select(step => step.DelayAfterMilliseconds).ToArray());
-            Assert.AreEqual(65, library[0].Steps[5].CustomKey);
+            Assert.AreEqual(65, library[0].Steps[11].CustomKey);
         }
         finally { DeleteTemporaryDirectory(path); }
     }

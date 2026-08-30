@@ -8,8 +8,9 @@ internal static class SequenceHoldRules
 {
     internal static string? ValidationError(IEnumerable<SequenceStep> sequence)
     {
+        var steps = sequence.ToList();
         var held = new Dictionary<SequenceInputIdentity, string>();
-        foreach (var step in sequence)
+        foreach (var step in steps)
         {
             if (!IsSupportedInput(step)) return $"{step.Input} is not a supported sequence input.";
             if (step.Input == AutomationInputIds.Delay)
@@ -17,6 +18,8 @@ internal static class SequenceHoldRules
                 if (step.Mode != SequenceStepMode.Press) return "Wait events cannot be changed to Hold or Release.";
                 continue;
             }
+            if (InputRules.IsInstantaneousMouseAction(step.Input) && step.Mode != SequenceStepMode.Press)
+                return "Scroll events only support Press mode.";
 
             if (!Enum.IsDefined(step.Mode)) return $"{step.Describe()} has an unsupported event mode.";
             var identity = Identity(step);
@@ -35,9 +38,15 @@ internal static class SequenceHoldRules
             }
         }
 
-        return held.Count == 0
-            ? null
-            : $"Add a Release event for {held.Values.First()} before the sequence ends.";
+        foreach (var persistentHold in held)
+        {
+            var matchingEvents = steps.Count(step =>
+                step.Input != AutomationInputIds.Delay && Identity(step) == persistentHold.Key);
+            if (matchingEvents > 1)
+                return $"Persistent Hold {persistentHold.Value} cannot be combined with another event for the same input.";
+        }
+
+        return null;
     }
 
     internal static bool ContainsHold(IEnumerable<SequenceStep> sequence) =>
@@ -48,7 +57,9 @@ internal static class SequenceHoldRules
 
     private static bool IsSupportedInput(SequenceStep step) => step.Input switch
     {
-        AutomationInputIds.Left or AutomationInputIds.Right or AutomationInputIds.Middle or AutomationInputIds.Space or AutomationInputIds.Enter or AutomationInputIds.Delay => true,
+        AutomationInputIds.Left or AutomationInputIds.Right or AutomationInputIds.Middle or AutomationInputIds.Mouse4 or AutomationInputIds.Mouse5
+            or AutomationInputIds.ScrollUp or AutomationInputIds.ScrollDown or AutomationInputIds.ScrollLeft or AutomationInputIds.ScrollRight
+            or AutomationInputIds.Space or AutomationInputIds.Enter or AutomationInputIds.Delay => true,
         AutomationInputIds.Custom => step.CustomKey is > 0 and <= 0xFF,
         _ => false
     };

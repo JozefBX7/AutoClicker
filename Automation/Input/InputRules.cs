@@ -62,9 +62,14 @@ internal static class InputRules
 
     internal static bool IsKeyboardAction(string? action) => action is AutomationInputIds.Space or AutomationInputIds.Enter or AutomationInputIds.Custom;
 
+    internal static bool IsInstantaneousMouseAction(string? action) => action is
+        AutomationInputIds.ScrollUp or AutomationInputIds.ScrollDown or AutomationInputIds.ScrollLeft or AutomationInputIds.ScrollRight;
+
     internal static bool IsConfiguredAction(string? action, int customVirtualKey, int sequenceStepCount) => action switch
     {
-        AutomationInputIds.Left or AutomationInputIds.Right or AutomationInputIds.Middle or AutomationInputIds.Space or AutomationInputIds.Enter => true,
+        AutomationInputIds.Left or AutomationInputIds.Right or AutomationInputIds.Middle or AutomationInputIds.Mouse4 or AutomationInputIds.Mouse5
+            or AutomationInputIds.ScrollUp or AutomationInputIds.ScrollDown or AutomationInputIds.ScrollLeft or AutomationInputIds.ScrollRight
+            or AutomationInputIds.Space or AutomationInputIds.Enter => true,
         AutomationInputIds.Custom => customVirtualKey != 0,
         AutomationInputIds.Sequence => sequenceStepCount >= 2,
         _ => false
@@ -90,6 +95,12 @@ internal static class InputRules
         AutomationInputIds.Left => AutomationInputLabels.LeftClick,
         AutomationInputIds.Right => AutomationInputLabels.RightClick,
         AutomationInputIds.Middle => AutomationInputLabels.MiddleClick,
+        AutomationInputIds.Mouse4 => AutomationInputLabels.Mouse4Click,
+        AutomationInputIds.Mouse5 => AutomationInputLabels.Mouse5Click,
+        AutomationInputIds.ScrollUp => AutomationInputLabels.ScrollUp,
+        AutomationInputIds.ScrollDown => AutomationInputLabels.ScrollDown,
+        AutomationInputIds.ScrollLeft => AutomationInputLabels.ScrollLeft,
+        AutomationInputIds.ScrollRight => AutomationInputLabels.ScrollRight,
         AutomationInputIds.Space => AutomationInputIds.Space,
         AutomationInputIds.Enter => AutomationInputIds.Enter,
         AutomationInputIds.Custom when customVirtualKey != 0 => DescribeVirtualKey(customVirtualKey),

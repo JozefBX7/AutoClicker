@@ -16,7 +16,7 @@ internal sealed record SequenceTimeline(int EventCount, long ExplicitDurationMil
 
         var spans = HoldSpans.Take(3).Select(span => span.EndMilliseconds is long end
             ? $"{span.Input} {FormatDuration(span.StartMilliseconds)}–{FormatDuration(end)}"
-            : $"{span.Input} held from {FormatDuration(span.StartMilliseconds)} (release missing)");
+            : $"{span.Input} held from {FormatDuration(span.StartMilliseconds)} until the action stops");
         var remaining = HoldSpans.Count > 3 ? $" · +{HoldSpans.Count - 3:N0} more" : string.Empty;
         return summary + Environment.NewLine + string.Join(" · ", spans) + remaining;
     }

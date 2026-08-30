@@ -30,8 +30,24 @@ public sealed class SequenceHoldRulesTests
         StringAssert.Contains(SequenceHoldRules.ValidationError([Key(0x41, SequenceStepMode.Release)])!, "matching Hold");
 
     [TestMethod]
-    public void ValidationError_RejectsUnreleasedInput() =>
-        StringAssert.Contains(SequenceHoldRules.ValidationError([Key(0x41, SequenceStepMode.Hold)])!, "Release");
+    public void ValidationError_AcceptsPersistentHolds() =>
+        Assert.IsNull(SequenceHoldRules.ValidationError(
+        [
+            Key(0x41, SequenceStepMode.Hold),
+            Key(0x42, SequenceStepMode.Hold)
+        ]));
+
+    [TestMethod]
+    public void ValidationError_RejectsOtherEventsForAPersistentInput()
+    {
+        var error = SequenceHoldRules.ValidationError(
+        [
+            Key(0x41, SequenceStepMode.Press),
+            Key(0x41, SequenceStepMode.Hold)
+        ]);
+
+        StringAssert.Contains(error!, "Persistent Hold");
+    }
 
     [DataTestMethod]
     [DataRow("Unknown", 0)]
@@ -52,6 +68,22 @@ public sealed class SequenceHoldRulesTests
 
         StringAssert.Contains(error!, "still held");
     }
+
+    [TestMethod]
+    public void ValidationError_AcceptsAdditionalMouseButtonsAndScrollPresses() =>
+        Assert.IsNull(SequenceHoldRules.ValidationError(
+        [
+            new SequenceStep { Input = AutomationInputIds.Mouse4, Mode = SequenceStepMode.Hold },
+            new SequenceStep { Input = AutomationInputIds.ScrollUp },
+            new SequenceStep { Input = AutomationInputIds.Mouse4, Mode = SequenceStepMode.Release },
+            new SequenceStep { Input = AutomationInputIds.Mouse5 }
+        ]));
+
+    [TestMethod]
+    public void ValidationError_RejectsStatefulScrollEvents() =>
+        StringAssert.Contains(
+            SequenceHoldRules.ValidationError([new SequenceStep { Input = AutomationInputIds.ScrollDown, Mode = SequenceStepMode.Hold }])!,
+            "Press mode");
 
     [TestMethod]
     public void Identity_DistinguishesCustomKeysButNotUnusedKeyValues()

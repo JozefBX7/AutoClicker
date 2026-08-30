@@ -107,12 +107,25 @@ public sealed class InputRulesTests
     [DataTestMethod]
     [DataRow(AutomationInputIds.Unset, 0, 0, false)]
     [DataRow(AutomationInputIds.Left, 0, 0, true)]
+    [DataRow(AutomationInputIds.Mouse4, 0, 0, true)]
+    [DataRow(AutomationInputIds.Mouse5, 0, 0, true)]
+    [DataRow(AutomationInputIds.ScrollUp, 0, 0, true)]
     [DataRow(AutomationInputIds.Custom, 0, 0, false)]
     [DataRow(AutomationInputIds.Custom, 0x41, 0, true)]
     [DataRow(AutomationInputIds.Sequence, 0, 1, false)]
     [DataRow(AutomationInputIds.Sequence, 0, 2, true)]
     public void IsConfiguredAction_RequiresACompleteAction(string action, int customVirtualKey, int sequenceSteps, bool expected) =>
         Assert.AreEqual(expected, InputRules.IsConfiguredAction(action, customVirtualKey, sequenceSteps));
+
+    [DataTestMethod]
+    [DataRow(AutomationInputIds.ScrollUp, true)]
+    [DataRow(AutomationInputIds.ScrollDown, true)]
+    [DataRow(AutomationInputIds.ScrollLeft, true)]
+    [DataRow(AutomationInputIds.ScrollRight, true)]
+    [DataRow(AutomationInputIds.Mouse4, false)]
+    [DataRow(AutomationInputIds.Left, false)]
+    public void IsInstantaneousMouseAction_IdentifiesScrollInputs(string action, bool expected) =>
+        Assert.AreEqual(expected, InputRules.IsInstantaneousMouseAction(action));
 
     [DataTestMethod]
     [DataRow(AutomationActionTypeIds.Hold, true)]
@@ -153,6 +166,12 @@ public sealed class InputRulesTests
     [DataRow(AutomationInputIds.Left, 0, AutomationInputLabels.LeftClick)]
     [DataRow(AutomationInputIds.Right, 0, AutomationInputLabels.RightClick)]
     [DataRow(AutomationInputIds.Middle, 0, AutomationInputLabels.MiddleClick)]
+    [DataRow(AutomationInputIds.Mouse4, 0, AutomationInputLabels.Mouse4Click)]
+    [DataRow(AutomationInputIds.Mouse5, 0, AutomationInputLabels.Mouse5Click)]
+    [DataRow(AutomationInputIds.ScrollUp, 0, AutomationInputLabels.ScrollUp)]
+    [DataRow(AutomationInputIds.ScrollDown, 0, AutomationInputLabels.ScrollDown)]
+    [DataRow(AutomationInputIds.ScrollLeft, 0, AutomationInputLabels.ScrollLeft)]
+    [DataRow(AutomationInputIds.ScrollRight, 0, AutomationInputLabels.ScrollRight)]
     [DataRow(AutomationInputIds.Space, 0, AutomationInputIds.Space)]
     [DataRow(AutomationInputIds.Enter, 0, AutomationInputIds.Enter)]
     [DataRow(AutomationInputIds.Sequence, 0, AutomationInputLabels.CustomSequence)]

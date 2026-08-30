@@ -4,6 +4,7 @@
 
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
+using FlaUI.Core.Input;
 using FlaUI.Core.WindowsAPI;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -107,6 +108,29 @@ public sealed class SequenceEditorFlowTests
         editor.UseSequence();
         Assert.AreEqual(2, editor.StepCount, "a mismatched release should keep the editor open");
         StringAssert.Contains(editor.Hint, "matching Hold");
+        editor.Cancel();
+    }
+
+    [TestMethod]
+    public void PlainClickOnSelectedEvent_CollapsesMultiSelection()
+    {
+        using var fixture = new ProfileE2EFixture(advancedMode: false);
+        using var session = fixture.Launch();
+        var app = new MainWindowRobot(session);
+        app.OpenSequenceEditor();
+        var editor = new SequenceEditorRobot(session);
+
+        editor.AddLeft();
+        editor.AddMiddle();
+        editor.AddRight();
+        editor.SelectTogether(0, 1);
+        Assert.AreEqual(2, editor.SelectedStepCount);
+
+        editor.ClickStep(0);
+
+        session.WaitFor(() => editor.SelectedStepCount == 1, "plain-clicking a selected event did not collapse the multi-selection");
+        editor.PressStepArrowDown();
+        session.WaitFor(() => editor.SelectedStepIndex == 1, "arrow-key navigation did not continue from the clicked sequence event");
         editor.Cancel();
     }
 
@@ -291,4 +315,219 @@ public sealed class SequenceEditorFlowTests
             < inputEvents.FindIndex(line => line.Contains("mouse:4", StringComparison.Ordinal)),
             "the held mouse cleanup release must occur after its down packet");
     }
+
+    [TestMethod]
+    public void PersistentSequenceHold_RepeatsAcrossLoopIntervalAndReleasesWhenStopped()
+    {
+        using var fixture = new ProfileE2EFixture(advancedMode: false);
+        using var session = fixture.Launch();
+        var app = new MainWindowRobot(session);
+        app.DisableTargetWindow();
+        app.OpenSequenceEditor();
+        var editor = new SequenceEditorRobot(session);
+
+        editor.AddKeyboardKey(VirtualKeyShort.KEY_A);
+        editor.SetSelectedMode("Hold down");
+        editor.AddDelay(10);
+        editor.SavePreset("Persistent hold");
+        editor.UseSequence();
+
+        app.SetIntervalMilliseconds(5_000);
+        app.SetRepeatUntilStopped();
+        app.TryStart();
+        session.WaitFor(
+            () => !app.StartEnabled && app.StopEnabled,
+            $"the persistent sequence did not start; selected input: {app.SelectedInput}; status: {app.Status}");
+        session.WaitFor(
+            () => fixture.ReadRuntimeEvents().Count(IsKeyDown) >= 4,
+            "the persistent hold did not repeat independently during the five-second loop interval");
+
+        app.Stop();
+        session.WaitFor(
+            () => fixture.ReadRuntimeEvents().Count(IsKeyUp) == 1,
+            "stopping the sequence did not release its persistent hold");
+
+        var inputEvents = fixture.ReadRuntimeEvents().Where(line => line.Contains("\tinput\t", StringComparison.Ordinal)).ToList();
+        var keyDownEvents = inputEvents.Where(IsKeyDown).ToList();
+        var firstDownAt = EventTimestamp(keyDownEvents[0]);
+        var fourthDownAt = EventTimestamp(keyDownEvents[3]);
+        Assert.IsTrue(fourthDownAt - firstDownAt < TimeSpan.FromSeconds(2),
+            "held-key repeats should continue during the loop interval instead of waiting for the next iteration");
+        Assert.AreEqual(1, inputEvents.Count(IsKeyUp),
+            "the persistent hold should emit exactly one cleanup key-up packet");
+        Assert.IsTrue(inputEvents[^1].Contains("flags=10", StringComparison.Ordinal),
+            "the cleanup key-up packet must be the final generated input");
+    }
+
+    [TestMethod]
+    public void SequenceRecorder_CapturesKeyboardTimingAndAddsItToTheEditor()
+    {
+        using var fixture = new ProfileE2EFixture(advancedMode: false);
+        using var session = fixture.Launch();
+        var app = new MainWindowRobot(session);
+        app.OpenSequenceEditor();
+        var editor = new SequenceEditorRobot(session);
+        editor.OpenRecorder();
+        var recorder = new SequenceRecorderRobot(session);
+
+        Assert.IsFalse(recorder.TreatBriefTapsAsPressesEnabled);
+        recorder.SetIncludeDelays(true);
+        recorder.SetTreatBriefTapsAsPresses(false);
+        recorder.Start();
+        recorder.RecordKey(VirtualKeyShort.KEY_A, 120);
+        recorder.Stop();
+        StringAssert.Contains(recorder.Status, "stopped");
+        Assert.AreEqual("3 events", recorder.EventCount);
+        var recordedEvents = recorder.RecordedEventNames;
+        Assert.AreEqual(3, recordedEvents.Count);
+        Assert.AreEqual("Hold A", recordedEvents[0]);
+        StringAssert.StartsWith(recordedEvents[1], "Wait ");
+        Assert.AreEqual("Release A", recordedEvents[2]);
+        recorder.UseRecording();
+
+        session.WaitFor(() => editor.StepCount == 3, "the recorded key events were not added to the sequence editor");
+        Assert.AreEqual("Hold A", editor.StepNames[0]);
+        StringAssert.StartsWith(editor.StepNames[1], "Wait ");
+        Assert.AreEqual("Release A", editor.StepNames[2]);
+        StringAssert.Contains(editor.TimelinePreview, "A 0 ms–");
+        editor.Cancel();
+    }
+
+    [TestMethod]
+    public void SequenceRecorder_ConvertsABriefInputTapIntoAPressWhenEnabled()
+    {
+        using var fixture = new ProfileE2EFixture(advancedMode: false);
+        using var session = fixture.Launch();
+        var app = new MainWindowRobot(session);
+        app.OpenSequenceEditor();
+        var editor = new SequenceEditorRobot(session);
+        editor.OpenRecorder();
+        var recorder = new SequenceRecorderRobot(session);
+
+        recorder.SetIncludeDelays(true);
+        recorder.SetTreatBriefTapsAsPresses(true);
+        recorder.Start();
+        recorder.RecordKey(VirtualKeyShort.KEY_A, 20);
+        recorder.Stop();
+        Assert.AreEqual("1 event", recorder.EventCount);
+        CollectionAssert.AreEqual(new[] { "A" }, recorder.RecordedEventNames.ToArray());
+        recorder.UseRecording();
+
+        session.WaitFor(() => editor.StepCount == 1, "the quick recorded key tap was not converted into one press event");
+        Assert.AreEqual("A", editor.StepNames.Single());
+        editor.Cancel();
+    }
+
+    [TestMethod]
+    public void SequenceRecorder_PreviewSupportsSelectionContextDeletionAndInlineConfirmation()
+    {
+        using var fixture = new ProfileE2EFixture(advancedMode: false);
+        using var session = fixture.Launch();
+        var app = new MainWindowRobot(session);
+        app.OpenSequenceEditor();
+        var editor = new SequenceEditorRobot(session);
+        editor.OpenRecorder();
+        var recorder = new SequenceRecorderRobot(session);
+
+        recorder.SetIncludeDelays(false);
+        recorder.SetTreatBriefTapsAsPresses(true);
+        recorder.Start();
+        recorder.RecordKey(VirtualKeyShort.KEY_A, 20);
+        recorder.RecordKey(VirtualKeyShort.KEY_B, 20);
+        recorder.RecordKey(VirtualKeyShort.KEY_C, 20);
+        recorder.RecordKey(VirtualKeyShort.KEY_D, 20);
+        recorder.Stop();
+
+        CollectionAssert.AreEqual(new[] { "A", "B", "C", "D" }, recorder.RecordedEventNames.ToArray());
+        recorder.SelectRecordedTogether(0, 1);
+        recorder.ClickRecordedEvent(0);
+        session.WaitFor(() => recorder.SelectedRecordedEventCount == 1, "plain-clicking a selected recorded event did not collapse the multi-selection");
+        recorder.PressRecordedEventArrowDown();
+        session.WaitFor(() => recorder.SelectedRecordedEventIndex == 1, "arrow-key navigation did not continue from the clicked recorded event");
+
+        recorder.SelectRecordedTogether(0, 1);
+        recorder.DeleteSelectedFromContextMenu(0);
+        session.WaitFor(() => recorder.EventCount == "2 events", "the recorded-event context menu did not delete the selected group");
+        CollectionAssert.AreEqual(new[] { "C", "D" }, recorder.RecordedEventNames.ToArray());
+
+        recorder.ArmRecordedEventDelete(0);
+        Assert.AreEqual("2 events", recorder.EventCount, "the first inline-delete click should only request confirmation");
+        recorder.CancelRecordedEventDelete(0);
+        CollectionAssert.AreEqual(new[] { "C", "D" }, recorder.RecordedEventNames.ToArray());
+        recorder.ArmRecordedEventDelete(0);
+        recorder.ConfirmRecordedEventDelete(0);
+        session.WaitFor(() => recorder.EventCount == "1 event", "confirming inline deletion did not remove the recorded event");
+        CollectionAssert.AreEqual(new[] { "D" }, recorder.RecordedEventNames.ToArray());
+
+        recorder.UseRecording();
+        session.WaitFor(() => editor.StepCount == 1, "the edited recording was not added to the sequence editor");
+        Assert.AreEqual("D", editor.StepNames.Single());
+        editor.Cancel();
+    }
+
+    [TestMethod]
+    public void SequenceRecorder_CapturesAndReplaysAdditionalMouseButtonsAndScrolling()
+    {
+        using var fixture = new ProfileE2EFixture(advancedMode: false);
+        using var session = fixture.Launch();
+        var app = new MainWindowRobot(session);
+        app.DisableTargetWindow();
+        app.OpenSequenceEditor();
+        var editor = new SequenceEditorRobot(session);
+        editor.OpenRecorder();
+        var recorder = new SequenceRecorderRobot(session);
+
+        recorder.SetIncludeDelays(false);
+        recorder.SetTreatBriefTapsAsPresses(true);
+        recorder.Start();
+        recorder.RecordMouseButton(MouseButton.XButton1, 20);
+        recorder.RecordMouseButton(MouseButton.XButton2, 20);
+        recorder.RecordVerticalScroll(1);
+        recorder.RecordVerticalScroll(-1);
+        recorder.RecordHorizontalScroll(-1);
+        recorder.RecordHorizontalScroll(1);
+        recorder.Stop();
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                AutomationInputLabels.Mouse4Click,
+                AutomationInputLabels.Mouse5Click,
+                AutomationInputLabels.ScrollUp,
+                AutomationInputLabels.ScrollDown,
+                AutomationInputLabels.ScrollLeft,
+                AutomationInputLabels.ScrollRight
+            },
+            recorder.RecordedEventNames.ToArray());
+        recorder.UseRecording();
+        session.WaitFor(() => editor.StepCount == 6, "the additional mouse and scroll events were not added to the editor");
+        editor.UseSequence();
+
+        app.SetIntervalMilliseconds(1);
+        app.SetFiniteRepeat(1);
+        app.TryStart();
+        session.WaitFor(
+            () => fixture.ReadRuntimeEvents().Count(line => line.Contains("\tinput\t", StringComparison.Ordinal)) >= 8,
+            $"the recorded mouse sequence did not replay; selected input: {app.SelectedInput}; status: {app.Status}");
+        app.WaitUntilStopped();
+
+        var inputEvents = fixture.ReadRuntimeEvents().Where(line => line.Contains("\tinput\t", StringComparison.Ordinal)).ToList();
+        Assert.IsTrue(inputEvents.Any(line => line.Contains("mouse:128:data=1", StringComparison.Ordinal)));
+        Assert.IsTrue(inputEvents.Any(line => line.Contains("mouse:256:data=1", StringComparison.Ordinal)));
+        Assert.IsTrue(inputEvents.Any(line => line.Contains("mouse:128:data=2", StringComparison.Ordinal)));
+        Assert.IsTrue(inputEvents.Any(line => line.Contains("mouse:256:data=2", StringComparison.Ordinal)));
+        Assert.IsTrue(inputEvents.Any(line => line.Contains("mouse:2048:data=120", StringComparison.Ordinal)));
+        Assert.IsTrue(inputEvents.Any(line => line.Contains("mouse:2048:data=-120", StringComparison.Ordinal)));
+        Assert.IsTrue(inputEvents.Any(line => line.Contains("mouse:4096:data=-120", StringComparison.Ordinal)));
+        Assert.IsTrue(inputEvents.Any(line => line.Contains("mouse:4096:data=120", StringComparison.Ordinal)));
+    }
+
+    private static bool IsKeyDown(string line) =>
+        line.Contains("keyboard:", StringComparison.Ordinal) && line.Contains("flags=8", StringComparison.Ordinal);
+
+    private static bool IsKeyUp(string line) =>
+        line.Contains("keyboard:", StringComparison.Ordinal) && line.Contains("flags=10", StringComparison.Ordinal);
+
+    private static DateTimeOffset EventTimestamp(string line) =>
+        DateTimeOffset.Parse(line[..line.IndexOf('\t')], System.Globalization.CultureInfo.InvariantCulture);
 }

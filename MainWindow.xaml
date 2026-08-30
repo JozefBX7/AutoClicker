@@ -134,6 +134,12 @@ Copyright (c) 2026 JBX7. All rights reserved.
                                             <ComboBoxItem Content="Left click" Tag="{x:Static local:AutomationInputIds.Left}" />
                                             <ComboBoxItem Content="Right click" Tag="{x:Static local:AutomationInputIds.Right}" />
                                             <ComboBoxItem Content="Middle click" Tag="{x:Static local:AutomationInputIds.Middle}" />
+                                            <ComboBoxItem Content="Mouse 4 click" Tag="{x:Static local:AutomationInputIds.Mouse4}" />
+                                            <ComboBoxItem Content="Mouse 5 click" Tag="{x:Static local:AutomationInputIds.Mouse5}" />
+                                            <ComboBoxItem Content="Scroll up" Tag="{x:Static local:AutomationInputIds.ScrollUp}" />
+                                            <ComboBoxItem Content="Scroll down" Tag="{x:Static local:AutomationInputIds.ScrollDown}" />
+                                            <ComboBoxItem Content="Scroll left" Tag="{x:Static local:AutomationInputIds.ScrollLeft}" />
+                                            <ComboBoxItem Content="Scroll right" Tag="{x:Static local:AutomationInputIds.ScrollRight}" />
                                             <ComboBoxItem Content="{x:Static local:AutomationInputIds.Space}" Tag="{x:Static local:AutomationInputIds.Space}" />
                                             <ComboBoxItem Content="{x:Static local:AutomationInputIds.Enter}" Tag="{x:Static local:AutomationInputIds.Enter}" />
                                             <ComboBoxItem x:Name="CustomKeyItem" Content="Custom key" Tag="{x:Static local:AutomationInputIds.Custom}" />

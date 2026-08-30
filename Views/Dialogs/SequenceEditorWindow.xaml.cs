@@ -17,6 +17,7 @@ public partial class SequenceEditorWindow : Window
     private bool pickingKey;
     private Point dragStart;
     private SequenceStep? dragCandidate;
+    private bool collapseSelectionOnClick;
     private List<SequenceStep>? draggingSteps;
     private readonly List<SequenceDragRow> realizedDragRows = [];
     private Point pendingDropPosition;
@@ -58,6 +59,17 @@ public partial class SequenceEditorWindow : Window
         pickingKey = true;
         HintLabel.Text = "Press the key to add, or Escape to cancel key selection.";
         Focus();
+    }
+
+    private void RecordButton_Click(object sender, RoutedEventArgs e)
+    {
+        var recorder = new SequenceRecorderWindow { Owner = this };
+        if (recorder.ShowDialog() != true || recorder.Steps.Count == 0) return;
+        var recorded = recorder.Steps.Select(step => step.Clone()).ToList();
+        var insertAt = InsertionIndexAfterSelection();
+        for (var index = 0; index < recorded.Count; index++) steps.Insert(insertAt + index, recorded[index]);
+        SelectOnly(recorded);
+        HintLabel.Text = $"{recorded.Count:N0} recorded event{(recorded.Count == 1 ? string.Empty : "s")} added.";
     }
     private void Window_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
@@ -114,7 +126,9 @@ public partial class SequenceEditorWindow : Window
         updatingStepMode = true;
         try
         {
-            if (StepsList.SelectedItems.Count != 1 || StepsList.SelectedItem is not SequenceStep { Input: not AutomationInputIds.Delay } step)
+            if (StepsList.SelectedItems.Count != 1
+                || StepsList.SelectedItem is not SequenceStep { Input: not AutomationInputIds.Delay } step
+                || InputRules.IsInstantaneousMouseAction(step.Input))
             {
                 StepModeCombo.SelectedIndex = -1;
                 StepModeCombo.IsEnabled = false;
@@ -138,7 +152,7 @@ public partial class SequenceEditorWindow : Window
         UpdateTimelinePreview();
         HintLabel.Text = mode switch
         {
-            SequenceStepMode.Hold => $"{step.Describe()} will stay down until a matching Release event.",
+            SequenceStepMode.Hold => $"{step.Describe()} will stay down until a matching Release event or the action stops. Without a Release, it remains held across loops.",
             SequenceStepMode.Release => $"{step.Describe()} will release an earlier matching Hold event.",
             _ => $"{step.Describe()} will use a normal down/up press."
         };
@@ -146,6 +160,7 @@ public partial class SequenceEditorWindow : Window
 
     private void StepsList_PreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
+        collapseSelectionOnClick = false;
         dragCandidate = IsWithinTextBox(e.OriginalSource as DependencyObject)
             ? null
             : StepAt(e.OriginalSource as DependencyObject);
@@ -156,9 +171,12 @@ public partial class SequenceEditorWindow : Window
         if (noModifiers)
         {
             // Take ownership of an ordinary row press so WPF's selection mouse capture cannot
-            // consume a direct drag. Keep an existing selected group intact when it is the source.
-            if (!StepsList.SelectedItems.Contains(dragCandidate)) SelectOnly([dragCandidate]);
-            StepsList.Focus();
+            // consume a direct drag. Preserve a selected group until mouse-up so it remains available
+            // for dragging, then collapse it when the gesture proves to be an ordinary click.
+            var wasSelected = StepsList.SelectedItems.Contains(dragCandidate);
+            collapseSelectionOnClick = wasSelected && StepsList.SelectedItems.Count > 1;
+            if (!wasSelected) SelectOnly([dragCandidate]);
+            else FocusStep(dragCandidate);
             e.Handled = true;
         }
     }
@@ -228,8 +246,19 @@ public partial class SequenceEditorWindow : Window
 
     private void StepsList_PreviewMouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
+        var clicked = dragCandidate;
+        var collapseSelection = collapseSelectionOnClick;
         dragCandidate = null;
-        if (draggingSteps is null) return;
+        collapseSelectionOnClick = false;
+        if (draggingSteps is null)
+        {
+            if (collapseSelection && clicked is not null && ReferenceEquals(clicked, StepAt(e.OriginalSource as DependencyObject)))
+            {
+                SelectOnly([clicked]);
+                e.Handled = true;
+            }
+            return;
+        }
 
         var group = draggingSteps;
         var position = e.GetPosition(StepsList);
@@ -268,6 +297,7 @@ public partial class SequenceEditorWindow : Window
         CompositionTarget.Rendering -= UpdateDropIndicatorOnRender;
         draggingSteps = null;
         dragCandidate = null;
+        collapseSelectionOnClick = false;
         hasPendingDropPosition = false;
         dropInsertionIndex = null;
         DropIndicator.Visibility = Visibility.Collapsed;
@@ -348,7 +378,17 @@ public partial class SequenceEditorWindow : Window
     {
         StepsList.SelectedItems.Clear();
         foreach (var step in selected) StepsList.SelectedItems.Add(step);
-        if (StepsList.SelectedItems.Count > 0) StepsList.ScrollIntoView(StepsList.SelectedItems[^1]);
+        if (StepsList.SelectedItems.Count == 0) return;
+        if (StepsList.SelectedItems[^1] is not SequenceStep focused) return;
+        StepsList.ScrollIntoView(focused);
+        FocusStep(focused);
+    }
+
+    private void FocusStep(SequenceStep step)
+    {
+        StepsList.UpdateLayout();
+        if (StepsList.ItemContainerGenerator.ContainerFromItem(step) is ListBoxItem item)
+            item.Focus();
     }
 
     private void SelectAllSteps()

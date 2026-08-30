@@ -977,6 +977,8 @@ public partial class MainWindow : Window
             if (!accepted || !CommitSelectedActionChange()) ShowReadyActionStatus();
             return;
         }
+        if (InputRules.IsInstantaneousMouseAction(selectedAction) && InputRules.IsHoldAction(Selected(TypeCombo)))
+            Select(TypeCombo, AutomationActionTypeIds.Single);
         if (Selected(ButtonCombo) != AutomationInputIds.Custom)
         {
             UpdateLiveInputMode();
@@ -2845,6 +2847,11 @@ public partial class MainWindow : Window
             Status("Target-window mode does not support held sequence events. Override target window on the hotkey if desired.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return;
         }
+        if (InputRules.IsHoldAction(effectiveSettings.ClickType) && InputRules.IsInstantaneousMouseAction(input))
+        {
+            Status("Scroll inputs cannot be held. Choose Single, Double, or While held.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
+            return;
+        }
         if (AutomationHotkeyBindingRules.ActionEmitsOwnKeyboardBinding(action, effectiveSettings))
         {
             Status("Choose run and enable-toggle hotkeys that this action never sends. Generated input must not trigger its own bindings.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
@@ -2924,6 +2931,11 @@ public partial class MainWindow : Window
         if (input == AutomationInputIds.Sequence && SequenceHoldRules.ContainsHold(customSequence) && EnableTargetWindowCheckBox.IsChecked == true && !string.IsNullOrWhiteSpace(TargetExecutableBox.Text))
         {
             Status("Target-window mode does not support held sequence events.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
+            return;
+        }
+        if (InputRules.IsHoldAction(Selected(TypeCombo)) && InputRules.IsInstantaneousMouseAction(input))
+        {
+            Status("Scroll inputs cannot be held. Choose Single, Double, or While held.", ThemeManager.Brush(ThemeResourceKeys.WarningBrush));
             return;
         }
         // Resolve keyboard shortcuts before handing work to the background thread.
@@ -3007,7 +3019,10 @@ public partial class MainWindow : Window
             }
             while (!cancellation.IsCancellationRequested && (!settings.MaximumClicks.HasValue || sent < settings.MaximumClicks.Value))
             {
-                if (!WaitUntilGuiIsHealthy(timer, nextClickAt, cancellation, ref watchdogExpired)) break;
+                var reachedNextAction = settings.Sequence is { Length: > 0 }
+                    ? WaitForSequenceDeadline(timer, nextClickAt, heldSequenceInputs, cancellation, ref watchdogExpired)
+                    : WaitUntilGuiIsHealthy(timer, nextClickAt, cancellation, ref watchdogExpired);
+                if (!reachedNextAction) break;
                 var now = Stopwatch.GetTimestamp();
                 // Resume from the current time instead of catching up in a burst.
                 if (now - nextClickAt > intervalTicks) nextClickAt = now;
@@ -3134,7 +3149,10 @@ public partial class MainWindow : Window
             var sent = 0;
             while (!cancellation.IsCancellationRequested && (!settings.MaximumClicks.HasValue || sent < settings.MaximumClicks.Value))
             {
-                if (!WaitUntilGuiIsHealthy(timer, next, cancellation, ref watchdogExpired)) break;
+                var reachedNextAction = settings.Sequence is { Length: > 0 }
+                    ? WaitForSequenceDeadline(timer, next, heldSequenceInputs, cancellation, ref watchdogExpired)
+                    : WaitUntilGuiIsHealthy(timer, next, cancellation, ref watchdogExpired);
+                if (!reachedNextAction) break;
                 var now = Stopwatch.GetTimestamp();
                 if (now - next > intervalTicks) next = now;
                 if (settings.Sequence is { Length: > 0 })
@@ -3367,12 +3385,13 @@ public partial class MainWindow : Window
         var testInput = string.IsNullOrWhiteSpace(testSettings.Input) ? testSettings.MouseButton : testSettings.Input;
         var targetWindowEnabled = testSettings.TargetWindowEnabled && !string.IsNullOrWhiteSpace(testSettings.TargetExecutable);
         var sequenceInput = testInput == AutomationInputIds.Sequence;
+        var instantaneousMouseInput = InputRules.IsInstantaneousMouseAction(testInput);
         var keyboardInput = InputRules.IsKeyboardAction(testInput!);
         var hold = InputRules.IsHoldAction(testSettings.ClickType);
         var whileHeld = InputRules.IsWhileHeldAction(testSettings.ClickType);
         var sharedBehavior = advancedMode && ActiveProfileAction()?.UsesSharedBehavior(AutomationBehaviorOverride.Position) == true;
         DoubleTypeItem.IsEnabled = !sequenceInput;
-        HoldTypeItem.IsEnabled = !sequenceInput;
+        HoldTypeItem.IsEnabled = !sequenceInput && !instantaneousMouseInput;
         TypeCombo.IsEnabled = !IsClicking && (!advancedMode || IsEditingAdvancedAction());
         PositionCard.IsEnabled = !sequenceInput && !keyboardInput;
         if (PositionContent is not null) PositionContent.IsEnabled = PositionCard.IsEnabled && !sharedBehavior;
@@ -3453,6 +3472,8 @@ public partial class MainWindow : Window
 
     private string ActivityVerb() => Selected(ButtonCombo) == AutomationInputIds.Sequence
         ? "Running sequence"
+        : InputRules.IsInstantaneousMouseAction(Selected(ButtonCombo))
+            ? "Scrolling"
         : InputRules.IsHoldAction(Selected(TypeCombo))
             ? IsKeyboardInputSelected() ? "Holding key" : "Holding mouse button"
             : IsKeyboardInputSelected() ? "Spamming" : "Clicking";
@@ -4502,8 +4523,30 @@ public partial class MainWindow : Window
 
     private static Input[] CreateClickInputs(string button)
     {
-        var flags = button switch { AutomationInputIds.Right => (MouseFlags.RightDown, MouseFlags.RightUp), AutomationInputIds.Middle => (MouseFlags.MiddleDown, MouseFlags.MiddleUp), _ => (MouseFlags.LeftDown, MouseFlags.LeftUp) };
-        return [new() { Type = 0, Data = new InputUnion { Mouse = new MouseInput { Flags = flags.Item1 } } }, new() { Type = 0, Data = new InputUnion { Mouse = new MouseInput { Flags = flags.Item2 } } }];
+        var wheel = button switch
+        {
+            AutomationInputIds.ScrollUp => (MouseFlags.Wheel, 120),
+            AutomationInputIds.ScrollDown => (MouseFlags.Wheel, -120),
+            AutomationInputIds.ScrollLeft => (MouseFlags.HorizontalWheel, -120),
+            AutomationInputIds.ScrollRight => (MouseFlags.HorizontalWheel, 120),
+            _ => (MouseFlags.None, 0)
+        };
+        if (wheel.Item1 != MouseFlags.None)
+            return [new() { Type = 0, Data = new InputUnion { Mouse = new MouseInput { MouseData = unchecked((uint)wheel.Item2), Flags = wheel.Item1 } } }];
+
+        var (down, up, mouseData) = button switch
+        {
+            AutomationInputIds.Right => (MouseFlags.RightDown, MouseFlags.RightUp, 0u),
+            AutomationInputIds.Middle => (MouseFlags.MiddleDown, MouseFlags.MiddleUp, 0u),
+            AutomationInputIds.Mouse4 => (MouseFlags.XDown, MouseFlags.XUp, 1u),
+            AutomationInputIds.Mouse5 => (MouseFlags.XDown, MouseFlags.XUp, 2u),
+            _ => (MouseFlags.LeftDown, MouseFlags.LeftUp, 0u)
+        };
+        return
+        [
+            new() { Type = 0, Data = new InputUnion { Mouse = new MouseInput { MouseData = mouseData, Flags = down } } },
+            new() { Type = 0, Data = new InputUnion { Mouse = new MouseInput { MouseData = mouseData, Flags = up } } }
+        ];
     }
     private static Input[] CreateKeyInputs(int virtualKey)
     {
@@ -4560,19 +4603,21 @@ public partial class MainWindow : Window
                 if (settings.FixedPosition && step.IsMouse) MoveCursor(settings.X, settings.Y);
                 if (step.Mode == SequenceStepMode.Hold)
                 {
-                    if (heldInputs.ContainsKey(step.Identity)) return false;
-                    cadence?.RecordDown(scheduledTimestamp);
-                    SendNativeInput(1, [step.Inputs[0]]);
-                    heldInputs.Add(step.Identity, new HeldSequenceInput(
-                        step,
-                        step.IsMouse ? double.PositiveInfinity : Stopwatch.GetTimestamp() + Stopwatch.Frequency / 2d));
+                    if (!heldInputs.ContainsKey(step.Identity))
+                    {
+                        cadence?.RecordDown(scheduledTimestamp);
+                        SendNativeInput(1, [step.Inputs[0]]);
+                        heldInputs.Add(step.Identity, new HeldSequenceInput(
+                            step,
+                            step.IsMouse ? double.PositiveInfinity : Stopwatch.GetTimestamp() + Stopwatch.Frequency / 2d));
+                    }
                     sentSequenceAction = true;
                 }
                 else
                 {
                     var sent = cadence is null
-                        ? SendAction(step.Inputs, false, settings.InputPulseMilliseconds, timer, cancellation, ref watchdogExpired)
-                        : SendActionWithDiagnostics(step.Inputs, false, settings.InputPulseMilliseconds, timer, cancellation, ref watchdogExpired, cadence, scheduledTimestamp);
+                        ? SendAction(step.Inputs, false, settings.InputPulseMilliseconds, timer, cancellation, ref watchdogExpired, heldInputs)
+                        : SendActionWithDiagnostics(step.Inputs, false, settings.InputPulseMilliseconds, timer, cancellation, ref watchdogExpired, cadence, scheduledTimestamp, heldInputs);
                     if (!sent) return false;
                     sentSequenceAction = true;
                 }
@@ -4625,8 +4670,21 @@ public partial class MainWindow : Window
     }
 
     private static bool IsExtendedKey(int virtualKey) => virtualKey is 0x21 or 0x22 or 0x23 or 0x24 or 0x25 or 0x26 or 0x27 or 0x28 or 0x2D or 0x2E or 0x5B or 0x5C or 0x5D or 0xA3 or 0xA5 or 0x6F;
-    private bool SendAction(Input[] inputs, bool doubleClick, int pulseMilliseconds, PrecisionTimer timer, CancellationTokenSource cancellation, ref bool watchdogExpired)
+    private bool SendAction(
+        Input[] inputs,
+        bool doubleClick,
+        int pulseMilliseconds,
+        PrecisionTimer timer,
+        CancellationTokenSource cancellation,
+        ref bool watchdogExpired,
+        Dictionary<SequenceInputIdentity, HeldSequenceInput>? heldInputs = null)
     {
+        if (inputs.Length == 1)
+        {
+            SendNativeInput(1, inputs);
+            if (doubleClick) SendNativeInput(1, inputs);
+            return true;
+        }
         if (InputRules.NormalizeInputPulseMilliseconds(pulseMilliseconds) == 0)
         {
             SendNativeInput((uint)inputs.Length, inputs);
@@ -4644,7 +4702,7 @@ public partial class MainWindow : Window
             SendNativeInput(1, [inputs[0]]);
             try
             {
-                if (!WaitUntilGuiIsHealthy(timer, Stopwatch.GetTimestamp() + pulseTicks, cancellation, ref watchdogExpired)) return false;
+                if (!WaitForInputDeadline(timer, Stopwatch.GetTimestamp() + pulseTicks, heldInputs, cancellation, ref watchdogExpired)) return false;
             }
             finally
             {
@@ -4654,8 +4712,28 @@ public partial class MainWindow : Window
         return true;
     }
 
-    private bool SendActionWithDiagnostics(Input[] inputs, bool doubleClick, int pulseMilliseconds, PrecisionTimer timer, CancellationTokenSource cancellation, ref bool watchdogExpired, CadenceDiagnostics cadence, double scheduledTimestamp)
+    private bool SendActionWithDiagnostics(
+        Input[] inputs,
+        bool doubleClick,
+        int pulseMilliseconds,
+        PrecisionTimer timer,
+        CancellationTokenSource cancellation,
+        ref bool watchdogExpired,
+        CadenceDiagnostics cadence,
+        double scheduledTimestamp,
+        Dictionary<SequenceInputIdentity, HeldSequenceInput>? heldInputs = null)
     {
+        if (inputs.Length == 1)
+        {
+            cadence.RecordDown(scheduledTimestamp);
+            SendNativeInput(1, inputs);
+            if (doubleClick)
+            {
+                cadence.RecordDown(scheduledTimestamp);
+                SendNativeInput(1, inputs);
+            }
+            return true;
+        }
         if (InputRules.NormalizeInputPulseMilliseconds(pulseMilliseconds) == 0)
         {
             cadence.RecordDown(scheduledTimestamp);
@@ -4676,7 +4754,7 @@ public partial class MainWindow : Window
             SendNativeInput(1, [inputs[0]]);
             try
             {
-                if (!WaitUntilGuiIsHealthy(timer, Stopwatch.GetTimestamp() + pulseTicks, cancellation, ref watchdogExpired)) return false;
+                if (!WaitForInputDeadline(timer, Stopwatch.GetTimestamp() + pulseTicks, heldInputs, cancellation, ref watchdogExpired)) return false;
             }
             finally
             {
@@ -4686,6 +4764,15 @@ public partial class MainWindow : Window
         }
         return true;
     }
+
+    private bool WaitForInputDeadline(
+        PrecisionTimer timer,
+        double deadline,
+        Dictionary<SequenceInputIdentity, HeldSequenceInput>? heldInputs,
+        CancellationTokenSource cancellation,
+        ref bool watchdogExpired) => heldInputs is null
+        ? WaitUntilGuiIsHealthy(timer, deadline, cancellation, ref watchdogExpired)
+        : WaitForSequenceDeadline(timer, deadline, heldInputs, cancellation, ref watchdogExpired);
 
     private static bool CanSendAction(ClickSettings settings, bool isMouse) =>
         !settings.Target.IsEnabled ||
@@ -4799,7 +4886,7 @@ public partial class MainWindow : Window
         public nint ExtraInfo;
     }
 
-    [Flags] private enum MouseFlags : uint { LeftDown = 2, LeftUp = 4, RightDown = 8, RightUp = 16, MiddleDown = 32, MiddleUp = 64 }
+    [Flags] private enum MouseFlags : uint { None = 0, LeftDown = 2, LeftUp = 4, RightDown = 8, RightUp = 16, MiddleDown = 32, MiddleUp = 64, XDown = 128, XUp = 256, Wheel = 2048, HorizontalWheel = 4096 }
     [Flags] private enum KeyboardFlags : uint { None = 0, ExtendedKey = 1, KeyUp = 2, ScanCode = 8 }
     [StructLayout(LayoutKind.Sequential)] private struct Input { public uint Type; public InputUnion Data; }
     [StructLayout(LayoutKind.Explicit)] private struct InputUnion { [FieldOffset(0)] public MouseInput Mouse; [FieldOffset(0)] public KeyboardInput Keyboard; }
@@ -4820,7 +4907,7 @@ public partial class MainWindow : Window
 
     private static string DescribeEndToEndInput(Input input) => input.Type switch
     {
-        0 => $"mouse:{(uint)input.Data.Mouse.Flags}",
+        0 => $"mouse:{(uint)input.Data.Mouse.Flags}:data={unchecked((int)input.Data.Mouse.MouseData)}",
         1 => $"keyboard:vk={input.Data.Keyboard.VirtualKey}:scan={input.Data.Keyboard.ScanCode}:flags={(uint)input.Data.Keyboard.Flags}",
         _ => $"type:{input.Type}"
     };

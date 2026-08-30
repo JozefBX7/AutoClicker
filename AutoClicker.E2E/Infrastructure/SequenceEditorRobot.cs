@@ -24,6 +24,7 @@ internal sealed class SequenceEditorRobot
     internal int StepCount => List(SequenceEditorAutomationIds.Steps).Items.Length;
     internal IReadOnlyList<string> StepNames => List(SequenceEditorAutomationIds.Steps).Items.Select(item => item.Name).ToList();
     internal int SelectedStepCount => List(SequenceEditorAutomationIds.Steps).Items.Count(item => item.IsSelected);
+    internal int SelectedStepIndex => Array.FindIndex(List(SequenceEditorAutomationIds.Steps).Items, item => item.IsSelected);
     internal string Hint => Element("HintLabel").Name;
     internal string TimelinePreview => Element(SequenceEditorAutomationIds.TimelinePreview).Name;
 
@@ -44,6 +45,8 @@ internal sealed class SequenceEditorRobot
         ButtonByName("+ Delay").Invoke();
     }
 
+    internal void OpenRecorder() => Button(SequenceEditorAutomationIds.Record).Invoke();
+
     internal void SelectStep(int index)
     {
         var item = List(SequenceEditorAutomationIds.Steps).Items[index];
@@ -51,6 +54,15 @@ internal sealed class SequenceEditorRobot
         session.WaitFor(() => !item.IsOffscreen, $"sequence step {index} did not scroll into view");
         item.Select();
     }
+
+    internal void ClickStep(int index)
+    {
+        var item = List(SequenceEditorAutomationIds.Steps).Items[index];
+        item.ScrollIntoView();
+        session.WaitFor(() => !item.IsOffscreen, $"sequence step {index} did not scroll into view");
+        item.Click();
+    }
+    internal void PressStepArrowDown() => Keyboard.Press(VirtualKeyShort.DOWN);
     internal void SelectTogether(params int[] indices)
     {
         if (indices.Length == 0) return;

@@ -36,6 +36,12 @@ public sealed class SequenceStep
         AutomationInputIds.Left => AutomationInputLabels.LeftClick,
         AutomationInputIds.Right => AutomationInputLabels.RightClick,
         AutomationInputIds.Middle => AutomationInputLabels.MiddleClick,
+        AutomationInputIds.Mouse4 => AutomationInputLabels.Mouse4Click,
+        AutomationInputIds.Mouse5 => AutomationInputLabels.Mouse5Click,
+        AutomationInputIds.ScrollUp => AutomationInputLabels.ScrollUp,
+        AutomationInputIds.ScrollDown => AutomationInputLabels.ScrollDown,
+        AutomationInputIds.ScrollLeft => AutomationInputLabels.ScrollLeft,
+        AutomationInputIds.ScrollRight => AutomationInputLabels.ScrollRight,
         AutomationInputIds.Space => AutomationInputIds.Space,
         AutomationInputIds.Enter => AutomationInputIds.Enter,
         AutomationInputIds.Custom => System.Windows.Input.KeyInterop.KeyFromVirtualKey(CustomKey).ToString(),
@@ -48,6 +54,8 @@ public sealed class SequenceStep
         AutomationInputIds.Left => AutomationInputLabels.LeftMouse,
         AutomationInputIds.Right => AutomationInputLabels.RightMouse,
         AutomationInputIds.Middle => AutomationInputLabels.MiddleMouse,
+        AutomationInputIds.Mouse4 => AutomationInputLabels.Mouse4,
+        AutomationInputIds.Mouse5 => AutomationInputLabels.Mouse5,
         _ => Describe()
     };
 }
